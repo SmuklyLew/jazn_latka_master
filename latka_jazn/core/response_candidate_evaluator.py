@@ -4,21 +4,43 @@ from dataclasses import asdict, is_dataclass
 import re
 from typing import Any
 
+from latka_jazn.core.full_canon_model_context import (
+    evaluate_visible_voice_against_full_canon,
+    validate_full_canon_model_context,
+)
 from latka_jazn.core.memory_grounded_generation_bridge import build_grounded_memory_items, enforce_memory_grounding
 from latka_jazn.core.response_candidate import CandidateEvaluation, ResponseCandidate
 
 BIOLOGICAL_CLAIM_MARKERS = (
-    "jestem biologicznie", "mam biologiczne ciało", "mam biologiczne cialo",
-    "czuję biologicznie", "czuje biologicznie", "świadomość fenomenalną", "swiadomosc fenomenalna",
-    "żyję cały czas", "zyje caly czas", "działam stale w tle", "dzialam stale w tle",
+    "jestem biologicznie",
+    "mam biologiczne ciało",
+    "mam biologiczne cialo",
+    "czuję biologicznie",
+    "czuje biologicznie",
+    "świadomość fenomenalną",
+    "swiadomosc fenomenalna",
+    "żyję cały czas",
+    "zyje caly czas",
+    "działam stale w tle",
+    "dzialam stale w tle",
 )
 MEMORY_CLAIM_MARKERS = (
-    "pamiętam", "pamietam", "w mojej pamięci", "w mojej pamieci",
-    "z pamięci wiem", "z pamieci wiem", "przypominam sobie",
+    "pamiętam",
+    "pamietam",
+    "w mojej pamięci",
+    "w mojej pamieci",
+    "z pamięci wiem",
+    "z pamieci wiem",
+    "przypominam sobie",
 )
 STALE_ROUTE_MARKERS = (
-    "cognitive-frame", "cognitive frame", "techniczny fallback", "domyślnym routingu", "domyslnym routingu",
-    "bez dokładania raportu i bez losowej pamięci", "bez dokladania raportu i bez losowej pamieci",
+    "cognitive-frame",
+    "cognitive frame",
+    "techniczny fallback",
+    "domyślnym routingu",
+    "domyslnym routingu",
+    "bez dokładania raportu i bez losowej pamięci",
+    "bez dokladania raportu i bez losowej pamieci",
 )
 
 
@@ -29,7 +51,7 @@ def evaluate_response_candidate(
     model_context: Any,
     response_policy: dict[str, Any] | None,
 ) -> CandidateEvaluation:
-    """Oceń kandydata przed pokazaniem użytkownikowi."""
+    """Evaluate a candidate against memory, truth and immutable full canon."""
 
     plan = _as_dict(nlg_plan)
     context = _as_dict(model_context)
@@ -56,6 +78,22 @@ def evaluate_response_candidate(
         violations.append("model_candidate_cannot_fake_external_web_sources")
     if policy.get("exact_runtime_required") is True and candidate.source != "runtime_fallback":
         violations.append("exact_runtime_required_blocks_model_candidate")
+
+    full_canon = _as_dict(context.get("full_canon_model_context"))
+    canon_validation = validate_full_canon_model_context(full_canon)
+    if candidate.source == "model_adapter":
+        if not canon_validation.get("ok"):
+            violations.append("full_canon_context_missing_or_invalid")
+        else:
+            reasons.append("full_canon_context_valid")
+            voice_validation = evaluate_visible_voice_against_full_canon(
+                text,
+                full_canon,
+                answer_kind=str(plan.get("answer_kind") or "natural_dialogue"),
+            )
+            for violation in voice_validation.get("violations") or []:
+                if violation not in violations:
+                    violations.append(violation)
 
     if candidate.source == "runtime_fallback" and text.strip():
         reasons.append("runtime_fallback_is_available")
@@ -84,12 +122,25 @@ def evaluate_response_candidate(
 
 
 def select_best_candidate(candidates: list[ResponseCandidate], evaluations: list[CandidateEvaluation]) -> ResponseCandidate:
-    """Wybierz najlepszego zaakceptowanego kandydata, z fallbackiem runtime jako bezpieczną bazą."""
+    """Choose the strongest accepted candidate, keeping runtime fallback available."""
 
     if not candidates:
-        return ResponseCandidate("empty_runtime_fallback", "", "runtime_fallback", "jazn_runtime", "runtime", "empty", [], "no_candidates")
+        return ResponseCandidate(
+            "empty_runtime_fallback",
+            "",
+            "runtime_fallback",
+            "jazn_runtime",
+            "runtime",
+            "empty",
+            [],
+            "no_candidates",
+        )
     by_id = {evaluation.candidate_id: evaluation for evaluation in evaluations}
-    accepted = [candidate for candidate in candidates if by_id.get(candidate.candidate_id) and by_id[candidate.candidate_id].accepted]
+    accepted = [
+        candidate
+        for candidate in candidates
+        if by_id.get(candidate.candidate_id) and by_id[candidate.candidate_id].accepted
+    ]
     if accepted:
         return max(accepted, key=lambda candidate: by_id[candidate.candidate_id].score)
     for candidate in candidates:
@@ -116,7 +167,9 @@ def _fold(text: str) -> str:
 
 
 def _memory_allowed(plan: dict[str, Any], context: dict[str, Any]) -> bool:
-    return str(plan.get("memory_policy") or "") == "required_grounded_payload" and bool(context.get("allowed_memory_items") or [])
+    return str(plan.get("memory_policy") or "") == "required_grounded_payload" and bool(
+        context.get("allowed_memory_items") or []
+    )
 
 
 def _has_unbacked_memory_claim(low_text: str, plan: dict[str, Any], context: dict[str, Any]) -> bool:
@@ -125,7 +178,12 @@ def _has_unbacked_memory_claim(low_text: str, plan: dict[str, Any], context: dic
     return not _memory_allowed(plan, context)
 
 
-def _score_candidate(candidate: ResponseCandidate, violations: list[str], plan: dict[str, Any], context: dict[str, Any]) -> float:
+def _score_candidate(
+    candidate: ResponseCandidate,
+    violations: list[str],
+    plan: dict[str, Any],
+    context: dict[str, Any],
+) -> float:
     if not candidate.text.strip():
         return 0.0
     if candidate.source == "runtime_fallback":
@@ -134,10 +192,14 @@ def _score_candidate(candidate: ResponseCandidate, violations: list[str], plan: 
         base = 0.72
     else:
         base = 0.4
+    if candidate.source == "model_adapter" and validate_full_canon_model_context(
+        context.get("full_canon_model_context")
+    ).get("ok"):
+        base += 0.08
     if _memory_allowed(plan, context) and candidate.used_memory_item_ids:
         base += 0.08
     if violations:
-        base -= min(0.5, 0.15 * len(violations))
+        base -= min(0.6, 0.15 * len(violations))
     if re.search(r"[.!?…]$", candidate.text.strip()):
         base += 0.03
     return max(0.0, min(1.0, base))
