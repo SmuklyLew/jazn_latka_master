@@ -1,11 +1,16 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict, field
-from typing import Any
 import copy
+from dataclasses import asdict, dataclass, field
 import hashlib
 import json
 import uuid
+from typing import Any
+
+from latka_jazn.core.full_canon_model_context import (
+    build_full_canon_model_context,
+    build_host_generation_contract,
+)
 
 SCHEMA_VERSION = "cognitive_turn_envelope/v14.6.2"
 TRACE_SCHEMA_VERSION = "turn_trace/v14.6.2"
@@ -19,12 +24,7 @@ def _sha256_json(value: Any) -> str:
 
 @dataclass(slots=True)
 class TurnTrace:
-    """Jedna tożsamość tury przenoszona przez runtime, cognitive-frame i finalną odpowiedź.
-
-    v14.6.2 miała sensowne pola czasu w runtime i w pakiecie poznawczym, ale
-    brakowało twardego wspólnego identyfikatora, przez co ChatGPT mógł widzieć
-    timestamp tylko w JSON albo tylko w odpowiedzi runtime. Ten ślad spina całą turę.
-    """
+    """One turn identity carried through runtime, cognitive frame and final text."""
 
     turn_id: str
     trace_id: str
@@ -41,11 +41,7 @@ class TurnTrace:
 
 @dataclass(slots=True)
 class CognitiveTurnEnvelope:
-    """Wspólna koperta tury: jeden obiekt dla myśli, afektu, pamięci i odpowiedzi.
-
-    Koperta nie jest kolejnym chatbotem ani ozdobą. Jest kontraktem integracji:
-    wszystkie warstwy tury mają ten sam turn_id, trace_id i timestamp_header.
-    """
+    """One integration envelope for state, canon, memory and visible response."""
 
     trace: TurnTrace
     runtime_version: str
@@ -90,6 +86,10 @@ class CognitiveTurnEnvelope:
         copied["turn_trace"] = trace.to_dict()
         copied["turn_id"] = turn_id
         copied["trace_id"] = trace_id
+        full_canon = build_full_canon_model_context(copied)
+        copied["full_canon_model_context"] = full_canon
+        copied["host_generation_contract"] = build_host_generation_contract(full_canon)
+        copied["full_canon_sha256"] = full_canon.get("immutable_canon_sha256")
         return cls(
             trace=trace,
             runtime_version=str(frame.get("runtime_version") or "unknown"),
@@ -101,10 +101,12 @@ class CognitiveTurnEnvelope:
     def attach_affect_mix(self, affect_mix: dict[str, Any]) -> None:
         self.affect_mix = dict(affect_mix or {})
         self.cognitive_frame["turn_affect_mix"] = self.affect_mix
+        self._refresh_full_canon_dynamic_context()
 
     def attach_dialogue_state(self, dialogue_state: dict[str, Any]) -> None:
         self.dialogue_state = dict(dialogue_state or {})
         self.cognitive_frame["dialogue_state"] = self.dialogue_state
+        self._refresh_full_canon_dynamic_context()
 
     def attach_conversation_decision(self, decision: dict[str, Any]) -> None:
         self.conversation_decision = dict(decision or {})
@@ -120,7 +122,21 @@ class CognitiveTurnEnvelope:
         self.runtime_turn_contract = dict(contract or {})
         self.cognitive_frame["runtime_turn_contract"] = self.runtime_turn_contract
 
+    def _refresh_full_canon_dynamic_context(self) -> None:
+        full_canon = build_full_canon_model_context(self.cognitive_frame)
+        self.cognitive_frame["full_canon_model_context"] = full_canon
+        self.cognitive_frame["host_generation_contract"] = build_host_generation_contract(full_canon)
+        self.cognitive_frame["full_canon_sha256"] = full_canon.get("immutable_canon_sha256")
+
     def to_dict(self) -> dict[str, Any]:
+        full_canon = self.cognitive_frame.get("full_canon_model_context")
+        if not isinstance(full_canon, dict):
+            self._refresh_full_canon_dynamic_context()
+            full_canon = self.cognitive_frame.get("full_canon_model_context") or {}
+        host_contract = self.cognitive_frame.get("host_generation_contract")
+        if not isinstance(host_contract, dict):
+            host_contract = build_host_generation_contract(full_canon)
+            self.cognitive_frame["host_generation_contract"] = host_contract
         data = {
             "schema_version": self.schema_version,
             "runtime_version": self.runtime_version,
@@ -133,6 +149,9 @@ class CognitiveTurnEnvelope:
             "runtime_turn_contract": self.runtime_turn_contract,
             "final_response_contract": self.final_response_contract,
             "final_visible_text": self.final_visible_text,
+            "full_canon_model_context": full_canon,
+            "full_canon_sha256": full_canon.get("immutable_canon_sha256"),
+            "host_generation_contract": host_contract,
             "cognitive_frame": self.cognitive_frame,
             "payload_sha256": _sha256_json({
                 "trace": self.trace.to_dict(),
@@ -140,6 +159,9 @@ class CognitiveTurnEnvelope:
                 "cognitive_frame": self.cognitive_frame,
                 "final_visible_text": self.final_visible_text,
             }),
-            "truth_boundary": "Koperta tury spina realne wywołanie runtime, cognitive-frame i finalną odpowiedź. Nie oznacza stałego procesu w tle.",
+            "truth_boundary": (
+                "Koperta tury spina realne wywołanie runtime, pełny kanon, cognitive-frame i finalną odpowiedź. "
+                "Nie oznacza stałego procesu w tle ani nie przenosi źródła tożsamości do hosta."
+            ),
         }
         return data
