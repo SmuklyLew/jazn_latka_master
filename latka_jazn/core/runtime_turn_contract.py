@@ -3,8 +3,13 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from latka_jazn.version import schema_version
+from latka_jazn.core.full_canon_model_context import (
+    build_full_canon_model_context,
+    render_full_canon_developer_instructions,
+    validate_full_canon_model_context,
+)
 from latka_jazn.model_adapters.base import ModelAdapterRequest
+from latka_jazn.version import schema_version
 
 
 @dataclass(slots=True)
@@ -76,6 +81,14 @@ class RuntimeTurnContract:
         system_context: dict[str, Any] | None = None,
     ) -> ModelAdapterRequest:
         context = dict(system_context or {})
+        full_canon = context.get("full_canon_model_context")
+        if not isinstance(full_canon, dict) or not validate_full_canon_model_context(full_canon).get("ok"):
+            full_canon = build_full_canon_model_context(context)
+        canon_validation = validate_full_canon_model_context(full_canon)
+        if not canon_validation.get("ok"):
+            raise ValueError("full canon model context validation failed: " + "; ".join(canon_validation.get("violations") or []))
+
+        context["full_canon_model_context"] = full_canon
         context.update(
             {
                 "turn_id": self.turn_id,
@@ -91,13 +104,13 @@ class RuntimeTurnContract:
         return ModelAdapterRequest(
             prompt=str(user_text if user_text is not None else context.get("user_message") or ""),
             session_id=str(context.get("session_id") or self.turn_id),
-            instructions=(
-                "Wygeneruj wyłącznie kandydata odpowiedzi. Nie jesteś Jaźnią, pamięcią, "
-                "zegarem ani źródłem prawdy. Nie dodawaj faktów spoza kontekstu runtime."
-            ),
+            instructions=render_full_canon_developer_instructions(full_canon),
             system_context=context,
             metadata={
                 "runtime_turn_contract_schema": self.schema_version,
                 "candidate_requires_runtime_validation": True,
+                "full_canon_required": True,
+                "full_canon_sha256": str(full_canon.get("immutable_canon_sha256") or ""),
+                "full_canon_schema_version": str(full_canon.get("schema_version") or ""),
             },
         )
