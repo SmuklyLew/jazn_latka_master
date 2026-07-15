@@ -1,0 +1,174 @@
+{
+  "policy": {
+    "cache_must_store_retrieved_at_and_provider": true,
+    "external_models_are_optional": true,
+    "large_data_outside_git": true,
+    "no_unlicensed_bulk_mirroring": true,
+    "online_lookup_must_record_source_url": true,
+    "provider_absence_must_be_reported": true,
+    "real_morphology_provider_required_before_full_semantics": true
+  },
+  "schema_version": "polish_reasoning_source_registry/v14.8.4",
+  "sources": {
+    "bielik": {
+      "allow_bulk_mirror": false,
+      "kind": "polish_llm_generator",
+      "license": "verify selected checkpoint before use",
+      "mode": "offline_optional_local_llm",
+      "redistribution": "download_model_outside_git",
+      "role": "lżejszy lokalny generator odpowiedzi dla polskiego",
+      "source_id": "bielik",
+      "url": "https://arxiv.org/abs/2505.02550"
+    },
+    "herbert": {
+      "allow_bulk_mirror": false,
+      "kind": "encoder_model",
+      "license": "CC BY 4.0 model card",
+      "mode": "offline_optional",
+      "redistribution": "download_to_external_data_with_attribution",
+      "role": "klasyfikacja intencji, reranking, embeddings, NER/routing",
+      "source_id": "herbert",
+      "url": "https://huggingface.co/allegro/herbert-base-cased"
+    },
+    "latka-polish-typo-normalizer": {
+      "allow_bulk_mirror": true,
+      "kind": "local_rules",
+      "license": "project-local-rules",
+      "mode": "offline_mandatory",
+      "redistribution": "project_code_only",
+      "role": "lekka normalizacja literówek i polskich znaków bez zmiany source_text",
+      "source_id": "latka-polish-typo-normalizer"
+    },
+    "morfeusz2-sgjp": {
+      "allow_bulk_mirror": false,
+      "kind": "morphological_analyzer_generator",
+      "license": "verify installed Morfeusz/SGJP license; CLARIN metadata indicates BSD-2-Clause for Morfeusz tool resources",
+      "minimum_version": "1.99.15",
+      "mode": "offline_mandatory_when_installed",
+      "package_name": "morfeusz2",
+      "package_url": "https://pypi.org/project/morfeusz2/",
+      "pypi_url": "https://pypi.org/project/morfeusz2/",
+      "python_support_note": "PyPI release 1.99.15 provides CPython 3.10+ abi3 wheels including win_amd64.",
+      "redistribution": "install_from_upstream_or_local_package",
+      "role": "morfologia, lematyzacja właściwa, tagi fleksyjne i synteza",
+      "runtime_contract": "Adapter reports unavailable instead of pretending analysis if package is missing.",
+      "source_id": "morfeusz2-sgjp",
+      "url": "https://morfeusz.sgjp.pl/"
+    },
+    "nkjp": {
+      "allow_bulk_mirror": false,
+      "kind": "reference_corpus",
+      "license": "NKJP corpus terms; do not bundle full corpus in repo",
+      "mode": "online_lookup_preferred",
+      "redistribution": "no_full_corpus_in_git",
+      "role": "korpusowe przykłady użycia, concordance, rejestr, kolokacje",
+      "source_id": "nkjp",
+      "url": "https://nkjp.pl/"
+    },
+    "nkjp1m-sgjp": {
+      "allow_bulk_mirror": false,
+      "kind": "annotated_corpus_subset",
+      "license": "CC BY 4.0",
+      "mode": "offline_recommended",
+      "redistribution": "download_to_external_data_with_attribution",
+      "role": "testy lematyzacji/POS i zgodność z Morfeusz2 SGJP",
+      "source_id": "nkjp1m-sgjp",
+      "url": "https://huggingface.co/datasets/ipipan/nkjp1m"
+    },
+    "pllum": {
+      "allow_bulk_mirror": false,
+      "kind": "polish_llm_rag_generator",
+      "license": "varies by checkpoint; choose and pin exact license",
+      "mode": "offline_optional_high_resource",
+      "redistribution": "download_model_outside_git",
+      "role": "lokalny generator rozmowy/RAG z cytowaniem źródeł",
+      "source_id": "pllum",
+      "url": "https://pllum.org.pl/"
+    },
+    "plt5": {
+      "allow_bulk_mirror": false,
+      "kind": "seq2seq_model",
+      "license": "verify exact checkpoint before download",
+      "mode": "offline_optional",
+      "redistribution": "manual_review_required",
+      "role": "parafraza, normalizacja pytań, answer planning",
+      "source_id": "plt5",
+      "url": "https://aclanthology.org/2022.lrec-1.466/"
+    },
+    "plwordnet": {
+      "allow_bulk_mirror": false,
+      "kind": "lexico_semantic_network",
+      "license": "plWordNet / CLARIN metadata; manual review required before redistribution",
+      "mode": "offline_optional_or_online",
+      "redistribution": "manual_review_required",
+      "role": "synsety, relacje semantyczne, antonimy, hiperonimia, WSD",
+      "source_id": "plwordnet",
+      "url": "https://clarin-pl.eu/dspace/handle/11321/554"
+    },
+    "polimorf": {
+      "allow_bulk_mirror": false,
+      "environment_variable": "LATKA_POLIMORF_PATH",
+      "expected_minimal_format": "surface<TAB>lemma<TAB>tag",
+      "kind": "morphological_dictionary",
+      "license": "BSD-2-Clause",
+      "mode": "offline_recommended_external_file",
+      "redistribution": "download_to_external_data_after_license_check",
+      "role": "fallback coverage form i dodatkowe hasła po SGJP/Morfeusz",
+      "runtime_contract": "Patch never downloads or bundles PoliMorf automatically; adapter scans a local TSV/TAB only after user configures path.",
+      "source_id": "polimorf",
+      "url": "https://zil.ipipan.waw.pl/PoliMorf"
+    },
+    "sjp-pl": {
+      "allow_bulk_mirror": false,
+      "kind": "orthographic_dictionary_reference",
+      "license": "site states open licenses vary by version; manual review required",
+      "mode": "online_auxiliary",
+      "redistribution": "reference_link_only",
+      "role": "pomocnicza ortografia i formy, nie główny rdzeń semantyczny",
+      "source_id": "sjp-pl",
+      "url": "https://sjp.pl/"
+    },
+    "spacy-pl_core_news_sm": {
+      "allow_bulk_mirror": false,
+      "kind": "syntax_ner_pipeline",
+      "license": "GPL-3.0 per model card",
+      "mode": "offline_optional",
+      "model_card": "https://huggingface.co/spacy/pl_core_news_sm",
+      "redistribution": "install_from_upstream",
+      "role": "parser zależnościowy, NER, morphologizer, lematyzacja trainable",
+      "source_id": "spacy-pl_core_news_sm",
+      "url": "https://spacy.io/models/pl"
+    },
+    "stanza-pl": {
+      "allow_bulk_mirror": false,
+      "kind": "ud_nlp_pipeline",
+      "license": "Stanford/Stanza plus model-specific licenses; verify downloaded model",
+      "mode": "offline_optional",
+      "redistribution": "install_from_upstream",
+      "role": "alternatywny provider UD: tokenizacja, POS, lematy, depparse",
+      "source_id": "stanza-pl",
+      "url": "https://stanfordnlp.github.io/stanza/"
+    },
+    "walenty": {
+      "allow_bulk_mirror": false,
+      "kind": "valency_dictionary",
+      "license": "CC BY-SA",
+      "mode": "offline_recommended",
+      "redistribution": "download_to_external_data_after_license_check",
+      "role": "ramy walencyjne predykatów i rozpoznawanie argumentów",
+      "source_id": "walenty",
+      "url": "https://zil.ipipan.waw.pl/Walenty"
+    },
+    "wsjp-pan": {
+      "allow_bulk_mirror": false,
+      "kind": "dictionary_lookup",
+      "license": "IJP PAN/WSJP terms; use as lookup/reference unless explicit data license is confirmed",
+      "mode": "online_lookup_preferred",
+      "redistribution": "no_mass_mirroring_without_permission",
+      "role": "definicje, kolokacje, frazeologia, składnia, kwalifikatory i cytaty",
+      "source_id": "wsjp-pan",
+      "url": "https://wsjp.pl/"
+    }
+  },
+  "truth_boundary": "To jest rejestr źródeł, licencji, trybu użycia i cache. Obecność wpisu nie oznacza, że zasób został pobrany. v14.8.4 używa realnie Morfeusza tylko wtedy, gdy morfeusz2 jest zainstalowany lokalnie, a PoliMorf tylko wtedy, gdy wskazano lokalny plik po przeglądzie licencji."
+}

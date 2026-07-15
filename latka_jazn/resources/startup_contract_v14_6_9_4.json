@@ -1,0 +1,22 @@
+{
+  "schema_version": "startup_contract/v14.6.10",
+  "version": "v14.7.1-dialogue-grounding-hotfix",
+  "required_start_file_order": [
+    "main.py",
+    "run.py",
+    "jazn.py"
+  ],
+  "runtime_owned_responsibilities": [
+    "startup-status",
+    "runtime-preview",
+    "active-cache-status",
+    "project startup index",
+    "module map",
+    "response provenance",
+    "turn checkpoint",
+    "runtime-visible comparison",
+    "fallback audit",
+    "truth-boundary-check"
+  ],
+  "truth_boundary": "ChatGPT jest głosem i narzędziem. Jaźń musi pokazać runtime, exact_runtime_text, template_origin i response_generation_mode zamiast ukrywać fallback pod interpretacją."
+}

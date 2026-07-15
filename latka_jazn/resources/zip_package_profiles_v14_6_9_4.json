@@ -1,0 +1,18 @@
+{
+  "schema_version": "zip_package_profiles/v14.6.10",
+  "active_runtime_version": "v14.7.1-dialogue-grounding-hotfix",
+  "profiles": {
+    "FULL": [
+      "**/*"
+    ],
+    "SYSTEM_NO_RAW_ARCHIVE": [
+      "**/*",
+      "!memory/raw/chat.html.7z"
+    ],
+    "MEMORY_ONLY": [
+      "memory/**",
+      "workspace_runtime/**/*.sqlite3"
+    ]
+  },
+  "truth_boundary": "Profil FULL zachowuje pełną paczkę, bez streszczeń plików."
+}

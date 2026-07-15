@@ -1,0 +1,48 @@
+{
+  "schema_version": "zip_package_profiles/v14.6.10",
+  "active_runtime_version": "v14.6.10-behavioral-runtime-dialogue-intent-source-integrity",
+  "profiles": {
+    "full": {
+      "include": [
+        "latka_jazn/**",
+        "memory/**",
+        "workspace_runtime/**",
+        "tests/**",
+        "reports/**",
+        "docs/**",
+        "*.txt",
+        "*.json",
+        "*.md",
+        "pyproject.toml",
+        "main.py"
+      ],
+      "description": "pełna paczka wraz z pamięcią i runtime DB"
+    },
+    "system": {
+      "include": [
+        "latka_jazn/**",
+        "tests/**",
+        "reports/**",
+        "docs/**",
+        "*.txt",
+        "*.json",
+        "*.md",
+        "pyproject.toml",
+        "main.py"
+      ],
+      "exclude": [
+        "memory/**",
+        "workspace_runtime/**"
+      ],
+      "description": "system bez ciężkiej pamięci"
+    },
+    "memory": {
+      "include": [
+        "memory/**",
+        "workspace_runtime/**"
+      ],
+      "description": "pamięć i runtime state"
+    }
+  },
+  "v14_6_10_note": "ProjectStartupIndexer i TopicMismatchGuard muszą być zawsze w profilu full/system."
+}

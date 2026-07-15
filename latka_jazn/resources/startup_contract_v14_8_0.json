@@ -1,0 +1,16 @@
+{
+  "schema_version": "startup_contract/v14.8.0",
+  "version": "v14.8.1-large-dialogue-memory-grounding-update",
+  "role": "self_owned_runtime_first",
+  "minimal_chatgpt_loader": "minimal_loader / lekki loader",
+  "runtime_owned_responsibilities": [
+    "--startup-status",
+    "--runtime-preview",
+    "--memory-plan",
+    "dialogue intent routing",
+    "current-turn grounding guard",
+    "self_plan_question"
+  ],
+  "truth_boundary": "ChatGPT jest kanałem i narzędziem, nie aktywnym źródłem Jaźni. Runtime odpowiada jako pierwsze źródło, jeśli został uruchomiony.",
+  "network_lexical_bridge": "enabled_sjp_wsjp_reference_provider_statuses"
+}

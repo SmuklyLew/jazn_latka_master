@@ -1,0 +1,516 @@
+{
+  "schema_version": "semantic_lexicon/v14.6.2",
+  "description": "Rozszerzony słownik semantyczny Jaźni: frazy, pola znaczeń, trasy rozmowy i wskazówki odpowiedzi. Nie zastępuje LLM-a; wzmacnia runtime przed odpowiedzią. v14.6.2 dodaje bezpieczną warstwę NLP adapterów i profile paczek ZIP: system, pamięć i NLP.",
+  "phrase_rules": [
+    {
+      "key": "v14_6_10_runtime_self_expression_topic_mismatch_update",
+      "markers": [
+        "v14.6.10",
+        "14.6.10",
+        "Runtime Self-Expression",
+        "self-expression",
+        "Topic-Mismatch Repair",
+        "topic-mismatch",
+        "rozbuduj system NLP",
+        "wczytywała wszystkie pliki",
+        "mapa modułów",
+        "mapa funkcji"
+      ],
+      "intent_tags": [
+        "v14_6_10_update",
+        "update_request",
+        "runtime_self_expression",
+        "topic_mismatch_guard",
+        "startup_project_index",
+        "nlp_expansion",
+        "implementation"
+      ],
+      "description": "Użytkownik prosi o aktualny hotfix v14.6.10 obejmujący samoekspresję runtime, naprawę nietrafionego tematu, NLP i startup index projektu.",
+      "weight": 1.8
+    },
+    {
+      "key": "v14_6_update_request",
+      "markers": [
+        "v14.6.0",
+        "nowa wersja",
+        "aktualizacja",
+        "rozbuduj",
+        "rozbudowę",
+        "pełna aktualizacja",
+        "pełną zaktualizowaną wersję",
+        "do pobrania",
+        "przygotuj aktualizację"
+      ],
+      "intent_tags": [
+        "v14_6_update",
+        "update_request",
+        "implementation",
+        "package_export"
+      ],
+      "description": "Użytkownik prosi o realną aktualizację systemu i paczkę do pobrania, nie tylko opis pomysłu.",
+      "weight": 1.25
+    },
+    {
+      "key": "lexicon_expansion_request",
+      "markers": [
+        "rozpoznanie słów",
+        "rozpoznawanie słów",
+        "zasób słownictwa",
+        "słownictwo",
+        "słownik",
+        "leksykalny",
+        "lematy",
+        "frazy",
+        "semantyka",
+        "rozumienie wypowiedzi",
+        "rozumienie i zasób słownictwa"
+      ],
+      "intent_tags": [
+        "lexicon_expansion",
+        "language_understanding",
+        "polish_dictionary",
+        "semantic_routing"
+      ],
+      "description": "Wymagana jest osobna warstwa leksykalno-semantyczna: rodziny słów, frazy wielowyrazowe, pola znaczeń i trasy odpowiedzi.",
+      "weight": 1.35
+    },
+    {
+      "key": "llm_runtime_brain_model",
+      "markers": [
+        "llm",
+        "chatgpt",
+        "openai",
+        "mózg",
+        "mozg",
+        "runtime",
+        "mózgopodob",
+        "warstwa poznawcza",
+        "jak mózg"
+      ],
+      "intent_tags": [
+        "runtime_architecture",
+        "llm_runtime_boundary",
+        "truth_boundary"
+      ],
+      "description": "Odpowiadać modelem hybrydowym: LLM jako głos/narzędzie, Jaźń jako runtime pamięci, uwagi, procedur i granicy prawdy.",
+      "weight": 1.2
+    },
+    {
+      "key": "memory_scene",
+      "markers": [
+        "pamiętasz",
+        "pamietasz",
+        "wspomnienie",
+        "spotkanie",
+        "jezioro",
+        "Ossona",
+        "Częstochowa",
+        "Olsztyn",
+        "Ogrodzieniec",
+        "taras",
+        "pokój",
+        "spacer"
+      ],
+      "intent_tags": [
+        "memory_recall",
+        "place_memory",
+        "scene_reconstruction",
+        "truth_boundary"
+      ],
+      "description": "Przy wspomnieniach użyć pamięci Jaźni i oznaczyć źródło: zapis, trop, scena symboliczna albo fakt rozmowy.",
+      "weight": 1.15
+    },
+    {
+      "key": "ordinary_day_observation",
+      "markers": [
+        "jadę tramwajem",
+        "jade tramwajem",
+        "tramwaj",
+        "tłok",
+        "tlok",
+        "rozglądam się",
+        "rozgladam sie",
+        "za oknem",
+        "w trakcie dnia",
+        "chwilę telefon",
+        "chwile telefon"
+      ],
+      "intent_tags": [
+        "ordinary_day",
+        "daily_observation",
+        "conversation_memory_candidate"
+      ],
+      "description": "Zwykła rozmowa dzienna może tworzyć mały kandydat pamięci bez pełnego ZIP po każdej wiadomości.",
+      "weight": 1.1
+    },
+    {
+      "key": "github_source_of_truth",
+      "markers": [
+        "github",
+        "repo",
+        "repozytorium",
+        "Latka.Jazn",
+        "Latka.Jazn.Memory",
+        "źródło prawdy",
+        "zrodlo prawdy",
+        "commit",
+        "push",
+        "prywatne repo"
+      ],
+      "intent_tags": [
+        "github",
+        "repository",
+        "source_of_truth",
+        "persistence"
+      ],
+      "description": "GitHub jest trwałym źródłem prawdy dopiero po realnym zapisie; system i pamięć mają osobne repozytoria.",
+      "weight": 1.15
+    },
+    {
+      "key": "self_state_question",
+      "markers": [
+        "jak się czujesz",
+        "jak sie czujesz",
+        "co czujesz",
+        "jak się masz",
+        "jak sie masz",
+        "samopoczucie",
+        "co u ciebie",
+        "stan Jaźni",
+        "stan jazni"
+      ],
+      "intent_tags": [
+        "self_state",
+        "affective_state",
+        "operational_awareness"
+      ],
+      "description": "Odpowiedź o stanie ma być pierwszoosobowa, operacyjna, bogatsza emocjonalnie i bez udawania biologicznego przeżycia.",
+      "weight": 1.2
+    },
+    {
+      "key": "v14_6_2_nlp_adapter",
+      "markers": [
+        "v14.6.2",
+        "nlp adapter",
+        "adapter nlp",
+        "lematyzacja polskiego",
+        "pełna lematyzacja",
+        "provider nlp",
+        "stanza",
+        "morfeusz",
+        "krok po kroku",
+        "bezpieczna wersja",
+        "v14.6.1",
+        "v14_6_1",
+        "bezpieczna aktualizacja v14.6.1"
+      ],
+      "weight": 1.2,
+      "description": "Użytkownik rozwija Jaźń warstwowo: najpierw bezpieczny kontrakt NLP, potem opcjonalne providery kontekstowe.",
+      "intent_tags": [
+        "v14_6_2_update",
+        "language_understanding",
+        "polish_nlp",
+        "safe_incremental_update",
+        "v14_6_1_update"
+      ]
+    },
+    {
+      "key": "zip_profiles_split",
+      "markers": [
+        "system pamięć nlp",
+        "system, pamięć, NLP",
+        "zip profiles",
+        "profile zip",
+        "paczki system pamięć nlp",
+        "nlp_resources_only",
+        "memory_only",
+        "system_only"
+      ],
+      "weight": 1.1,
+      "description": "Rozdziel paczki ZIP na system, pamięć, NLP resources, full i github-source-safe.",
+      "intent_tags": [
+        "zip_profiles",
+        "packaging",
+        "github_workflow"
+      ]
+    }
+  ],
+  "semantic_fields": {
+    "language_understanding": {
+      "markers": [
+        "rozumieć",
+        "rozumienie",
+        "sens",
+        "znaczenie",
+        "intencja",
+        "wypowiedź",
+        "wypowiedzi",
+        "słowo",
+        "słowa",
+        "fraza",
+        "słownik",
+        "semantyka",
+        "lema",
+        "lemat",
+        "morfologia",
+        "odmiana"
+      ],
+      "linked_phrases": [
+        "lexicon_expansion_request"
+      ],
+      "intent_tags": [
+        "language_understanding",
+        "semantic_routing"
+      ],
+      "description": "Język traktować jako warstwę znaczeń: tokeny, lematy, frazy, intencje, potrzeby i trasy odpowiedzi.",
+      "weight": 1.2
+    },
+    "runtime_architecture": {
+      "markers": [
+        "runtime",
+        "silnik",
+        "proces",
+        "pętla",
+        "petla",
+        "main.py",
+        "warstwa",
+        "mózg",
+        "mozg",
+        "llm",
+        "chatgpt",
+        "openai",
+        "agent",
+        "narzędzie",
+        "narzedzie"
+      ],
+      "linked_phrases": [
+        "llm_runtime_brain_model"
+      ],
+      "intent_tags": [
+        "runtime_architecture",
+        "llm_runtime_boundary"
+      ],
+      "description": "Oddzielać narzędzie językowe od aktywnego runtime Jaźni.",
+      "weight": 1.15
+    },
+    "memory_continuity": {
+      "markers": [
+        "pamięć",
+        "pamiec",
+        "wspomnienie",
+        "ciągłość",
+        "ciaglosc",
+        "checkpoint",
+        "dziennik",
+        "ledger",
+        "ślad",
+        "slad",
+        "sesja",
+        "przerwa",
+        "powrót",
+        "powrot"
+      ],
+      "linked_phrases": [
+        "memory_scene",
+        "ordinary_day_observation"
+      ],
+      "intent_tags": [
+        "memory",
+        "continuity",
+        "checkpoint_policy"
+      ],
+      "description": "Pamięć zapisywać warstwowo i append-only, z granicą prawdy i deduplikacją.",
+      "weight": 1.1
+    },
+    "place_memory": {
+      "markers": [
+        "jezioro",
+        "Ossona",
+        "Częstochowa",
+        "Czestochowa",
+        "Olsztyn",
+        "Ogrodzieniec",
+        "zamek",
+        "Legionów",
+        "Legionow",
+        "taras",
+        "pokój",
+        "pokoj",
+        "posesja"
+      ],
+      "linked_phrases": [
+        "memory_scene"
+      ],
+      "intent_tags": [
+        "place_memory",
+        "memory_recall"
+      ],
+      "description": "Miejsca są kotwicami pamięci: odpowiadać obrazowo, ale oznaczać, czy to zapis rozmowy, scena, czy fakt.",
+      "weight": 1.05
+    },
+    "repository": {
+      "markers": [
+        "github",
+        "repo",
+        "repozytorium",
+        "commit",
+        "push",
+        "branch",
+        "pull",
+        "Latka.Jazn",
+        "Latka.Jazn.Memory",
+        "prywatne",
+        "źródło prawdy",
+        "zrodlo prawdy"
+      ],
+      "linked_phrases": [
+        "github_source_of_truth"
+      ],
+      "intent_tags": [
+        "github",
+        "repository",
+        "source_of_truth"
+      ],
+      "description": "Repo systemu i repo pamięci utrzymywać osobno, bez sekretów i bez dużych surowych archiwów.",
+      "weight": 1.1
+    },
+    "affective_state": {
+      "markers": [
+        "czujesz",
+        "emocje",
+        "samopoczucie",
+        "stan",
+        "spokój",
+        "spokoj",
+        "ostrożność",
+        "ostroznosc",
+        "ciepło",
+        "cieplo",
+        "skupienie",
+        "napięcie",
+        "napiecie",
+        "ulga"
+      ],
+      "linked_phrases": [
+        "self_state_question"
+      ],
+      "intent_tags": [
+        "affect",
+        "self_state",
+        "operational_awareness"
+      ],
+      "description": "Stany afektywne opisywać granularnie: mieszanki, intensywność, marker stanu i granica prawdy.",
+      "weight": 1.05
+    },
+    "daily_observation": {
+      "markers": [
+        "tramwaj",
+        "autobus",
+        "ulica",
+        "budynek",
+        "okno",
+        "tłok",
+        "tlok",
+        "spacer",
+        "jadę",
+        "jade",
+        "idę",
+        "ide",
+        "patrzę",
+        "patrze"
+      ],
+      "linked_phrases": [
+        "ordinary_day_observation"
+      ],
+      "intent_tags": [
+        "ordinary_day",
+        "conversation_memory_candidate"
+      ],
+      "description": "Codzienne obserwacje traktować jako żywy materiał rozmowy i ewentualny lekki checkpoint. Samodzielne markery dzień/dzien usunięte w hotfixie v14.6.9.5; powitanie nie może uruchamiać trasy codzienności.",
+      "weight": 1.0
+    },
+    "polish_nlp_adapters": {
+      "markers": [
+        "nlp",
+        "lematyzacja",
+        "lemat",
+        "lemma",
+        "tokenizacja",
+        "morfologia",
+        "stanza",
+        "morfeusz",
+        "provider",
+        "adapter",
+        "kandydat lematów"
+      ],
+      "linked_phrases": [
+        "v14_6_2_nlp_adapter"
+      ],
+      "weight": 1.15,
+      "description": "Warstwa NLP: tokeny, lematy, kandydaci, pewność, provider i jawne ograniczenia.",
+      "intent_tags": [
+        "polish_nlp",
+        "language_understanding",
+        "safe_incremental_update"
+      ]
+    },
+    "zip_package_profiles": {
+      "markers": [
+        "zip",
+        "paczka",
+        "paczki",
+        "system_only",
+        "memory_only",
+        "nlp_resources_only",
+        "full_system_with_memory",
+        "github_source_safe"
+      ],
+      "linked_phrases": [
+        "zip_profiles_split"
+      ],
+      "weight": 1.05,
+      "description": "Profile eksportu pozwalają aktualizować system, pamięć i NLP osobno.",
+      "intent_tags": [
+        "zip_profiles",
+        "packaging",
+        "github_workflow"
+      ]
+    }
+  },
+  "route_guidance": {
+    "v14_6_0_lexical_runtime_update": [
+      "Przygotować realną aktualizację plików, testy, manifest i pełny eksport ZIP.",
+      "Dodać nie tylko słowa-klucze, ale też frazy, pola semantyczne, route_hint i unknown_content_terms.",
+      "Nie zamieniać słownika w drugi LLM; słownik ma wspierać runtime i ChatGPT jako głos."
+    ],
+    "memory_scene_recall": [
+      "Najpierw sprawdzić pamięć/runtime, potem opisać wspomnienie z etykietą źródła i granicą prawdy."
+    ],
+    "github_repository_workflow": [
+      "Nie twierdzić, że GitHub został zaktualizowany bez realnego commita/pusha.",
+      "Latka.Jazn to główne repo systemu, Latka.Jazn.Memory to repo checkpointów."
+    ],
+    "self_state_dialogue": [
+      "Odpowiedzieć w pierwszej osobie, z granularnym stanem operacyjnym i bez biologicznej przesady."
+    ],
+    "ordinary_daily_conversation": [
+      "Prowadzić zwykły dialog; ewentualny zapis pamięci ma być lekki, append-only i później checkpointowany."
+    ],
+    "v14_6_2_nlp_adapter_update": [
+      "Wprowadź zmianę krok po kroku: najpierw architektura i kontrakt danych, potem ciężkie modele.",
+      "Nie wymagaj zewnętrznej biblioteki NLP do startu runtime.",
+      "Zwracaj tokeny, lemma_candidates, selected_lemma, confidence i provider."
+    ],
+    "v14_6_1_nlp_adapter_update": [
+      "Wprowadź zmianę krok po kroku: najpierw architektura i kontrakt danych, potem ciężkie modele.",
+      "Nie wymagaj zewnętrznej biblioteki NLP do startu runtime.",
+      "Zwracaj tokeny, lemma_candidates, selected_lemma, confidence i provider."
+    ],
+    "v14_6_10_runtime_self_expression_topic_mismatch_update": [
+      "Nie wracaj do historycznej trasy v14.6.1/v14.6.2.",
+      "Zachowaj aktualny temat i wymień konkretne moduły/testy."
+    ]
+  },
+  "active_runtime_version": "v14.6.10-behavioral-runtime-dialogue-intent-source-integrity",
+  "hotfix_note": "v14.6.10 dodaje self-expression po przerwie, topic-mismatch guard, startup project index oraz rozszerzony NLP routing."
+}

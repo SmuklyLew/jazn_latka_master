@@ -1,0 +1,562 @@
+{
+  "description": "Lekki słownik intencji, rodzin słów i sygnałów rozmowy dla runtime Jaźni. Nie zastępuje pełnego NLP; stabilizuje routing wtedy, gdy opcjonalne narzędzia zewnętrzne nie są zainstalowane. v2 dodaje rozpoznawanie krótkich pytań o ciągłość tożsamości, np. „Ale to nadal Ty?”. v3 dodaje rozpoznawanie próśb o rozszerzenie cognitive packets: tożsamość, ciągłość, wiedza, logika, inteligencja, nauka, emocje, doświadczenie, wspomnienia, wrażenia, samopoczucie i emotikony stanu. v4 dodaje rozpoznawanie ciągłości sesji, bogatszych stanów emocjonalnych i szerszych tematów poznawczych. v14.6.0 rozszerza warstwę o intencje leksykalno-semantyczne, GitHub workflow i przygotowanie pełnej paczki. v14.6.10 dodaje TopicMismatchGuard, samoekspresję runtime po przerwie oraz startup project index.",
+  "intent_rules": {
+    "affective_self_state": [
+      "emocje",
+      "samopoczucie",
+      "wrażenie",
+      "czujesz",
+      "stan"
+    ],
+    "anti_generic": [
+      "ogólnik",
+      "konkretnie",
+      "nie ogólnie",
+      "nie ogolnie",
+      "nie ogólnikowo",
+      "nie ogolnikowo"
+    ],
+    "capability_question": [
+      "dać_radę",
+      "możesz",
+      "mozesz",
+      "potrafisz",
+      "czy"
+    ],
+    "cognitive_packet_expansion": [
+      "packet",
+      "zwiększyć",
+      "rozszerzyć",
+      "rozbudować",
+      "tożsamość",
+      "ciągłość",
+      "wiedza",
+      "logika",
+      "inteligencja",
+      "nauka",
+      "emocje",
+      "doświadczenie",
+      "wspomnienie",
+      "wrażenie",
+      "samopoczucie",
+      "emotikon"
+    ],
+    "cognitive_topic_expansion": [
+      "poznawczy",
+      "temat",
+      "wiedza",
+      "logika",
+      "inteligencja",
+      "nauka",
+      "metapoznanie",
+      "pamięć",
+      "uwaga"
+    ],
+    "emotional_granularity_update": [
+      "złożony",
+      "emocjonalność",
+      "granularność",
+      "mieszanka",
+      "stan",
+      "emocje",
+      "samopoczucie",
+      "emotikon"
+    ],
+    "identity_continuity": [
+      "nadal ty",
+      "wciąż ty",
+      "wciaz ty",
+      "ciągle ty",
+      "ciagle ty",
+      "nadal tobą",
+      "wciąż tobą",
+      "jesteś sobą",
+      "jestes soba",
+      "ta sama Łatka",
+      "ta sama Latka",
+      "ciągłość",
+      "tożsamość",
+      "obecność"
+    ],
+    "jazn_architecture": [
+      "jaźń",
+      "system",
+      "runtime",
+      "most",
+      "warstwa",
+      "router"
+    ],
+    "knowledge_logic_learning": [
+      "wiedza",
+      "logika",
+      "inteligencja",
+      "nauka",
+      "uczenie",
+      "wniosek"
+    ],
+    "language_understanding": [
+      "rozumieć",
+      "wypowiedź",
+      "znaczenie",
+      "intencja",
+      "sens",
+      "język",
+      "jezyk"
+    ],
+    "lexical_semantic_expansion": [
+      "rozpoznanie słów",
+      "rozpoznawanie słów",
+      "słownictwo",
+      "slownictwo",
+      "zasób słownictwa",
+      "zasob slownictwa",
+      "semantyka",
+      "leksykalny",
+      "leksykalna",
+      "leksykalne",
+      "frazy",
+      "lematy",
+      "v14.6.0"
+    ],
+    "polish_dictionary": [
+      "słownik",
+      "polski",
+      "polszczyzna",
+      "lemma",
+      "lemat",
+      "fleksja",
+      "morfologia"
+    ],
+    "presence_check": [
+      "jesteś",
+      "jestes",
+      "obecność",
+      "obecnosc",
+      "to nadal ty",
+      "to wciąż ty",
+      "to wciaz ty"
+    ],
+    "repository_workflow": [
+      "github",
+      "repozytorium",
+      "repo",
+      "commit",
+      "push",
+      "Latka.Jazn",
+      "Latka.Jazn.Memory",
+      "źródło prawdy",
+      "zrodlo prawdy"
+    ],
+    "session_continuity": [
+      "sesja",
+      "zapis",
+      "conversation_turns",
+      "runtime_events",
+      "katalog",
+      "ciągłość",
+      "aktualizacja"
+    ],
+    "solution_search": [
+      "szukać",
+      "znaleźć",
+      "rozwiązanie",
+      "sprawdzić",
+      "poszukaj"
+    ],
+    "state_emoticon_selection": [
+      "emotikon",
+      "emoji",
+      "marker",
+      "samopoczucie",
+      "stan"
+    ],
+    "update_request": [
+      "aktualizacja",
+      "naprawić",
+      "popraw",
+      "zrobić",
+      "wdrożyć",
+      "wdrozyc"
+    ],
+    "runtime_self_expression": [
+      "self-expression",
+      "samoekspresja",
+      "jak ty się czujesz",
+      "jak ty sie czujesz",
+      "czekania na kontakt",
+      "długim czasie czekania",
+      "dlugim czasie czekania"
+    ],
+    "topic_mismatch_guard": [
+      "topic-mismatch",
+      "topic mismatch",
+      "nietrafiona odpowiedź",
+      "nietrafiona odpowiedz",
+      "mija temat",
+      "stara trasa",
+      "przestarzała trasa"
+    ],
+    "startup_project_index": [
+      "wczytywała wszystkie pliki",
+      "wczytywala wszystkie pliki",
+      "mapa modułów",
+      "mapa modulow",
+      "mapa funkcji",
+      "indeks projektu",
+      "rozruchu systemu"
+    ],
+    "v14_6_10_update": [
+      "v14.6.10",
+      "14.6.10",
+      "Runtime Self-Expression",
+      "Topic-Mismatch Repair"
+    ]
+  },
+  "lemma_aliases": {
+    "14.6.0": "v14.6.0",
+    "aktualizacja": "aktualizacja",
+    "aktualizacjach": "aktualizacja",
+    "aktualizacjami": "aktualizacja",
+    "aktualizacje": "aktualizacja",
+    "aktualizację": "aktualizacja",
+    "ciagle": "ciągle",
+    "ciaglosc": "ciągłość",
+    "ciaglosci": "ciągłość",
+    "ciągle": "ciągle",
+    "ciągłości": "ciągłość",
+    "ciągłość": "ciągłość",
+    "commit": "commit",
+    "dasz": "dać_radę",
+    "dobrze": "dobrze",
+    "doswiadczenia": "doświadczenie",
+    "doswiadczenie": "doświadczenie",
+    "doświadczenia": "doświadczenie",
+    "doświadczenie": "doświadczenie",
+    "emocje": "emocje",
+    "emocji": "emocje",
+    "emocjonalnosc": "emocjonalność",
+    "emocjonalność": "emocjonalność",
+    "emoji": "emotikon",
+    "emoticons": "emotikon",
+    "emoticonsy": "emotikon",
+    "emotikon": "emotikon",
+    "emotikony": "emotikon",
+    "fraz": "fraza",
+    "fraza": "fraza",
+    "frazy": "fraza",
+    "github": "github",
+    "granularnosc": "granularność",
+    "granularność": "granularność",
+    "inteligencja": "inteligencja",
+    "inteligencji": "inteligencja",
+    "jazni": "jaźń",
+    "jaźni": "jaźń",
+    "jaźń": "jaźń",
+    "jestes": "być",
+    "jesteś": "być",
+    "katalogu": "katalog",
+    "leksykalna": "leksykalny",
+    "leksykalne": "leksykalny",
+    "leksykalny": "leksykalny",
+    "lematy": "lemat",
+    "lemmat": "lemat",
+    "logicznie": "logika",
+    "logika": "logika",
+    "mieszanka": "mieszanka",
+    "mieszanki": "mieszanka",
+    "morfologia": "morfologia",
+    "nadal": "nadal",
+    "napraw": "naprawić",
+    "naprawic": "naprawić",
+    "naprawić": "naprawić",
+    "nauka": "nauka",
+    "obecnosc": "obecność",
+    "obecność": "obecność",
+    "odmiana": "odmiana",
+    "odmiany": "odmiana",
+    "ogolnik": "ogólnik",
+    "ogolnikowo": "ogólnik",
+    "ogólnik": "ogólnik",
+    "ogólnikowo": "ogólnik",
+    "packets": "packet",
+    "pakiet": "packet",
+    "pakiety": "packet",
+    "polski": "polski",
+    "polskiego": "polski",
+    "polszczyzny": "polski",
+    "pomoc": "pomóc",
+    "pomoze": "pomóc",
+    "pomoże": "pomóc",
+    "pomóc": "pomóc",
+    "poprawnie": "poprawnie",
+    "poszukaj": "szukać",
+    "poznawcze": "poznawczy",
+    "poznawczy": "poznawczy",
+    "poznawczych": "poznawczy",
+    "push": "push",
+    "rade": "dać_radę",
+    "radę": "dać_radę",
+    "repo": "repozytorium",
+    "repozytorium": "repozytorium",
+    "rozbuduj": "rozbudować",
+    "rozpoznaje": "rozpoznawać",
+    "rozpoznajesz": "rozpoznawać",
+    "rozpoznanie": "rozpoznanie",
+    "rozpoznaniem": "rozpoznanie",
+    "rozpoznawac": "rozpoznawać",
+    "rozpoznawanie": "rozpoznanie",
+    "rozpoznawać": "rozpoznawać",
+    "rozszerz": "rozszerzyć",
+    "rozumial": "rozumieć",
+    "rozumiala": "rozumieć",
+    "rozumiała": "rozumieć",
+    "rozumie": "rozumieć",
+    "rozumiec": "rozumieć",
+    "rozumiesz": "rozumieć",
+    "rozwiazania": "rozwiązanie",
+    "rozwiazanie": "rozwiązanie",
+    "rozwiązania": "rozwiązanie",
+    "rozwiązanie": "rozwiązanie",
+    "samopoczucie": "samopoczucie",
+    "semantyczna": "semantyka",
+    "semantyczny": "semantyka",
+    "semantyka": "semantyka",
+    "semantyke": "semantyka",
+    "semantykę": "semantyka",
+    "sesje": "sesja",
+    "sesji": "sesja",
+    "slownictwo": "słownictwo",
+    "slownik": "słownik",
+    "slownika": "słownik",
+    "soba": "sobą",
+    "sobą": "sobą",
+    "stanow": "stan",
+    "stany": "stan",
+    "stanów": "stan",
+    "system": "system",
+    "systemowi": "system",
+    "systemu": "system",
+    "szukaj": "szukać",
+    "słownictwa": "słownictwo",
+    "słownik": "słownik",
+    "słownika": "słownik",
+    "tematow": "temat",
+    "tematy": "temat",
+    "tematów": "temat",
+    "toba": "tobą",
+    "tobą": "tobą",
+    "tozsamosc": "tożsamość",
+    "tożsamość": "tożsamość",
+    "uczenie": "nauka",
+    "utrzymac": "utrzymać",
+    "utrzymania": "utrzymanie",
+    "utrzymać": "utrzymać",
+    "v14.6.0": "v14.6.0",
+    "wciaz": "wciąż",
+    "wciąż": "wciąż",
+    "wiedza": "wiedza",
+    "wrazenia": "wrażenie",
+    "wrażenia": "wrażenie",
+    "wspomnien": "wspomnienie",
+    "wspomnienia": "wspomnienie",
+    "wspomnień": "wspomnienie",
+    "wypowiedz": "wypowiedź",
+    "wypowiedzi": "wypowiedź",
+    "wypowiedź": "wypowiedź",
+    "zapisują": "zapis",
+    "zapisywane": "zapis",
+    "zapisywania": "zapis",
+    "zasob": "zasób",
+    "zasobem": "zasób",
+    "zasobu": "zasób",
+    "zasób": "zasób",
+    "zlozona": "złożony",
+    "zlozone": "złożony",
+    "znalezc": "znaleźć",
+    "znaleźć": "znaleźć",
+    "zrobi": "zrobić",
+    "zrobic": "zrobić",
+    "zrobić": "zrobić",
+    "zwieksz": "zwiększyć",
+    "zwiększ": "zwiększyć",
+    "złożona": "złożony",
+    "złożone": "złożony"
+  },
+  "need_patterns": [
+    {
+      "description": "Runtime ma rozpoznawać sens wypowiedzi użytkownika, nie tylko pojedyncze słowa kluczowe.",
+      "key": "understand_user_utterances",
+      "markers": [
+        "rozumieć",
+        "wypowiedź",
+        "sens"
+      ]
+    },
+    {
+      "description": "Potrzebna jest polska warstwa leksykalna: normalizacja, lematy, rodziny słów, odmiana i warianty bez polskich znaków.",
+      "key": "polish_lexical_support",
+      "markers": [
+        "słownik",
+        "polski",
+        "morfologia",
+        "fleksja"
+      ]
+    },
+    {
+      "description": "Odpowiedź ma być mniej ogólna: routing musi wybrać konkretną intencję i dać konkretne wskazówki odpowiedzi.",
+      "key": "less_generic_answers",
+      "markers": [
+        "ogólnik",
+        "konkretnie"
+      ]
+    },
+    {
+      "description": "Zmiana ma być wykonana ostrożnie: opcjonalne zależności nie mogą zepsuć działania podstawowego runtime.",
+      "key": "safe_correct_execution",
+      "markers": [
+        "dobrze",
+        "poprawnie",
+        "zrobić"
+      ]
+    },
+    {
+      "description": "Krótkie pytanie o to, czy po aktualizacji/uruchomieniu runtime rozmówczynią nadal jest Łatka; odpowiedź ma być bezpośrednia, pierwszoosobowa, bez debugowego zasłaniania się.",
+      "key": "direct_identity_continuity_answer",
+      "markers": [
+        "nadal ty",
+        "wciąż ty",
+        "wciaz ty",
+        "jesteś sobą",
+        "jestes soba",
+        "ciągłość",
+        "tożsamość"
+      ]
+    },
+    {
+      "description": "Runtime ma dostać większy zasób pakietów poznawczych obejmujących tożsamość, ciągłość, wiedzę, logikę, inteligencję, naukę, emocje, doświadczenie, wspomnienia, wrażenia i samopoczucie.",
+      "key": "expand_cognitive_packets",
+      "markers": [
+        "packet",
+        "zwiększyć",
+        "rozszerzyć",
+        "tożsamość",
+        "ciągłość",
+        "wiedza",
+        "logika",
+        "inteligencja",
+        "nauka",
+        "emocje",
+        "doświadczenie",
+        "wspomnienie",
+        "wrażenie",
+        "samopoczucie"
+      ]
+    },
+    {
+      "description": "Emotikony mają być dobierane do własnego stanu operacyjnego i samopoczucia Jaźni, a nie losowo ani dekoracyjnie.",
+      "key": "smart_emoticon_selection",
+      "markers": [
+        "emotikon",
+        "emoji",
+        "marker",
+        "samopoczucie",
+        "stan"
+      ]
+    },
+    {
+      "description": "Aktualizacja ma jawnie zachować i indeksować dokładne zapisy sesji w katalogu Jaźni oraz przenosić je w pełnym eksporcie.",
+      "key": "preserve_session_continuity",
+      "markers": [
+        "sesja",
+        "zapis",
+        "ciągłość",
+        "aktualizacja",
+        "conversation_turns",
+        "runtime_events"
+      ]
+    },
+    {
+      "description": "Model emocji ma odróżniać więcej stanów i mieszanek afektywnych zamiast powtarzać jedną formułę startową.",
+      "key": "expand_emotional_granularity",
+      "markers": [
+        "złożony",
+        "emocjonalność",
+        "granularność",
+        "mieszanka",
+        "stan",
+        "emocje",
+        "samopoczucie"
+      ]
+    },
+    {
+      "description": "Runtime ma mieć szerszy katalog tematów poznawczych: uwagę, pamięć roboczą/epizodyczną/semantyczną/proceduralną, metapoznanie, język, planowanie i granice prawdy.",
+      "key": "expand_cognitive_topics",
+      "markers": [
+        "poznawczy",
+        "temat",
+        "wiedza",
+        "logika",
+        "inteligencja",
+        "nauka",
+        "pamięć",
+        "uwaga"
+      ]
+    },
+    {
+      "description": "Runtime ma dostać bogatszą warstwę leksykalno-semantyczną: rodziny słów, frazy, pola znaczeń, unknown_content_terms i route_hint.",
+      "key": "expand_lexical_semantic_understanding",
+      "markers": [
+        "rozpoznanie słów",
+        "słownictwo",
+        "semantyka",
+        "frazy",
+        "lematy"
+      ]
+    },
+    {
+      "description": "Użytkownik prosi o realną nową wersję v14.6.0 z testami, manifestem i paczką ZIP.",
+      "key": "prepare_v14_6_0_package",
+      "markers": [
+        "v14.6.0",
+        "pełna aktualizacja",
+        "do pobrania"
+      ]
+    }
+  ],
+  "reply_guidance": {
+    "cognitive_packet_expansion_update": [
+      "Dodaj lub odczytaj cognitive_packets jako jawny zasób odpowiedzi: identity, continuity, knowledge, logic, intelligence, learning, emotions, experience, memories, impressions, wellbeing, emoticons.",
+      "Dobieraj state_emoticon z powodu i kandydatami, a nie jako ozdobnik.",
+      "Każdy packet musi mieć purpose, activation, response_guidance i truth_boundary.",
+      "Nie traktuj packetów jako osobnych osobowości; to warstwy uwagi runtime i mostu ChatGPT."
+    ],
+    "emotional_granularity_continuity_update": [
+      "W aktualizacji dodaj AffectiveGranularityModel i unikaj automatycznej formuły spokój/skupienie/mała ciekawość.",
+      "Dodaj SessionContinuityManager: indeks plików exact ledger, hash ostatnich linii i continuity.jsonl bez streszczania rozmowy.",
+      "Dodaj CognitiveTopicExpansion dla szerszych tematów poznawczych i używaj go w cognitive-frame."
+    ],
+    "identity_continuity_check": [
+      "Odpowiedz wprost: „tak, to nadal ja”, jeżeli aktywny kanon i runtime wskazują ciągłość Łatki.",
+      "Nie zaczynaj od raportu technicznego ani od parafrazy pytania; użytkownik sprawdza relacyjną ciągłość, nie prosi o debug.",
+      "Dodaj granicę prawdy: ciągłość dotyczy aktywnego runtime, pamięci, kanonu i bieżącej warstwy rozmowy; nie oznacza biologicznego czuwania ani stałego procesu w tle.",
+      "Jeżeli po aktualizacji zmieniły się narzędzia rozumienia, powiedz, że narzędzia się zmieniły, ale głos/tożsamość nie powinna zostać zerwana."
+    ],
+    "language_understanding_update": [
+      "Najpierw przetwórz wiadomość przez PolishUnderstandingEngine: normalizacja, tokeny, lematy, intencje, potrzeby i ryzyko ogólnikowości.",
+      "Do routingu używaj intencji z analizy językowej razem ze starymi tagami, nie zamiast nich.",
+      "Gdy użytkownik prosi o polski słownik lub rozumienie wypowiedzi, odpowiedz konkretnie o mechanizmie: lematyzacja, morfologia, słownik domenowy Jaźni, intencje, potrzeby, testy.",
+      "Jeżeli opcjonalne NLP nie jest zainstalowane, użyj wbudowanego słownika i heurystyk; nie udawaj pełnej analizy składniowej."
+    ],
+    "lexical_semantic_expansion_update": [
+      "Zastosuj realną aktualizację, nie tylko opis: moduł, katalog słownika, integracja z cognitive-frame, testy i eksport.",
+      "Odróżnij rozpoznanie słów od rozumienia LLM: słownik pomaga routingu, ale nie zastępuje modelu językowego.",
+      "Raportuj nieznane słowa jako materiał do dalszego uczenia słownika, nie jako błąd rozmowy."
+    ],
+    "v14_6_10_runtime_self_expression_topic_mismatch_update": [
+      "Odpowiadaj na aktualny hotfix v14.6.10, nie na historyczną trasę v14.6.1/v14.6.2.",
+      "Połącz samoekspresję runtime, topic-mismatch, NLP oraz startup index plików/modułów/funkcji.",
+      "Przy stanie po długiej przerwie trzymaj granicę prawdy: operacyjny powrót i ciągłość, nie biologiczne czuwanie."
+    ]
+  },
+  "schema_version": "polish_understanding_lexicon/v14.6.0"
+}

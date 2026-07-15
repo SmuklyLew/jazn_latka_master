@@ -1,0 +1,28 @@
+{
+  "schema_version": "startup_contract_resource/v14.6.10",
+  "version": "v14.6.10-behavioral-runtime-dialogue-intent-source-integrity",
+  "start_file_priority": [
+    "main.py",
+    "run.py",
+    "jazn.py"
+  ],
+  "runtime_owned": [
+    "project_startup_index",
+    "topic_mismatch_guard",
+    "final_response_contract",
+    "memory_search_planner",
+    "source_origin",
+    "self_state_runtime"
+  ],
+  "cli_capabilities": [
+    "--startup-status",
+    "--runtime-preview",
+    "--project-startup-index",
+    "--topic-guard",
+    "--memory-plan",
+    "--fallback-audit",
+    "--active-cache-status",
+    "--chat"
+  ],
+  "truth_boundary": "Runtime buduje mapę projektu i guard tematu, ale nie udaje stałego procesu ani biologicznych emocji po jednorazowym wywołaniu."
+}

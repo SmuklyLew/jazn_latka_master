@@ -1,0 +1,117 @@
+# Python/cache
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.pytest-tmp/
+.mypy_cache/
+.ruff_cache/
+
+# Runtime/private state at repository root
+/ACTIVE_RUNTIME_CACHE_CONTRACT.json
+/BOOTSTRAP_JAZN_CURRENT.json
+/RUNTIME_STATE.json
+/workspace_runtime/
+/workspace_runtime/**
+/memory/
+/processed/
+/requests/
+/responses/
+/status/
+
+# Private/runtime databases anywhere
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+*.db
+*.db-wal
+*.db-shm
+
+# Archives / split packages / raw exports
+*.zip
+*.zip.*
+*.7z
+*.rar
+*.tar
+*.tar.gz
+*.part_*
+*.sha256
+*.parts.sha256
+*.source_files.sha256
+*.join.ps1
+
+# Patch/recovery artifacts generated during ChatGPT/Codex update work
+
+# Keep source, tests and docs in Git; keep ad-hoc patch bundles outside the repo.
+/*.patch
+/*.rej
+/*.orig
+/*.BAD.patch
+/*_PATCH_REPORT.md
+/LATKA_*_COMMANDS.ps1
+
+# Local root inventory reports
+/docs/.root/
+_root_list.py
+
+# Local packaging helper scripts
+/split_zip_sha.py
+
+# Codex/editor local state
+.codex/
+.vscode/
+
+# Backups/temp
+/backups/
+/backups_git/
+/tmp/
+/temp/
+*.tmp
+*.bak
+*.bad
+*.corrupt
+
+# Logs generated during runtime
+*.log
+
+# Local/private canon extraction outputs
+latka_jazn/core/canon/local_private_canon_extension.py
+/reports/canon_extraction/
+
+# Heavy local documentation artifacts / generated reports
+*.bundle
+*_stdout.txt
+
+# Local planning / generated artifacts
+/docs/plans/
+/docs/reports_history/
+
+docs/.root/
+docs/archive/manifest_history/last_refresh_report.json
+
+# Local generated pack helper scripts
+__jazn_pack_generator.lock.json
+__jazn_pack_generator_settings.json
+tools/_jazn_pack_generator.py
+
+# Local runtime state / parent checkpoint safety
+/CHECKPOINTS/
+CHECKPOINTS/
+*.checkpoint/
+*_checkpoint/
+branch_*/
+branches/
+patch/
+
+# Local archives
+.archives/
+
+# Local root inventory reports
+docs/.root/
+
+# Local patch/checksum artifacts
+/v14_*_sha256.txt
+/v14_*_patch_bundle.zip
+/v14_*_PATCH_FIXED_BUNDLE.zip
+/v14_*_FULL_PATCH_AND_RECOVERY_BUNDLE.zip
+/LATKA_*_COMMANDS.ps1

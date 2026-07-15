@@ -1,0 +1,43 @@
+{
+  "active_cache_rule": "Nie rozpakowywać ZIP-a ponownie, jeśli marker, VERSION.txt, MANIFEST_CURRENT.json i opcjonalny SHA-256 ZIP-a zgadzają się z aktywnym folderem.",
+  "active_runtime_version": "v14.6.7-free-dialogue-memory-nlp-bridge",
+  "memory_search_planner_rule": "Przy pytaniach pamięciowych runtime najpierw tworzy plan zapytania: oczyszcza hasła, rozpoznaje tematy, rozszerza synonimy i skanuje pliki kanoniczne.",
+  "profiles": {
+    "full": {
+      "includes": [
+        "system",
+        "memory",
+        "workspace_runtime"
+      ],
+      "skips_expanded_chat_html_when_archive_present": true
+    },
+    "github_source_safe": {
+      "excludes": [
+        "memory/raw/",
+        "workspace_runtime/",
+        "exports/"
+      ]
+    },
+    "memory": {
+      "includes": [
+        "memory/",
+        "workspace_runtime/"
+      ]
+    },
+    "nlp": {
+      "includes": [
+        "latka_jazn/nlp/",
+        "latka_jazn/resources/"
+      ]
+    },
+    "system": {
+      "excludes": [
+        "memory/",
+        "workspace_runtime/",
+        "exports/"
+      ]
+    }
+  },
+  "schema_version": "zip_package_profiles/v14.6.7",
+  "self_owned_startup_rule": "Instrukcja ChatGPT jest lekkim loaderem; runtime wystawia --startup-status, --self-check, --truth-boundary-check, --fallback-audit i --memory-plan."
+}

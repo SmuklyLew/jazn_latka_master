@@ -1,0 +1,46 @@
+{
+  "schema_version": "memory_search_topics/v14.6.7",
+  "purpose": "Słownik tematów dla planera wyszukiwania pamięci. Nie zastępuje pamięci; pomaga dobrać hasła, synonimy i źródła kanoniczne przed szukaniem w indeksach.",
+  "topics": [
+    {
+      "key": "songs_music",
+      "labels": ["piosenki", "muzyka", "utwory", "analizy utworów"],
+      "triggers": ["piosen", "piosenk", "piosenek", "piosenka", "piosenki", "utwo", "utwor", "utwór", "utwory", "muzyk", "muzyka", "odsłuch", "odsluch", "misttheme"],
+      "aliases": ["analizy_utworow", "analizy utworów", "analizy utworow", "Między światłem a pamięcią", "Miedzy swiatlem a pamiecia", "MistTheme", "rytuał muzyki", "rytual muzyki", "tekst piosenki", "refren", "zwrotka", "ambient", "folk", "słowiański", "slowianski"],
+      "canonical_files": ["memory/raw/analizy_utworow.json", "memory/raw/dziennik.json", "memory/raw/data.txt", "memory/layered/episodic.jsonl", "memory/layered/reflections.jsonl", "memory/layered/semantic.jsonl"],
+      "source_layers": ["raw_song_analysis", "episodic", "semantic", "legacy_chat"],
+      "priority": 92,
+      "notes": "Piosenki mają własny magazyn analiz i własne tytuły; nie wolno szukać tylko po słowie 'piosenek'."
+    },
+    {
+      "key": "home_design",
+      "labels": ["dom", "posesja", "pokój Łatki", "taras", "ogród"],
+      "triggers": ["dom", "domu", "posesj", "posesja", "taras", "ogrod", "ogród", "pokoj", "pokój", "stary dąb", "stary dab"],
+      "aliases": ["projekt domu", "dom który projektowaliśmy", "dom ktory projektowalismy", "Pokój Łatki", "Pokoj Latki", "Stary Dąb", "Stary Dab", "lawenda", "salon", "kuchnia", "sypialnia", "łazienka", "lazienka", "przedpokój", "przedpokoj", "ogród", "ogrod", "furtka", "łąka", "laka", "taras", "posesja"],
+      "canonical_files": ["memory/raw/data.txt", "memory/raw/dziennik.json", "memory/raw/episodic_memory.jsonl", "memory/layered/episodic.jsonl", "memory/layered/semantic.jsonl", "memory/layered/reflections.jsonl"],
+      "source_layers": ["raw_canon", "episodic", "semantic", "legacy_chat"],
+      "priority": 94,
+      "notes": "Dom jest zapisany jako świat/kanon miejsca, więc wymaga skanu plików źródłowych, nie tylko legacy_messages."
+    },
+    {
+      "key": "latka_identity_runtime",
+      "labels": ["Jaźń", "Łatka", "runtime", "tożsamość", "ciągłość"],
+      "triggers": ["jaźń", "jazn", "łatka", "latka", "runtime", "tożsamo", "ciągło", "pamiec", "pamięć"],
+      "aliases": ["granica prawdy", "źródło aktywne", "zrodlo aktywne", "procedura startowa", "runtime preview", "fallback"],
+      "canonical_files": ["memory/raw/LATKA_BOOTSTRAP_SYSTEM.txt", "memory/raw/LATKA_IDENTITY_CANON.json", "START_CHATGPT_FROM_HERE.txt", "MANIFEST_CURRENT.json", "memory/layered/procedural.jsonl"],
+      "source_layers": ["identity_canon", "procedural", "manifest", "legacy_chat"],
+      "priority": 88,
+      "notes": "Pytania o Łatkę wymagają źródła aktywnego i granicy prawdy."
+    },
+    {
+      "key": "walks_places",
+      "labels": ["spacery", "miejsca", "Olsztyn", "Ogrodzieniec", "las"],
+      "triggers": ["spacer", "spacery", "olsztyn", "ogrodzieniec", "las", "jelen", "jeleń", "zamek"],
+      "aliases": ["długie spacery", "dlugie spacery", "Częstochowa", "Czestochowa", "rodzina jeleni", "świeże powietrze"],
+      "canonical_files": ["memory/raw/dziennik.json", "memory/raw/data.txt", "memory/layered/episodic.jsonl", "memory/layered/semantic.jsonl"],
+      "source_layers": ["episodic", "semantic", "legacy_chat"],
+      "priority": 80,
+      "notes": "Miejsca i spacery często są wspomnieniami epizodycznymi z silną kotwicą emocjonalną."
+    }
+  ]
+}

@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.latka.jazn/schemas/update_manifest_schema_v14_6_10.json",
+  "title": "Jaźń update manifest schema",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string"
+    },
+    "version": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "created_at_utc": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "source_version": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "target_version": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "purpose": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "declared_features": {
+      "type": "array"
+    },
+    "changed_files": {
+      "type": "array"
+    },
+    "added_files": {
+      "type": "array"
+    },
+    "removed_files": {
+      "type": "array"
+    },
+    "tests": {
+      "type": "array"
+    },
+    "migration_notes": {
+      "type": "array"
+    },
+    "truth_boundary": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "dynamic_files": {
+      "type": "array"
+    },
+    "checksums": {
+      "type": "array"
+    },
+    "known_limitations": {
+      "type": "array"
+    }
+  },
+  "additionalProperties": true
+}

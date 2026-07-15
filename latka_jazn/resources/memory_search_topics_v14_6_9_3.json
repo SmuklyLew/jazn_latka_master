@@ -1,0 +1,11 @@
+{
+  "schema_version": "memory_search_topics/v14.6.10",
+  "topics": [
+    "dialogue_intent",
+    "runtime_answer_validation",
+    "source_text_preservation",
+    "source_origin_boundary",
+    "requirements_ledger",
+    "module_responsibility_map"
+  ]
+}

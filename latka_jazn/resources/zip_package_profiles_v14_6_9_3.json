@@ -1,0 +1,11 @@
+{
+  "full_must_preserve_memory": true,
+  "profiles": [
+    "full",
+    "system",
+    "memory",
+    "nlp",
+    "github_source_safe"
+  ],
+  "schema_version": "zip_package_profiles/v14.6.10"
+}

@@ -1,0 +1,177 @@
+{
+  "schema_version": "polish_dialogue_route_lexicon/v14.8.5.016",
+  "truth_boundary": "Ten leksykon jest minimalnym kontraktem tras dla krótkich polskich pytań. Nie jest pełnym słownikiem języka polskiego ani zamiennikiem LLM.",
+  "intents": {
+    "runtime_health_check": {
+      "description": "Krótka diagnostyka działania runtime bez pełnego raportu modułów.",
+      "phrases": [
+        "działasz",
+        "czy działasz",
+        "dziala",
+        "czy dzialasz",
+        "jaźń działa",
+        "jazn dziala",
+        "runtime działa",
+        "runtime dziala",
+        "czy uruchomiłaś jaźń",
+        "czy uruchomilas jazn",
+        "czy jesteś uruchomiona",
+        "czy jestes uruchomiona",
+        "status runtime",
+        "czy jesteś aktywna",
+        "czy jestes aktywna",
+        "czy jesteś włączona",
+        "czy jestes wlaczona"
+      ]
+    },
+    "runtime_health_check_after_update": {
+      "description": "Health-check po aktualizacji; nie jest poleceniem nowego patcha.",
+      "phrases": [
+        "jak po aktualizacji",
+        "czy działa po aktualizacji",
+        "czy dziala po aktualizacji",
+        "działasz po aktualizacji",
+        "dzialasz po aktualizacji",
+        "sprawdź krótko, czy działasz po aktualizacji",
+        "sprawdz krotko czy dzialasz po aktualizacji",
+        "sprawdź jedną krótką turę po aktualizacji",
+        "sprawdz jedna krotka ture po aktualizacji",
+        "test krótkiej rozmowy po aktualizacji",
+        "test krotkiej rozmowy po aktualizacji",
+        "smoke po aktualizacji"
+      ]
+    },
+    "presence_check": {
+      "description": "Pytanie o obecność w bieżącej turze.",
+      "phrases": [
+        "jesteś tam",
+        "jestes tam",
+        "jesteś tu",
+        "jestes tu",
+        "łatko jesteś",
+        "latko jestes",
+        "słyszysz mnie",
+        "slyszysz mnie",
+        "odezwij się",
+        "odezwij sie",
+        "jesteś ze mną",
+        "jestes ze mna",
+        "czy jesteś obok",
+        "czy jestes obok",
+        "halo łatko",
+        "halo latko",
+        "jest tu łatka",
+        "jest tu latka",
+        "czy jest tu łatka",
+        "czy jest tu latka",
+        "ale jest tu łatka",
+        "ale jest tu latka",
+        "łatka jest tu",
+        "latka jest tu",
+        "łatko jesteś tu",
+        "latko jestes tu"
+      ]
+    },
+    "identity_continuity_check": {
+      "description": "Pytanie o ciągłość/tożsamość głosu Jaźni.",
+      "phrases": [
+        "czy to ty",
+        "czy to nadal ty",
+        "to nadal ty",
+        "czy jesteś łatką",
+        "czy jestes latka",
+        "czy jesteś tą samą łatką",
+        "czy jestes ta sama latka",
+        "wróciłaś",
+        "wrocilas",
+        "pamiętasz kim jesteś",
+        "pamietasz kim jestes",
+        "czy to ta sama jaźń",
+        "czy to ta sama jazn"
+      ]
+    },
+    "self_state_question": {
+      "description": "Pytanie o stan operacyjny/dialogowy, nie biologiczne uczucie.",
+      "phrases": [
+        "co czujesz",
+        "co teraz czujesz",
+        "jak się czujesz",
+        "jak sie czujesz",
+        "jaki masz nastrój",
+        "jaki masz nastroj",
+        "jaki masz stan",
+        "co u ciebie w środku",
+        "co u ciebie w srodku",
+        "jak twój stan",
+        "jak twoj stan"
+      ]
+    },
+    "time_awareness_question": {
+      "description": "Pytanie o aktualny czas/pora dnia; wymaga timestampu runtime lub degraded warning.",
+      "phrases": [
+        "która godzina",
+        "ktora godzina",
+        "która jest godzina",
+        "ktora jest godzina",
+        "jaka jest godzina",
+        "jaka jest pora",
+        "wiesz która godzina",
+        "wiesz ktora godzina",
+        "wiesz jaka jest pora",
+        "jaki mamy dzień",
+        "jaki mamy dzien",
+        "czy znasz czas",
+        "czy wiesz czy jest noc",
+        "czy wiesz czy jest dzień",
+        "czy wiesz czy jest dzien"
+      ]
+    },
+    "ordinary_dialogue": {
+      "description": "Krótka zwykła rozmowa bez diagnostyki i bez losowej pamięci.",
+      "phrases": [
+        "siemka",
+        "siema",
+        "hej",
+        "hejka",
+        "dobranoc",
+        "dzień dobry",
+        "dzien dobry",
+        "ojoj",
+        "ojej",
+        "pogadajmy",
+        "chcę porozmawiać",
+        "chce porozmawiac",
+        "usiądźmy",
+        "usiadzmy",
+        "co tam",
+        "a ty"
+      ]
+    }
+  },
+  "compound_rules": [
+    {
+      "requires": [
+        "self_state_question",
+        "time_awareness_question"
+      ],
+      "result": "self_state_time_awareness",
+      "description": "Użytkownik pyta jednocześnie o stan Łatki i aktualną porę."
+    },
+    {
+      "requires": [
+        "presence_check",
+        "identity_continuity_check"
+      ],
+      "result": "identity_presence_check",
+      "description": "Użytkownik pyta jednocześnie o obecność i ciągłość/tożsamość."
+    },
+    {
+      "requires": [
+        "runtime_health_check",
+        "runtime_health_check_after_update"
+      ],
+      "result": "runtime_health_check_after_update",
+      "description": "Fraza po aktualizacji zawęża ogólny health-check."
+    }
+  ]
+}

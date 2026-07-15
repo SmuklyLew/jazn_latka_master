@@ -1,0 +1,39 @@
+﻿# Normalize text files in the repository.
+* text=auto
+.gitattributes text eol=lf
+
+# Source/config/docs should stay LF.
+*.py     text eol=lf
+*.txt    text eol=lf
+*.md     text eol=lf
+*.json   text eol=lf
+*.jsonl  text eol=lf
+*.yaml   text eol=lf
+*.yml    text eol=lf
+*.toml   text eol=lf
+*.patch  text eol=lf
+*.diff   text eol=lf
+*.html   text eol=lf
+*.css    text eol=lf
+*.js     text eol=lf
+
+# Windows scripts may stay CRLF for Windows tooling.
+*.ps1    text eol=crlf
+*.bat    text eol=crlf
+*.cmd    text eol=crlf
+
+# Binary / runtime data: never normalize.
+*.sqlite     binary
+*.sqlite3    binary
+*.db         binary
+*.zip        binary
+*.7z         binary
+*.png        binary
+*.jpg        binary
+*.jpeg       binary
+*.webp       binary
+*.gif        binary
+*.pdf        binary
+*.docx       binary
+*.pptx       binary
+*.xlsx       binary
