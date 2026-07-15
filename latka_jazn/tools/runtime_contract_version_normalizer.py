@@ -18,14 +18,12 @@ from latka_jazn.tools.active_extraction_cache import (
 TARGET_VERSION = "v14.8.2.6.3-free-dialogue-short-turn-fallback-hotfix"
 TARGET_FILES = (
     "PACKAGE_INTEGRITY_MANIFEST.json",
-    "MANIFEST_CURRENT.json",
     "workspace_runtime/JAZN_ACTIVE_RUNTIME.json",
     "ACTIVE_RUNTIME_CACHE_CONTRACT.json",
     "BOOTSTRAP_JAZN_CURRENT.json",
 )
 SCHEMA_PREFIXES = {
     "package_integrity_manifest": lambda version: f"package_integrity_manifest/v{_version_number(version)}",
-    "manifest_current": lambda version: f"package_integrity_manifest/v{_version_number(version)}",
     "jazn_active_runtime_marker": active_marker_schema_version,
     "active_extraction_cache_contract": active_cache_contract_version,
     "active_runtime_cache_contract": active_cache_contract_version,
@@ -137,19 +135,17 @@ def normalize_runtime_contract_versions(root: Path, *, apply: bool = False) -> d
     package_version = read_package_version(root)
     results = [normalize_json_file(root, rel, package_version, apply=apply) for rel in TARGET_FILES]
 
-    primary_manifest = root / "PACKAGE_INTEGRITY_MANIFEST.json"
-    legacy_manifest = root / "MANIFEST_CURRENT.json"
-    manifest_path = primary_manifest if primary_manifest.is_file() else legacy_manifest
+    manifest_path = root / "PACKAGE_INTEGRITY_MANIFEST.json"
     manifest_sha = _sha256_file(manifest_path)
     marker_rel = "workspace_runtime/JAZN_ACTIVE_RUNTIME.json"
     marker_path = root / marker_rel
     marker_sha_update: dict[str, Any] | None = None
     if apply and manifest_sha and marker_path.exists():
         marker = json.loads(marker_path.read_text(encoding="utf-8"))
-        old = marker.get("package_integrity_manifest_sha256") or marker.get("manifest_current_sha256")
-        if old != manifest_sha:
+        old = marker.get("package_integrity_manifest_sha256")
+        legacy_removed = marker.pop("manifest_current_sha256", None) is not None
+        if old != manifest_sha or legacy_removed:
             marker["package_integrity_manifest_sha256"] = manifest_sha
-            marker["manifest_current_sha256"] = manifest_sha
             marker["updated_at_utc"] = _utc_now()
             marker_path.write_text(json.dumps(marker, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
             marker_sha_update = {
@@ -166,7 +162,6 @@ def normalize_runtime_contract_versions(root: Path, *, apply: bool = False) -> d
         "visible_runtime_preview_contract_version": visible_preview_contract_version(package_version=package_version),
         "applied": apply,
         "package_integrity_manifest_sha256": manifest_sha,
-        "manifest_current_sha256": manifest_sha,
         "marker_manifest_sha256_update": marker_sha_update,
         "results": [item.to_dict() for item in results],
         "truth_boundary": "Normalizator poprawia tylko aktywne markery/kontrakty bieżącego folderu. Nie zmienia historycznych backupów ani archiwalnych embedded_sources.",

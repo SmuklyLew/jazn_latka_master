@@ -29,7 +29,7 @@ def status_payload(root: Path) -> dict[str, Any]:
 def _read_manifest(root: Path) -> tuple[dict[str, Any], str | None]:
     status = package_integrity_manifest_status(root)
     if not status.present or not status.path:
-        return {}, "package_integrity_manifest_missing_nonblocking"
+        return {}, "package_integrity_manifest_missing"
     path = Path(status.path)
     try:
         value = json.loads(path.read_text(encoding="utf-8-sig"))
@@ -85,7 +85,7 @@ def doctor_payload(root: Path) -> dict[str, Any]:
         "root_exists": root.is_dir(),
         "main_exists": (root / "main.py").is_file(),
         "run_exists": (root / "run.py").is_file(),
-        "version_exists": (root / "VERSION.txt").is_file(),
+        "version_py_exists": (root / "latka_jazn/version.py").is_file(),
         "package_exists": (root / "latka_jazn").is_dir(),
         "startup_status_available": bool(startup),
         "daemon_status_available": bool(daemon),
@@ -103,9 +103,9 @@ def doctor_payload(root: Path) -> dict[str, Any]:
         "version_matches": str(manifest.get("runtime_version") or manifest.get("version") or "").lstrip("v")
         == PACKAGE_VERSION_FULL.lstrip("v"),
         "primary_present": package_integrity.primary_present,
-        "legacy_alias_present": package_integrity.legacy_present,
-        "aliases_match": package_integrity.aliases_match,
-        "runtime_start_blocking": False,
+        "legacy_alias_absent": not package_integrity.legacy_present,
+        "canonical_source_name": package_integrity.source_name == "PACKAGE_INTEGRITY_MANIFEST.json",
+        "runtime_start_blocking": True,
     }
 
     live_evidence = {
@@ -127,7 +127,7 @@ def doctor_payload(root: Path) -> dict[str, Any]:
             "error": manifest_error,
             "version": manifest.get("version") or manifest.get("runtime_version"),
             "start_file": manifest.get("start_file"),
-            "runtime_start_blocking": False,
+            "runtime_start_blocking": True,
         },
         "model": {
             "available": bool(model),
@@ -155,12 +155,6 @@ def doctor_payload(root: Path) -> dict[str, Any]:
             "private_profiles_require_second_confirmation": ["memory", "full"],
         },
         "time": timestamp,
-    }
-    subsystem_status["manifest"] = {
-        **subsystem_status["package_integrity_manifest"],
-        "compatibility_alias": True,
-        "deprecated": True,
-        "replacement": "package_integrity_manifest",
     }
     return {
         "schema_version": schema_version("runpy_doctor"),

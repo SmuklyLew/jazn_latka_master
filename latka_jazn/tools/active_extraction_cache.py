@@ -10,7 +10,6 @@ from latka_jazn.version import PACKAGE_VERSION, PACKAGE_VERSION_FULL, version_nu
 from latka_jazn.core.version_source import (
     VERSION_MODULE_RELATIVE_PATH,
     read_runtime_version_from_version_py,
-    read_version_checkpoint,
 )
 
 ACTIVE_EXTRACTION_CACHE_TOOL_VERSION = PACKAGE_VERSION_FULL
@@ -223,7 +222,6 @@ def build_active_runtime_status(root: Path, *, source_zip: Path | None = None, m
     root_resolution = resolve_active_runtime_root(requested_root, marker_path=marker_output)
     root = root_resolution.root
     version = read_runtime_version_from_version_py(root, fallback=FALLBACK_PACKAGE_VERSION)
-    version_checkpoint = read_version_checkpoint(root)
     start_file = detect_start_file(root)
     package_manifest_status = package_integrity_manifest_status(root)
     current_manifest_sha256 = package_manifest_status.sha256
@@ -246,8 +244,6 @@ def build_active_runtime_status(root: Path, *, source_zip: Path | None = None, m
         cache_hit_reasons.append("version_py_exists")
     else:
         cache_miss_reasons.append("version_py_missing")
-    if version_checkpoint:
-        cache_hit_reasons.append("VERSION.txt_checkpoint_exists")
     if start_file:
         cache_hit_reasons.append("start_file_exists")
     else:
@@ -255,7 +251,7 @@ def build_active_runtime_status(root: Path, *, source_zip: Path | None = None, m
     if current_manifest_sha256:
         cache_hit_reasons.append("package_integrity_manifest_exists")
     else:
-        cache_miss_reasons.append("package_integrity_manifest_missing_nonblocking")
+        cache_miss_reasons.append("package_integrity_manifest_missing")
 
     if existing_marker and existing_marker.get("valid", True):
         if existing_marker.get("active_root") == str(root):
@@ -266,11 +262,15 @@ def build_active_runtime_status(root: Path, *, source_zip: Path | None = None, m
             cache_hit_reasons.append("marker_version_matches")
         else:
             cache_miss_reasons.append("marker_version_differs_or_missing")
-        marker_manifest_sha = existing_marker.get("package_integrity_manifest_sha256") or existing_marker.get("manifest_current_sha256")
+        marker_manifest_sha = existing_marker.get("package_integrity_manifest_sha256")
+        legacy_marker_manifest_sha = existing_marker.get("manifest_current_sha256")
         if current_manifest_sha256 and marker_manifest_sha == current_manifest_sha256:
             cache_hit_reasons.append("marker_package_integrity_sha256_matches")
         elif current_manifest_sha256:
-            cache_miss_reasons.append("marker_package_integrity_sha256_differs_or_missing")
+            if not marker_manifest_sha and legacy_marker_manifest_sha == current_manifest_sha256:
+                cache_miss_reasons.append("marker_legacy_manifest_sha256_requires_refresh")
+            else:
+                cache_miss_reasons.append("marker_package_integrity_sha256_differs_or_missing")
         if source_zip_sha256:
             if existing_marker.get("source_zip_sha256") == source_zip_sha256:
                 cache_hit_reasons.append("marker_source_zip_sha256_matches")
@@ -281,7 +281,7 @@ def build_active_runtime_status(root: Path, *, source_zip: Path | None = None, m
 
     if marker_rejected and root_resolution.error:
         cache_miss_reasons.append(root_resolution.error)
-    hard_missing_reasons = {"active_root_missing", "latka_jazn_package_missing", "version_py_missing", "start_file_missing_main_run_jazn"}
+    hard_missing_reasons = {"active_root_missing", "latka_jazn_package_missing", "version_py_missing", "start_file_missing_main_run_jazn", "package_integrity_manifest_missing"}
     missing_hard_requirement = any(reason in hard_missing_reasons for reason in cache_miss_reasons)
     marker_differs = any("differs" in reason for reason in cache_miss_reasons)
     marker_refresh_required = any(reason.startswith("marker_") or reason.startswith("active_marker_") for reason in cache_miss_reasons)
@@ -290,7 +290,7 @@ def build_active_runtime_status(root: Path, *, source_zip: Path | None = None, m
         root.exists()
         and version
         and start_file
-        and (current_manifest_sha256 or source_zip is None)
+        and bool(current_manifest_sha256)
         and not missing_hard_requirement
         and not marker_rejected
         and not source_zip_mismatch
@@ -330,7 +330,6 @@ def build_active_runtime_status(root: Path, *, source_zip: Path | None = None, m
         "source_provenance_sha256": source_provenance.get("file_sha256"),
         "package_integrity_manifest": package_manifest_status.to_dict(),
         "package_integrity_manifest_sha256": current_manifest_sha256,
-        "manifest_current_sha256": current_manifest_sha256,
         "source_zip": str(source_zip) if source_zip else None,
         "source_zip_sha256": source_zip_sha256,
         "marker_output": str(marker_output),
@@ -370,13 +369,14 @@ def write_active_runtime_marker(root: Path, *, source_zip: Path | None = None, m
         for reason in status["cache_miss_reasons"]
     )
     status["marker_differs"] = any("differs" in reason for reason in status["cache_miss_reasons"])
-    hard_missing = {"active_root_missing", "latka_jazn_package_missing", "version_py_missing", "start_file_missing_main_run_jazn"}
+    hard_missing = {"active_root_missing", "latka_jazn_package_missing", "version_py_missing", "start_file_missing_main_run_jazn", "package_integrity_manifest_missing"}
     status["should_reuse_existing_extraction"] = not any(reason in hard_missing for reason in status["cache_miss_reasons"])
     status["active_marker_valid"] = status["runtime_root_valid"]
     status["active_root_validation_error"] = None if status["runtime_root_valid"] else status.get("active_root_validation_error")
     status["marker_lifecycle_state"] = "generated_now" if status["runtime_root_valid"] else "error"
     status["marker_trusted"] = bool(status["runtime_root_valid"])
     status["marker_source"] = "runtime_generated"
+    status.pop("manifest_current_sha256", None)
     marker = {
         **status,
         "schema_version": status.get("schema_version") or active_marker_schema_version(status.get("version")),

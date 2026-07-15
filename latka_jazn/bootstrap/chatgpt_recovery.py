@@ -30,15 +30,16 @@ from latka_jazn.packaging.split_zip_package import (
 )
 from latka_jazn.tools.active_extraction_cache import write_active_runtime_marker
 from latka_jazn.version import PACKAGE_VERSION_FULL, schema_version, version_number
-from latka_jazn.core.version_source import (
-    read_runtime_version_from_version_py,
-    read_version_checkpoint,
+from latka_jazn.core.version_source import read_runtime_version_from_version_py
+from latka_jazn.core.package_integrity_manifest import (
+    PACKAGE_INTEGRITY_MANIFEST_NAME,
+    sha256_file,
 )
 
-REQUIRED_FILES = ("VERSION.txt", "latka_jazn/version.py", "MANIFEST_CURRENT.json")
+REQUIRED_FILES = ("latka_jazn/version.py", PACKAGE_INTEGRITY_MANIFEST_NAME)
 REQUIRED_DIRECTORIES = ("latka_jazn",)
 OPTIONAL_RUNTIME_DIRECTORIES = ("memory", "workspace_runtime")
-START_FILES = ("main.py", "run.py")
+START_FILES = ("run.py", "main.py")
 DEFAULT_CHATGPT_ROOT = Path("/mnt/data/jazn_runtime_current_full")
 DEFAULT_CHATGPT_PARTS_DIR = Path("/mnt/data")
 RECOVERY_SCHEMA_VERSION = schema_version("chatgpt_runtime_recovery", version=PACKAGE_VERSION_FULL)
@@ -188,20 +189,18 @@ def runtime_preflight(root: Path, *, marker_path: Path | None = None) -> Runtime
             warnings.append(f"runtime_directory_missing_will_be_initialized:{name}")
     start_file = _find_start_file(root)
     if not start_file:
-        errors.append("missing_start_file:main.py_or_run.py")
+        errors.append("missing_start_file:run.py_or_main.py")
     structure_ok = not errors
 
     version = _runtime_version(root)
-    checkpoint = read_version_checkpoint(root)
-    if version and checkpoint != version:
-        errors.append(f"version_checkpoint_mismatch:{checkpoint!r}!={version!r}")
-        structure_ok = False
-    manifest = _read_json(root / "MANIFEST_CURRENT.json")
+    manifest_path = root / PACKAGE_INTEGRITY_MANIFEST_NAME
+    manifest = _read_json(manifest_path)
     manifest_version = None
     manifest_ok = False
+    manifest_sha256 = sha256_file(manifest_path) if manifest_path.is_file() else None
     if manifest is None:
-        if (root / "MANIFEST_CURRENT.json").exists():
-            errors.append("manifest_invalid_json")
+        if manifest_path.exists():
+            errors.append("package_integrity_manifest_invalid_json")
     else:
         manifest_version = str(manifest.get("version") or manifest.get("runtime_version") or "").strip() or None
         manifest_start = str(manifest.get("start_file") or "").strip() or None
@@ -230,6 +229,15 @@ def runtime_preflight(root: Path, *, marker_path: Path | None = None) -> Runtime
             candidate_ok = version_number(marker_version) == version_number(version)
             if not candidate_ok:
                 warnings.append(f"marker_version_mismatch:{marker_version!r}!={version!r}")
+        marker_manifest_sha = str(marker.get("package_integrity_manifest_sha256") or "").strip()
+        legacy_marker_sha = str(marker.get("manifest_current_sha256") or "").strip()
+        if candidate_ok and manifest_sha256:
+            if marker_manifest_sha != manifest_sha256:
+                candidate_ok = False
+                if not marker_manifest_sha and legacy_marker_sha == manifest_sha256:
+                    warnings.append("marker_legacy_manifest_sha256_requires_refresh")
+                else:
+                    warnings.append("marker_package_integrity_manifest_sha256_mismatch")
         if candidate_ok:
             selected_marker = candidate
             marker_ok = True

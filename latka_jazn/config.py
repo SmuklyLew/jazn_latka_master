@@ -175,9 +175,8 @@ class JaznConfig:
 
     @property
     def manifest_current_path(self) -> Path:
-        # One-release compatibility resolver; the active version comes from latka_jazn/version.py.
-        primary = self.package_integrity_manifest_path
-        return primary if primary.is_file() else self.legacy_manifest_current_path
+        # Compatibility property name only; it always points at the canonical manifest.
+        return self.package_integrity_manifest_path
 
     @property
     def start_file_path(self) -> Path | None:

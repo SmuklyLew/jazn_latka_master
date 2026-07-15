@@ -12,6 +12,7 @@ from latka_jazn.core.model_context_compiler import compile_model_context
 from latka_jazn.core.response_candidate import ResponseCandidate
 from latka_jazn.core.response_candidate_evaluator import evaluate_response_candidate
 from latka_jazn.core.runtime_turn_contract import RuntimeTurnContract
+from latka_jazn.version import PACKAGE_VERSION_FULL
 
 
 def _plan() -> dict:
@@ -85,7 +86,7 @@ def test_chatgpt_contract_carries_full_canon_and_host_rules() -> None:
 def test_cognitive_envelope_exposes_full_canon_at_top_level() -> None:
     envelope = CognitiveTurnEnvelope.from_cognitive_frame(
         {
-            "runtime_version": "v15.0.3.2",
+            "runtime_version": PACKAGE_VERSION_FULL,
             "timestamp": "[🕒 2026-07-15 12:00:00 GMT+0200, Wednesday, Europe/Warsaw]",
             "voice_source_contract": {"speaking_identity": "Łatka"},
         },

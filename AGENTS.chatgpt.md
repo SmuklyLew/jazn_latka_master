@@ -13,7 +13,7 @@ python -X utf8 main.py --model-adapter-status
 python -X utf8 main.py --daemon-status
 ```
 
-Weryfikuj marker aktywnego runtime, zgodny folder, `VERSION.txt`, `main.py` i `latka_jazn/`. `PACKAGE_INTEGRITY_MANIFEST.json` lub przejściowy `MANIFEST_CURRENT.json` służy kontroli paczki/wydania; jego brak albo nieaktualność ma być jawnie raportowana, ale nie blokuje startu istniejącego runtime.
+Weryfikuj marker aktywnego runtime, zgodny folder, `latka_jazn/version.py`, `PACKAGE_INTEGRITY_MANIFEST.json`, preferowany `run.py` (lub kompatybilny `main.py`) i `latka_jazn/`. Nie wymagaj, nie twórz ani nie odtwarzaj `VERSION.txt` lub `MANIFEST_CURRENT.json`. Marker ma zawierać `package_integrity_manifest_sha256` zgodny z SHA-256 kanonicznego manifestu.
 
 ## Kontrakt odpowiedzi
 

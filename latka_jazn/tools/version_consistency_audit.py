@@ -9,7 +9,6 @@ from typing import Any, Iterable
 from latka_jazn.version import PACKAGE_VERSION_FULL, schema_version
 from latka_jazn.core.version_source import (
     read_runtime_version_from_version_py,
-    read_version_checkpoint,
     read_version_metadata_from_version_py,
     version_number,
 )
@@ -22,12 +21,10 @@ SCHEMA_VERSION = schema_version("version_consistency_audit")
 
 SOURCE_OF_TRUTH_FILES = (
     "latka_jazn/version.py",
-    "VERSION.txt",
 )
 
 CONTROLLED_GENERATED_FILES = (
     "PACKAGE_INTEGRITY_MANIFEST.json",
-    "MANIFEST_CURRENT.json",
     "RUNTIME_STATE.json",
     "SOURCE_PROVENANCE.json",
     "docs/update_history/INDEX.json",
@@ -93,8 +90,6 @@ def classify_version_mention(
 ) -> str:
     if path.as_posix().endswith("latka_jazn/version.py"):
         return "canonical_source"
-    if path.name == "VERSION.txt":
-        return "checkpoint" if version in {active_version, active_semver, "v" + active_semver} else "stale_checkpoint"
     if version in {active_version, active_semver, "v" + active_semver}:
         return "forbidden_raw_current_version"
     if "-" in version or "_" in version:
@@ -235,16 +230,8 @@ def _generated_metadata_errors(root: Path) -> list[dict[str, Any]]:
     metadata = read_version_metadata_from_version_py(root)
     errors: list[dict[str, Any]] = []
 
-    checkpoint = read_version_checkpoint(root)
-    if checkpoint != metadata.package_version_full:
-        errors.append(
-            {
-                "kind": "checkpoint_mismatch",
-                "path": "VERSION.txt",
-                "expected": metadata.package_version_full,
-                "actual": checkpoint,
-            }
-        )
+    if (root / "VERSION.txt").exists():
+        errors.append({"kind": "forbidden_legacy_version_checkpoint_present", "path": "VERSION.txt"})
 
     pyproject_path = root / "pyproject.toml"
     pyproject = pyproject_path.read_text(encoding="utf-8") if pyproject_path.is_file() else ""
@@ -253,16 +240,11 @@ def _generated_metadata_errors(root: Path) -> list[dict[str, Any]]:
     if 'version = {attr = "latka_jazn.version.DISTRIBUTION_VERSION"}' not in pyproject:
         errors.append({"kind": "pyproject_not_bound_to_version_py", "path": "pyproject.toml"})
 
-    primary_manifest = _load_json(root / "PACKAGE_INTEGRITY_MANIFEST.json")
-    legacy_manifest = _load_json(root / "MANIFEST_CURRENT.json")
-    manifest = primary_manifest or legacy_manifest
-
-    if not primary_manifest:
+    manifest = _load_json(root / "PACKAGE_INTEGRITY_MANIFEST.json")
+    if not manifest:
         errors.append({"kind": "package_integrity_manifest_missing", "path": "PACKAGE_INTEGRITY_MANIFEST.json"})
-    if not legacy_manifest:
-        errors.append({"kind": "legacy_package_manifest_alias_missing", "path": "MANIFEST_CURRENT.json"})
-    if primary_manifest and legacy_manifest and primary_manifest != legacy_manifest:
-        errors.append({"kind": "package_manifest_alias_mismatch", "path": "MANIFEST_CURRENT.json"})
+    if (root / "MANIFEST_CURRENT.json").exists():
+        errors.append({"kind": "forbidden_legacy_manifest_alias_present", "path": "MANIFEST_CURRENT.json"})
 
     if manifest:
         for key in ("version", "runtime_version", "package_version"):
@@ -279,11 +261,12 @@ def _generated_metadata_errors(root: Path) -> list[dict[str, Any]]:
             "runtime_version": metadata.package_version_full,
             "update_version": metadata.package_version_full,
             "version_source": "latka_jazn/version.py",
-            "version_checkpoint": "VERSION.txt",
         }
         for key, value in expected.items():
             if provenance.get(key) != value:
                 errors.append({"kind": "generated_provenance_stale", "path": "SOURCE_PROVENANCE.json", "field": key})
+        if "version_checkpoint" in provenance:
+            errors.append({"kind": "legacy_version_checkpoint_in_provenance", "path": "SOURCE_PROVENANCE.json", "field": "version_checkpoint"})
 
     index = _load_json(root / "docs" / "update_history" / "INDEX.json")
     if index and index.get("active_version") != metadata.package_version_full:
