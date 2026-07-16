@@ -7,6 +7,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: release-hardening-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   verify:
     strategy:
@@ -15,11 +19,14 @@ jobs:
         os: [windows-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
+    env:
+      PYTHONUTF8: "1"
+      PYTHONUNBUFFERED: "1"
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
           cache: pip
@@ -33,10 +40,13 @@ jobs:
           python -m pip install -e . pytest
 
       - name: Compile all active Python
-        run: python -X utf8 -m compileall -q latka_jazn tools tests
+        run: python -X utf8 -m compileall -q latka_jazn tests main.py run.py
 
       - name: Test without live/private integrations
-        run: python -X utf8 -m pytest -q -m "not live_model and not live_mcp"
+        run: >-
+          python -X utf8 -m pytest
+          -q -ra --tb=short --durations=25
+          -m "not live_model and not live_mcp"
 
       - name: Package smoke system profile
         run: python -X utf8 run.py package-smoke --profile system --json
@@ -47,10 +57,17 @@ jobs:
       - name: Full session integrity regressions
         run: python -X utf8 -m pytest -q tests/test_release_hardening_integrity_pipeline.py
 
+      - name: Turn atomicity and timeout regressions
+        run: >-
+          python -X utf8 -m pytest -q
+          tests/test_v15033_turn_atomicity.py
+          tests/test_runtime_stability_daemon_status.py
+
       - name: Active contract legacy guard
         run: python -X utf8 -m pytest -q tests/test_release_hardening_active_contracts.py
 
       - name: Diff whitespace and generated-file guard
+        if: always()
         run: |
           git diff --check
           git diff --exit-code

@@ -682,10 +682,35 @@ class JaznDaemonServer(ThreadingHTTPServer):
         self._chat_state_path = self.marker_path.parent / "daemon_chat_jobs.json"
         self._recover_chat_jobs()
 
+    def _close_session_worker_async(self, worker: RuntimeSessionWorker) -> None:
+        def _close() -> None:
+            try:
+                worker.close()
+            except Exception:
+                return
+
+        threading.Thread(
+            target=_close,
+            name="jazn-retired-session-worker-close",
+            daemon=True,
+        ).start()
+
+    def _retire_session_worker(self, worker: RuntimeSessionWorker) -> None:
+        with self._sessions_lock:
+            retired_keys = [key for key, value in self.sessions.items() if value is worker]
+            for key in retired_keys:
+                self.sessions.pop(key, None)
+        self._close_session_worker_async(worker)
+
     def get_session(self, session_id: str | None, *, no_carryover: bool = False, client: str = "daemon_http") -> tuple[RuntimeSessionWorker, str]:
         with self._sessions_lock:
             if session_id:
-                if session_id not in self.sessions:
+                existing = self.sessions.get(session_id)
+                if existing is not None and not existing.usable:
+                    self.sessions.pop(session_id, None)
+                    self._close_session_worker_async(existing)
+                    existing = None
+                if existing is None:
                     self.sessions[session_id] = RuntimeSessionWorker(
                         session_factory=self._session_factory,
                         config=self.config,
@@ -963,6 +988,7 @@ class JaznDaemonServer(ThreadingHTTPServer):
 
     def _process_chat_job(self, job: DaemonChatJob) -> None:
         pickup_started = time.monotonic()
+        session: RuntimeSessionWorker | None = None
         with self._chat_jobs_lock:
             job.status = "running"
             job.started_at_utc = utc_now_iso()
@@ -1022,6 +1048,12 @@ class JaznDaemonServer(ThreadingHTTPServer):
                     job.error = str(result.get("error_code") or "runtime_turn_not_accepted")
                     self.state.chat_job_failed_count += 1
         except RuntimeTurnTimeoutError as exc:
+            if session is not None:
+                # The dedicated session thread may still be finishing an
+                # uncooperative handler.  Its turn context is cancelled and
+                # blocks late canonical writes, but the worker itself must not
+                # be reused because a subsequent turn would queue behind it.
+                self._retire_session_worker(session)
             error = f"{type(exc).__name__}: {exc}"
             with self._chat_jobs_lock:
                 job.error = error

@@ -5,7 +5,11 @@ import ast
 import inspect
 import json
 
+import pytest
+
 from latka_jazn.core import self_knowledge_contract, startup_contract
+from latka_jazn.core.memory_search_planner import MemorySearchPlanner
+from latka_jazn.packaging.package_profiles import PackageProfileError, load_package_profiles
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -115,3 +119,175 @@ def test_active_update_checkpoints_use_only_canonical_release_sources() -> None:
     assert '"latka_jazn/version.py"' in repository_plan
     assert '"PACKAGE_INTEGRITY_MANIFEST.json"' in repository_plan
     assert "MANIFEST_*.json" not in repository_plan
+
+
+def test_active_package_profiles_use_only_canonical_release_sources() -> None:
+    profiles = load_package_profiles(ROOT)
+    assert {"system", "memory", "nlp", "full", "github_source_safe"}.issubset(profiles)
+    includes_rendered = json.dumps(
+        {name: profile.includes for name, profile in profiles.items()},
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    assert "VERSION.txt" not in includes_rendered
+    assert "MANIFEST_CURRENT.json" not in includes_rendered
+    assert "PACKAGE_INTEGRITY_MANIFEST.json" in includes_rendered
+    assert "VERSION.txt" in profiles["full"].excludes
+    assert "MANIFEST_CURRENT.json" in profiles["full"].excludes
+    assert "latka_jazn/**" in profiles["system"].includes
+    assert "workspace_runtime/**" in profiles["system"].excludes
+    assert "memory/**" in profiles["system"].excludes
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("schema_version", "zip_package_profiles/legacy"),
+        ("version_source", "VERSION.txt"),
+        ("manifest_source", "MANIFEST_CURRENT.json"),
+    ],
+)
+def test_package_profiles_reject_noncanonical_contract_metadata(
+    tmp_path: Path, field: str, value: str
+) -> None:
+    resource = tmp_path / "latka_jazn" / "resources" / "zip_package_profiles.json"
+    resource.parent.mkdir(parents=True)
+    payload = {
+        "schema_version": "zip_package_profiles/v1",
+        "version_source": "latka_jazn/version.py",
+        "manifest_source": "PACKAGE_INTEGRITY_MANIFEST.json",
+        "profiles": [
+            {
+                "name": "safe",
+                "includes": ["run.py"],
+                "excludes": [],
+                "purpose": "test",
+            }
+        ],
+    }
+    payload[field] = value
+    resource.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(PackageProfileError):
+        load_package_profiles(tmp_path)
+
+
+def test_package_profiles_fail_closed_on_legacy_and_traversal(tmp_path: Path) -> None:
+    resource = tmp_path / "latka_jazn" / "resources" / "zip_package_profiles.json"
+    resource.parent.mkdir(parents=True)
+    resource.write_text(
+        json.dumps(
+            {
+                "schema_version": "zip_package_profiles/v1",
+                "version_source": "latka_jazn/version.py",
+                "manifest_source": "PACKAGE_INTEGRITY_MANIFEST.json",
+                "profiles": [
+                    {
+                        "name": "unsafe",
+                        "includes": ["../secret", "VERSION.txt"],
+                        "excludes": [],
+                        "purpose": "test",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(PackageProfileError):
+        load_package_profiles(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "unsafe_pattern",
+    [
+        "C:/secret",
+        "//server/share",
+        "safe//ambiguous",
+        "file.txt:stream",
+    ],
+)
+def test_package_profiles_reject_windows_and_ambiguous_paths(
+    tmp_path: Path, unsafe_pattern: str
+) -> None:
+    resource = tmp_path / "latka_jazn" / "resources" / "zip_package_profiles.json"
+    resource.parent.mkdir(parents=True)
+    resource.write_text(
+        json.dumps(
+            {
+                "schema_version": "zip_package_profiles/v1",
+                "version_source": "latka_jazn/version.py",
+                "manifest_source": "PACKAGE_INTEGRITY_MANIFEST.json",
+                "profiles": [
+                    {
+                        "name": "unsafe",
+                        "includes": [unsafe_pattern],
+                        "excludes": [],
+                        "purpose": "test",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(PackageProfileError):
+        load_package_profiles(tmp_path)
+
+
+def test_broad_package_profile_must_explicitly_exclude_legacy_files(tmp_path: Path) -> None:
+    resource = tmp_path / "latka_jazn" / "resources" / "zip_package_profiles.json"
+    resource.parent.mkdir(parents=True)
+    resource.write_text(
+        json.dumps(
+            {
+                "schema_version": "zip_package_profiles/v1",
+                "version_source": "latka_jazn/version.py",
+                "manifest_source": "PACKAGE_INTEGRITY_MANIFEST.json",
+                "profiles": [
+                    {
+                        "name": "unsafe_full",
+                        "includes": ["**"],
+                        "excludes": ["VERSION.txt"],
+                        "purpose": "test",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(PackageProfileError, match="MANIFEST_CURRENT.json"):
+        load_package_profiles(tmp_path)
+
+
+def test_active_memory_search_topic_resource_is_loaded() -> None:
+    planner = MemorySearchPlanner(ROOT)
+    assert planner.resource_status["status"] == "loaded"
+    assert planner.resource_status["topic_count"] == len(planner.topics)
+    assert "latka_identity_runtime" in planner.topics
+    plan = planner.plan("Przypomnij sobie wszystko o domu i piosenkach")
+    assert plan.routing_notes[0] == "topic_resource=loaded"
+
+
+def test_invalid_memory_search_topic_resource_falls_back_with_diagnostic(tmp_path: Path) -> None:
+    resource = tmp_path / "latka_jazn" / "resources" / "memory_search_topics_v14_6_10.json"
+    resource.parent.mkdir(parents=True)
+    resource.write_text(
+        '{"schema_version":"memory_search_topics/v14.6.10","topics":["not-an-object"]}',
+        encoding="utf-8",
+    )
+    planner = MemorySearchPlanner(tmp_path)
+    assert planner.resource_status["status"] == "fallback_invalid_resource"
+    assert "ValueError" in planner.resource_status["error"]
+    assert planner.topics
+    assert planner.plan("Pamiętasz dom?").routing_notes[0] == "topic_resource=fallback_invalid_resource"
+
+
+def test_memory_search_topic_schema_mismatch_falls_back_with_diagnostic(tmp_path: Path) -> None:
+    resource = tmp_path / "latka_jazn" / "resources" / "memory_search_topics_v14_6_10.json"
+    resource.parent.mkdir(parents=True)
+    resource.write_text(
+        '{"schema_version":"memory_search_topics/legacy","topics":[]}',
+        encoding="utf-8",
+    )
+    planner = MemorySearchPlanner(tmp_path)
+    assert planner.resource_status["status"] == "fallback_invalid_resource"
+    assert "schema" in planner.resource_status["error"]
+    assert planner.topics
