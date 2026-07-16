@@ -24,13 +24,14 @@ jobs:
         run: |
           cat .github/startup_patch_parts/part-* > /tmp/startup-v15034.patch
           echo "37314fac8700a2741d46183c6dbc19a778c13fefa540706bb90ac41a2941ef52  /tmp/startup-v15034.patch" | sha256sum --check --strict
-          git apply --check /tmp/startup-v15034.patch
+          git apply --check --exclude=latka_jazn/version.py /tmp/startup-v15034.patch
 
       - name: Apply patch and commit
         shell: bash
         run: |
-          git apply /tmp/startup-v15034.patch
+          git apply --exclude=latka_jazn/version.py /tmp/startup-v15034.patch
           rm -rf .github/startup_patch_parts
+          rm -f .github/workflows/apply-startup-v15034-patch.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
