@@ -327,7 +327,14 @@ def build_active_runtime_status(root: Path, *, source_zip: Path | None = None, m
         "start_file": start_file,
         **storage,
         "source_provenance": source_provenance,
+        "source_provenance_status": source_provenance.get("status"),
         "source_provenance_sha256": source_provenance.get("file_sha256"),
+        "source_base_commit": source_provenance.get("base_merge_commit"),
+        "source_provenance_limitations": list(source_provenance.get("limitations") or []),
+        "source_provenance_without_git_history_restriction": (
+            "Without .git, branch/tag/dirty state cannot be independently verified; trust is limited to the provenance hash protected by PACKAGE_INTEGRITY_MANIFEST.json."
+            if not source_provenance.get("git_directory_present") else None
+        ),
         "package_integrity_manifest": package_manifest_status.to_dict(),
         "package_integrity_manifest_sha256": current_manifest_sha256,
         "source_zip": str(source_zip) if source_zip else None,

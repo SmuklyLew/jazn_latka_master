@@ -17,6 +17,7 @@ SYSTEM_EXCLUDE_PREFIXES = (
     "memory/",
     "workspace_runtime/",
     "exports/",
+    "backups/",
 )
 NLP_INCLUDE_PREFIXES = (
     "latka_jazn/nlp/",
@@ -42,6 +43,7 @@ GITHUB_SAFE_EXCLUDE_PREFIXES = (
     "memory/",
     "workspace_runtime/",
     "exports/",
+    "backups/",
 )
 # Source-safe means safe by provenance and content, not merely by directory.
 GITHUB_SAFE_PRIVATE_EXACT = {
@@ -73,6 +75,7 @@ COMMON_EXCLUDE_SUFFIXES = (
 )
 FORBIDDEN_PACKAGE_PREFIXES = (
     "workspace_runtime/",
+    "backups/",
     "requests/",
     "responses/",
     "processed/",

@@ -28,9 +28,32 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=PACKAGE_VERSION_FULL)
     sub = parser.add_subparsers(dest="command")
 
-    for name in ("status", "doctor", "bridge-discovery", "self-test", "package-smoke"):
+    for name in ("doctor", "bridge-discovery", "self-test"):
         child = sub.add_parser(name, allow_abbrev=False)
         _add_common(child)
+
+    child = sub.add_parser("status", allow_abbrev=False)
+    _add_common(child)
+    child.add_argument("--snapshot", action="store_true", help="Nie wykonuj próby endpointu; pokaż tylko obserwację markera/PID.")
+    child.add_argument("--daemon-host", default="127.0.0.1")
+    child.add_argument("--daemon-port", type=int, default=8787)
+    child.add_argument("--daemon-marker-output", type=Path)
+
+    child = sub.add_parser("package-smoke", allow_abbrev=False)
+    _add_common(child)
+    child.add_argument("--profile", choices=("system", "memory", "full"), default="system")
+
+    child = sub.add_parser("release-metadata", allow_abbrev=False)
+    _add_common(child)
+    child.add_argument("--allow-dirty", action="store_true")
+
+    for name in ("memory-prepare", "memory-status"):
+        child = sub.add_parser(name, allow_abbrev=False)
+        _add_common(child)
+        child.add_argument("--deep-verify", action="store_true")
+        if name == "memory-prepare":
+            child.add_argument("--dry-run", action="store_true")
+            child.add_argument("--force", action="store_true")
 
     for name in ("start", "stop", "restart"):
         child = sub.add_parser(name, allow_abbrev=False)
@@ -96,7 +119,7 @@ def main(argv: list[str] | None = None) -> int:
     known = {
         "status", "doctor", "start", "stop", "restart", "chat", "chat-gpt",
         "host-finalize", "bridge-discovery", "audit-tail", "explain-turn",
-        "replay-turn", "export", "package-smoke", "self-test",
+        "replay-turn", "export", "package-smoke", "release-metadata", "self-test", "memory-prepare", "memory-status",
     }
     if args and args[0].startswith("--") and args[0] not in {"--version", "--help", "-h"}:
         return _legacy_main(args)
@@ -111,7 +134,11 @@ def main(argv: list[str] | None = None) -> int:
     root = Path(ns.root).resolve()
 
     if ns.command == "status":
-        payload = diagnostics.status_payload(root)
+        payload = diagnostics.status_payload(
+            root, probe_endpoint=not ns.snapshot,
+            daemon_host=ns.daemon_host, daemon_port=ns.daemon_port,
+            marker_output=ns.daemon_marker_output,
+        )
         _emit(payload, as_json=ns.as_json)
         return 0
     if ns.command == "doctor":
@@ -156,7 +183,39 @@ def main(argv: list[str] | None = None) -> int:
         command = [sys.executable, "-X", "utf8", "-m", "pytest", "-q", "-m", "not live_model and not live_mcp"]
         return subprocess.call(command, cwd=root)
     if ns.command == "package-smoke":
-        command = [sys.executable, "-X", "utf8", str(root / "tools/release_readiness_v15.py"), "--root", str(root)]
-        return subprocess.call(command, cwd=root)
+        from latka_jazn.tools.release_readiness import build_release_readiness_report
+
+        payload = build_release_readiness_report(root, profile=ns.profile)
+        _emit(payload, as_json=ns.as_json)
+        return int(payload.get("exit_code", 2))
+    if ns.command == "release-metadata":
+        from latka_jazn.tools.release_metadata import generate_release_metadata
+
+        payload = generate_release_metadata(root, allow_dirty=ns.allow_dirty)
+        _emit(payload, as_json=ns.as_json)
+        return int(payload.get("exit_code", 2))
+    if ns.command in {"memory-prepare", "memory-status"}:
+        from latka_jazn.config import JaznConfig
+        from latka_jazn.memory.normalization_sidecar import MemoryNormalizationSidecar
+
+        cfg = JaznConfig(root=root)
+        sidecar = MemoryNormalizationSidecar(
+            root,
+            source_db_path=cfg.memory_db_path_readonly,
+            sidecar_db_path=cfg.audit_db_path_readonly,
+            runtime_version=cfg.version,
+        )
+        if ns.command == "memory-prepare":
+            payload = sidecar.prepare(
+                dry_run=ns.dry_run,
+                force=ns.force,
+                deep_verify=ns.deep_verify or not ns.dry_run,
+            ).to_dict()
+            code = 0 if payload.get("status") == "ready" or ns.dry_run else 1
+        else:
+            payload = sidecar.wake_state_status(deep_verify=ns.deep_verify).to_dict()
+            code = 0 if payload.get("status") == "ready" else 1
+        _emit(payload, as_json=ns.as_json)
+        return code
     parser.error(f"unknown command: {ns.command}")
     return 2

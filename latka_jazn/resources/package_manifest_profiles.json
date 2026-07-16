@@ -1,5 +1,5 @@
 {
-  "schema_version": "package_manifest_profiles/v14.8.5.021",
+  "schema_version": "package_manifest_profiles/v1",
   "profiles": {
     "static_package": {
       "description": "source code, docs, tests, config, resources; stable SHA after export",
@@ -14,11 +14,10 @@
         "docs/**",
         "README.md",
         "START_CHATGPT_FROM_HERE.txt",
-        "VERSION.txt",
+        "SOURCE_PROVENANCE.json",
         "pyproject.toml",
         "main.py",
-        "PACKAGE_INTEGRITY_MANIFEST.json",
-        "MANIFEST_CURRENT.json"
+        "PACKAGE_INTEGRITY_MANIFEST.json"
       ]
     },
     "runtime_dynamic": {
@@ -52,10 +51,9 @@
       ]
     },
     "active_manifest": {
-      "description": "package/release integrity manifest with one-release legacy alias; not a runtime startup requirement",
+      "description": "sole package/release integrity manifest; not a live-runtime proof",
       "include": [
-        "PACKAGE_INTEGRITY_MANIFEST.json",
-        "MANIFEST_CURRENT.json"
+        "PACKAGE_INTEGRITY_MANIFEST.json"
       ],
       "exclude": [
         "docs/archive/manifest_history/**",
@@ -74,8 +72,7 @@
         "memory/sqlite/**"
       ],
       "exclude": [
-        "PACKAGE_INTEGRITY_MANIFEST.json",
-        "MANIFEST_CURRENT.json"
+        "PACKAGE_INTEGRITY_MANIFEST.json"
       ]
     },
     "archived_manifest_history": {
@@ -86,7 +83,5 @@
       "active_for_bootstrap": false
     }
   },
-  "truth_boundary": "PACKAGE_INTEGRITY_MANIFEST.json and its temporary MANIFEST_CURRENT.json alias describe package/release integrity. RUNTIME_STATE.json describes mutable state. Neither package manifest is proof of a live runtime or a startup requirement.",
-  "active_version": "v14.8.2.4-logic-routing-memory-grounding-repair",
-  "current_version": "v14.8.2.4-logic-routing-memory-grounding-repair"
+  "truth_boundary": "PACKAGE_INTEGRITY_MANIFEST.json is the sole package integrity manifest. RUNTIME_STATE.json describes mutable state. Neither package metadata nor provenance proves a live runtime."
 }

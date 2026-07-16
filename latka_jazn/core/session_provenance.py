@@ -2,35 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 import hashlib
-import re
 
 from latka_jazn.version import schema_version
+from latka_jazn.core.visible_integrity import validate_result_integrity
 
 SCHEMA_VERSION = schema_version("session_provenance")
-
-TIMESTAMP_HEADER_RE = re.compile(
-    r"^\[🕒 \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} GMT[+-]\d{1,2}, [^,\]]+, Europe/Warsaw\]$"
-)
-
-RENDER_ARTIFACTS = (
-    "aaaktywny",
-    "aaktywny",
-    "prrzez",
-    "nieddziela",
-    "niedzielaa",
-    "pierwszoossobową",
-    "pierwszoosobowąą",
-    "GMMT",
-    "2026-066",
-    "221:",
-    "13:43:228",
-    "rozmawiać ć",
-    "Uwa ażam",
-    "operacyjnnego",
-    "ddebug",
-    "techniiczna",
-)
-
 
 def build_session_provenance(
     *,
@@ -119,47 +95,4 @@ def repair_final_visible_integrity(result: dict[str, Any]) -> tuple[dict[str, An
 
 
 def validate_final_visible_integrity(result: dict[str, Any]) -> dict[str, Any]:
-    final_visible_text = str(result.get("final_visible_text") or "")
-    trace = result.get("trace") or {}
-    timestamp_header = str(trace.get("timestamp_header") or "")
-    decision = result.get("conversation_decision") or {}
-    runtime_provenance = result.get("runtime_provenance") or decision.get("runtime_provenance") or {}
-    exact_runtime_text = str(result.get("exact_runtime_text") or runtime_provenance.get("exact_runtime_text") or "")
-    visible_answer_text = str(runtime_provenance.get("visible_answer_text") or "")
-    handler_result = decision.get("handler_result") or {}
-    handler_body = str(handler_result.get("body") or "")
-    contract = result.get("final_response_contract") if isinstance(result.get("final_response_contract"), dict) else {}
-    contract_integrity = contract.get("final_visible_integrity") if isinstance(contract.get("final_visible_integrity"), dict) else {}
-
-    errors: list[str] = []
-    if timestamp_header and not TIMESTAMP_HEADER_RE.match(timestamp_header):
-        errors.append("timestamp_header_invalid")
-    if timestamp_header and not final_visible_text.startswith(f"{timestamp_header} "):
-        errors.append("final_visible_text_missing_timestamp")
-    if visible_answer_text and visible_answer_text != final_visible_text:
-        errors.append("visible_answer_text_mismatch")
-    preserve_handler_body = bool(decision.get("preserve_handler_body"))
-    if handler_body and exact_runtime_text and handler_body != exact_runtime_text and preserve_handler_body:
-        errors.append("handler_body_exact_runtime_text_mismatch")
-    for artifact in RENDER_ARTIFACTS:
-        if artifact in final_visible_text or artifact in exact_runtime_text:
-            errors.append(f"render_artifact_detected:{artifact}")
-    if "\ufffd" in final_visible_text or "\ufffd" in exact_runtime_text:
-        errors.append("unicode_replacement_character_detected")
-
-    origin_truth_valid = bool(contract_integrity.get("origin_truth_valid", True))
-    validation_passed = bool(contract_integrity.get("validation_passed", True))
-    payload = {
-        "schema_version": schema_version("final_visible_integrity"),
-        "valid": bool(not errors and origin_truth_valid and validation_passed),
-        "errors": errors,
-        "timestamp_header": timestamp_header,
-        "checked_artifact_count": len(RENDER_ARTIFACTS),
-        "origin_truth_valid": origin_truth_valid,
-        "validation_passed": validation_passed,
-        "fallback_classification": contract.get("fallback_classification"),
-        "requires_host_model": bool(contract.get("requires_host_model")),
-    }
-    if errors:
-        raise ValueError("final_visible_integrity_failed: " + ",".join(errors))
-    return payload
+    return validate_result_integrity(result)

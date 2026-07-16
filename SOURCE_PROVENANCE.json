@@ -1,0 +1,18 @@
+{
+  "base_branch": "master",
+  "base_merge_commit": "fd1e35c68b96505791232abbe20c9b6b19dea0a9",
+  "base_version": "v15.0.3.2",
+  "commit_date": "2026-07-15T10:17:41+02:00",
+  "dirty": true,
+  "generated_at_utc": "2026-07-16T10:45:27.434235+00:00",
+  "generation_mode": "development_preview",
+  "git_tree_sha": "7ddab4d1086c25d0e26b91826894cde2a221638e",
+  "remote_url": "https://github.com/SmuklyLew/jazn_latka.git",
+  "repository": "SmuklyLew/jazn_latka",
+  "runtime_version": "v15.0.3.2",
+  "schema_version": "source_provenance/v15.0.3.2",
+  "tag": "backup/pk-15-0-3-2",
+  "truth_boundary": "Git fields were read from this checkout. dirty=true is never promoted to release-clean. An export without .git can verify this document only through PACKAGE_INTEGRITY_MANIFEST.json; branch, tag and dirty state cannot then be independently rechecked.",
+  "update_version": "v15.0.3.2",
+  "version_source": "latka_jazn/version.py"
+}

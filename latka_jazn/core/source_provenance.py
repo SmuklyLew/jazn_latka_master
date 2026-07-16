@@ -6,6 +6,7 @@ from typing import Any
 import hashlib
 import json
 import re
+import subprocess
 
 from latka_jazn.version import PACKAGE_VERSION_FULL, schema_version
 
@@ -28,6 +29,9 @@ class SourceProvenanceStatus:
     version_matches_runtime: bool
     merge_commit_shape_valid: bool
     git_directory_present: bool
+    git_tree_sha: str | None
+    dirty: bool | None
+    manifest_protected: bool
     limitations: list[str]
     truth_boundary: str
 
@@ -41,6 +45,31 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _git(root: Path, *args: str) -> tuple[int, str, str]:
+    completed = subprocess.run(
+        ["git", "-C", str(root), *args], capture_output=True, stdin=subprocess.DEVNULL, text=True,
+        encoding="utf-8", errors="replace", check=False,
+    )
+    return completed.returncode, completed.stdout.strip(), completed.stderr.strip()
+
+
+def _manifest_protects_provenance(root: Path, path: Path) -> bool:
+    manifest = root / "PACKAGE_INTEGRITY_MANIFEST.json"
+    if not manifest.is_file():
+        return False
+    try:
+        payload = json.loads(manifest.read_text(encoding="utf-8-sig"))
+    except Exception:
+        return False
+    expected_hash = _sha256_file(path)
+    expected_size = path.stat().st_size
+    for entry in payload.get("files") or []:
+        if not isinstance(entry, dict) or entry.get("path") != PROVENANCE_FILENAME:
+            continue
+        return entry.get("sha256") == expected_hash and int(entry.get("size_bytes", -1)) == expected_size
+    return False
 
 
 def read_source_provenance(root: Path | str) -> SourceProvenanceStatus:
@@ -62,6 +91,9 @@ def read_source_provenance(root: Path | str) -> SourceProvenanceStatus:
             version_matches_runtime=False,
             merge_commit_shape_valid=False,
             git_directory_present=(root / ".git").exists(),
+            git_tree_sha=None,
+            dirty=None,
+            manifest_protected=False,
             limitations=["SOURCE_PROVENANCE.json is missing"],
             truth_boundary="Without .git or a provenance document, runtime cannot identify its source commit.",
         )
@@ -82,6 +114,9 @@ def read_source_provenance(root: Path | str) -> SourceProvenanceStatus:
             version_matches_runtime=False,
             merge_commit_shape_valid=False,
             git_directory_present=(root / ".git").exists(),
+            git_tree_sha=None,
+            dirty=None,
+            manifest_protected=False,
             limitations=[f"invalid provenance JSON: {type(exc).__name__}"],
             truth_boundary="Invalid provenance is not accepted as source history.",
         )
@@ -89,18 +124,37 @@ def read_source_provenance(root: Path | str) -> SourceProvenanceStatus:
     merge_commit = str(payload.get("base_merge_commit") or "") or None
     version_matches = runtime_version == PACKAGE_VERSION_FULL
     commit_valid = bool(merge_commit and re.fullmatch(r"[0-9a-fA-F]{40}", merge_commit))
+    tree_sha = str(payload.get("git_tree_sha") or "") or None
+    tree_shape_valid = bool(tree_sha and re.fullmatch(r"[0-9a-fA-F]{40}", tree_sha))
+    declared_dirty = payload.get("dirty") if isinstance(payload.get("dirty"), bool) else None
     git_present = (root / ".git").exists()
+    manifest_protected = _manifest_protects_provenance(root, path)
     if not version_matches:
         limitations.append(f"provenance runtime_version={runtime_version!r} differs from active {PACKAGE_VERSION_FULL!r}")
     if not commit_valid:
         limitations.append("base_merge_commit is not a 40-character Git SHA")
-    if not git_present:
+    if not tree_shape_valid:
+        limitations.append("git_tree_sha is not a 40-character Git SHA")
+    status = "invalid"
+    if version_matches and commit_valid and tree_shape_valid and git_present:
+        commit_rc, _, commit_error = _git(root, "cat-file", "-e", f"{merge_commit}^{{commit}}")
+        _, current_tree, _ = _git(root, "rev-parse", f"{merge_commit}^{{tree}}")
+        _, actual_status, _ = _git(root, "status", "--porcelain", "--untracked-files=all")
+        actual_dirty = bool(actual_status)
+        if commit_rc != 0:
+            limitations.append(f"base commit does not exist in checkout: {commit_error}")
+        if current_tree.lower() != str(tree_sha).lower():
+            limitations.append("git_tree_sha does not match base commit")
+        if declared_dirty is None or declared_dirty != actual_dirty:
+            limitations.append("declared dirty state does not match working tree")
+        if not limitations:
+            status = "development_dirty_verified" if actual_dirty else "clean_checkout_verified"
+    elif version_matches and commit_valid and tree_shape_valid and not git_present:
         limitations.append(".git is not included; local branch, tag and dirty state cannot be independently verified")
-    status = "declared_base_verified_structure"
-    if not version_matches or not commit_valid:
-        status = "invalid"
-    elif not git_present:
-        status = "verified_export_without_git_history"
+        if manifest_protected:
+            status = "verified_export_without_git_history"
+        else:
+            limitations.append("PACKAGE_INTEGRITY_MANIFEST.json does not protect SOURCE_PROVENANCE.json")
     return SourceProvenanceStatus(
         schema_version=SCHEMA_VERSION,
         status=status,
@@ -115,6 +169,9 @@ def read_source_provenance(root: Path | str) -> SourceProvenanceStatus:
         version_matches_runtime=version_matches,
         merge_commit_shape_valid=commit_valid,
         git_directory_present=git_present,
+        git_tree_sha=tree_sha,
+        dirty=declared_dirty,
+        manifest_protected=manifest_protected,
         limitations=limitations,
         truth_boundary=str(payload.get("truth_boundary") or "Provenance is descriptive unless verified against Git and manifest hashes."),
     )

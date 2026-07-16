@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from latka_jazn.version import PACKAGE_VERSION_FULL, schema_version
+from latka_jazn.core.visible_integrity import RUNTIME_OWNED_NON_FALLBACK_CLASSIFICATIONS
 
 STRICT_RUNTIME_TRUTH_SCHEMA = schema_version("strict_runtime_truth_gate", version=PACKAGE_VERSION_FULL)
 TIMESTAMP_DEGRADED_ERRORS = {
@@ -46,10 +47,6 @@ LOCAL_OR_UNTRUSTED_SOURCE_MARKERS = (
     "manual",
     "unknown",
 )
-RUNTIME_OWNED_NON_FALLBACK_CLASSIFICATIONS = {
-    "rule_handler_response",
-}
-
 RUNTIME_NOT_STARTED_RULE_ID = "RULE_RUNTIME_NOT_STARTED"
 RUNTIME_NOT_STARTED_ERROR = "runtime_not_started"
 RUNTIME_NOT_STARTED_VISIBLE_TEXT = "Jaźń nie została uruchomiona."
@@ -140,15 +137,7 @@ def evaluate_final_response_contract(contract: dict[str, Any] | None) -> Runtime
     validation_passed = bool(integrity.get("validation_passed", True))
     fallback_classification = str(contract.get("fallback_classification") or "not_fallback")
     runtime_owned_origin = fallback_classification in RUNTIME_OWNED_NON_FALLBACK_CLASSIFICATIONS
-    origin_truth_valid = bool(integrity.get("origin_truth_valid", True) or runtime_owned_origin)
-    if not valid and (
-        present
-        and trusted is True
-        and freshness_ok
-        and origin_truth_valid
-        and validation_passed
-    ):
-        valid = True
+    origin_truth_valid = bool(integrity.get("origin_truth_valid", False))
     requires_host_model = bool(contract.get("requires_host_model"))
     truthful_degraded_disclosure = bool(
         not origin_truth_valid and fallback_classification != "not_fallback" and not runtime_owned_origin
@@ -176,9 +165,7 @@ def evaluate_final_response_contract(contract: dict[str, Any] | None) -> Runtime
         errors.append("timestamp_source_not_network")
     if not freshness_ok:
         errors.append("timestamp_stale_or_missing_freshness")
-    if not valid and not truthful_degraded_disclosure and (
-        not present or not freshness_ok or not origin_truth_valid or not validation_passed
-    ):
+    if not valid and not truthful_degraded_disclosure:
         errors.append("final_visible_integrity_invalid")
     if truthful_degraded_disclosure:
         errors.append(disclosure_error)

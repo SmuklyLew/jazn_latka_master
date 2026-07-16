@@ -37,6 +37,7 @@ from latka_jazn.core.source_origin import SourceOriginAnalyzer
 from latka_jazn.core.self_state_runtime import SelfStateRuntime
 from latka_jazn.core.cognitive_turn_envelope import CognitiveTurnEnvelope
 from latka_jazn.core.final_response_contract import FinalResponseContract
+from latka_jazn.core.visible_integrity import evaluate_origin_truth
 from latka_jazn.core.startup_contract import build_startup_status, build_startup_summary, build_truth_boundary_check
 from latka_jazn.core.continuity_badge import ContinuityBadgePolicy
 from latka_jazn.core.final_visible_reply_capture import FinalVisibleReplyCapture
@@ -2094,30 +2095,20 @@ class JaznEngine:
             decision_dict["turn_route_trace"]["final_text_source"] = str(decision_dict.get("response_generation_mode") or decision_dict.get("handler_generation_mode") or "handler_or_synthesizer")
             envelope.cognitive_frame["turn_route_trace"] = decision_dict["turn_route_trace"]
         template_origin = self.template_registry.classify_body(body, detected_intent=str(detected_dialogue_intent))
-        if not decision_dict.get("fallback_classification"):
+        if str(decision_dict.get("fallback_classification") or "") in {"", "not_fallback"}:
             if repair_used:
                 decision_dict["fallback_classification"] = "repair_fallback"
             elif template_origin.get("template_id"):
                 decision_dict["fallback_classification"] = "template_fallback"
             elif decision_dict.get("model_generated"):
                 decision_dict["fallback_classification"] = "not_fallback"
-            else:
+            elif str(handler_result.body or "").strip():
                 decision_dict["fallback_classification"] = "rule_handler_response"
         decision_dict.setdefault("requires_host_model", False)
         decision_dict["final_answer_validation"] = answer_validation.to_dict()
-        chatgpt_host_visible_bridge = decision_dict.get("chatgpt_host_visible_bridge")
-        chatgpt_host_visible_bridge_accepted = bool(
-            isinstance(chatgpt_host_visible_bridge, dict)
-            and chatgpt_host_visible_bridge.get("accepted")
-        )
-        decision_dict["origin_truth_valid"] = bool(
-            decision_dict.get("fallback_classification") == "not_fallback"
-            and answer_validation.accepted
-            and (
-                decision_dict.get("model_generated")
-                or chatgpt_host_visible_bridge_accepted
-            )
-        )
+        # Origin truth is computed only after runtime provenance and the final
+        # candidate body exist. A bridge's accepted flag alone is not evidence.
+        decision_dict.pop("origin_truth_valid", None)
         if isinstance(decision_dict.get("turn_route_trace"), dict):
             decision_dict["turn_route_trace"].update({
                 "fallback_classification": decision_dict.get("fallback_classification"),
@@ -2149,6 +2140,19 @@ class JaznEngine:
             final_body=body,
             sync_stage="pre_final_response_contract",
         )
+        prospective_visible = FinalResponseContract.ensure_timestamp_prefix(
+            envelope.trace.timestamp_header,
+            affect_mix.get("state_emoticon") or self.affect.marker(),
+            body,
+        )
+        origin_truth_valid, origin_truth_errors = evaluate_origin_truth(
+            decision_dict,
+            body=body,
+            final_visible_text=prospective_visible,
+            timestamp_header=envelope.trace.timestamp_header,
+        )
+        decision_dict["origin_truth_valid"] = origin_truth_valid
+        decision_dict["origin_truth_errors"] = origin_truth_errors
         envelope.attach_conversation_decision(decision_dict)
         envelope.cognitive_frame["continuity_badge_policy"] = continuity_badge_report
         envelope.cognitive_frame["runtime_answer_validation"] = answer_validation.to_dict()

@@ -7,14 +7,21 @@ from typing import Any
 from latka_jazn.bridge.secure_host_runtime_gateway import GatewayConfig
 from latka_jazn.config import JaznConfig
 from latka_jazn.core.bridge_discovery import discover_runtime_bridges
-from latka_jazn.core.runtime_daemon import status_daemon
+from latka_jazn.core.runtime_daemon import DEFAULT_DAEMON_HOST, DEFAULT_DAEMON_PORT, status_daemon
 from latka_jazn.core.startup_contract import build_startup_status
 from latka_jazn.core.package_integrity_manifest import package_integrity_manifest_status
 from latka_jazn.core.tool_execution_controller import ToolExecutionController
 from latka_jazn.version import PACKAGE_VERSION_FULL, schema_version
 
 
-def status_payload(root: Path) -> dict[str, Any]:
+def status_payload(
+    root: Path,
+    *,
+    probe_endpoint: bool = True,
+    daemon_host: str = DEFAULT_DAEMON_HOST,
+    daemon_port: int = DEFAULT_DAEMON_PORT,
+    marker_output: Path | None = None,
+) -> dict[str, Any]:
     cfg = JaznConfig(root=root)
     startup = build_startup_status(cfg, mode="fast", infer_host_environment=True).to_dict()
     return {
@@ -22,7 +29,10 @@ def status_payload(root: Path) -> dict[str, Any]:
         "runtime_version": PACKAGE_VERSION_FULL,
         "root": str(root),
         "startup": startup,
-        "daemon": status_daemon(cfg, probe_endpoint=False),
+        "daemon": status_daemon(
+            cfg, host=daemon_host, port=daemon_port,
+            marker_output=marker_output, probe_endpoint=probe_endpoint,
+        ),
     }
 
 

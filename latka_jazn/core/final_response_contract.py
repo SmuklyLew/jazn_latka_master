@@ -2,26 +2,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass, asdict
 from typing import Any
-from datetime import datetime, timezone
-import hashlib
 import re
 
 from latka_jazn.version import schema_version
-from latka_jazn.core.timestamp_policy import (
-    TIMESTAMP_ALLOW_DEGRADED_LOCAL_VISIBLE,
-    TIMESTAMP_MAX_AGE_SECONDS,
-    TIMESTAMP_REQUIRE_TRUSTED_IN_FINAL_VISIBLE,
-    timestamp_runtime_policy,
+from latka_jazn.core.visible_integrity import (
+    evaluate_origin_truth,
+    validate_visible_text as canonical_validate_visible_text,
 )
 
 SCHEMA_VERSION = schema_version("final_response_contract")
-RUNTIME_OWNED_NON_FALLBACK_CLASSIFICATIONS = {
-    "not_fallback",
-    "rule_handler_response",
-}
-
-
-
 @dataclass(slots=True)
 class FinalResponseContract:
     """Kontrakt widocznej odpowiedzi: timestamp nie może zostać schowany w JSON.
@@ -121,8 +110,14 @@ class FinalResponseContract:
         )
         validation = dict(decision.get("final_answer_validation") or {})
         validation_passed = bool(validation.get("accepted", not validation.get("must_regenerate", False)))
-        runtime_owned_origin = fallback_classification in RUNTIME_OWNED_NON_FALLBACK_CLASSIFICATIONS
-        origin_truth_valid = bool(decision.get("origin_truth_valid", runtime_owned_origin))
+        origin_truth_valid, origin_truth_errors = evaluate_origin_truth(
+            decision,
+            body=body,
+            final_visible_text=final_visible_text,
+            timestamp_header=timestamp_header,
+        )
+        decision["origin_truth_valid"] = origin_truth_valid
+        decision["origin_truth_errors"] = origin_truth_errors
         final_visible_integrity = cls.validate_visible_text(
             timestamp_header,
             final_visible_text,
@@ -241,48 +236,10 @@ class FinalResponseContract:
         validation_passed: bool = True,
         origin_truth_valid: bool = True,
     ) -> dict[str, Any]:
-        """Waliduje widoczny timestamp: obecność, źródło, zaufanie i świeżość."""
-        visible = (text or "").strip()
-        contract = dict(timestamp_contract or {})
-        has_timestamp = bool(timestamp_header) and visible.startswith(timestamp_header)
-        trusted = contract.get("trusted")
-        source = contract.get("source")
-        sample_iso = contract.get("sample_iso")
-        max_age_seconds = int(contract.get("max_age_seconds") or TIMESTAMP_MAX_AGE_SECONDS)
-        freshness_seconds: int | None = None
-        freshness_ok = True
-        if sample_iso:
-            try:
-                sample_dt = datetime.fromisoformat(str(sample_iso).replace("Z", "+00:00"))
-                if sample_dt.tzinfo is None:
-                    sample_dt = sample_dt.replace(tzinfo=timezone.utc)
-                freshness_seconds = abs(int((datetime.now(timezone.utc) - sample_dt.astimezone(timezone.utc)).total_seconds()))
-                freshness_ok = freshness_seconds <= max_age_seconds
-            except Exception:
-                freshness_ok = False
-        trust_required = bool(contract.get("require_trusted_in_final_visible", TIMESTAMP_REQUIRE_TRUSTED_IN_FINAL_VISIBLE))
-        degraded_allowed = bool(contract.get("allow_degraded_local_visible", TIMESTAMP_ALLOW_DEGRADED_LOCAL_VISIBLE))
-        trust_ok = True if trusted is None and not contract else bool(trusted) or not trust_required
-        degraded_visible_ok = bool(degraded_allowed and has_timestamp and freshness_ok)
-        timestamp_valid = bool(has_timestamp and freshness_ok and trust_ok)
-        valid = bool(timestamp_valid and validation_passed and origin_truth_valid)
-        return {
-            "schema_version": schema_version("final_response_contract_validation"),
-            "timestamp_policy": timestamp_runtime_policy(),
-            "timestamp_header": timestamp_header,
-            "timestamp_present": has_timestamp,
-            "timestamp_source": source,
-            "timestamp_trusted": trusted,
-            "timestamp_sample_iso": sample_iso,
-            "timestamp_freshness_seconds": freshness_seconds,
-            "timestamp_max_age_seconds": max_age_seconds,
-            "timestamp_freshness_ok": freshness_ok,
-            "timestamp_trust_ok": trust_ok,
-            "timestamp_degraded_allowed": degraded_allowed,
-            "timestamp_degraded_visible_ok": degraded_visible_ok,
-            "timestamp_valid": timestamp_valid,
-            "validation_passed": bool(validation_passed),
-            "origin_truth_valid": bool(origin_truth_valid),
-            "valid": valid,
-            "text_sha256": hashlib.sha256(visible.encode("utf-8")).hexdigest(),
-        }
+        return canonical_validate_visible_text(
+            timestamp_header,
+            text,
+            timestamp_contract=timestamp_contract,
+            validation_passed=validation_passed,
+            origin_truth_valid=origin_truth_valid,
+        )

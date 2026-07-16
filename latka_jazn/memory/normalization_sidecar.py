@@ -10,10 +10,11 @@ import sqlite3
 import uuid
 
 from latka_jazn.config import JaznConfig
+from latka_jazn.version import schema_version
 
-SCHEMA_VERSION = "memory_normalization_sidecar/v14.8.2.7"
-WAKE_STATE_SCHEMA_VERSION = "wake_state_snapshot/v14.8.2.7"
-LAYERED_DEDUPE_SCHEMA_VERSION = "layered_dedupe/v14.8.2.7"
+SCHEMA_VERSION = schema_version("memory_normalization_sidecar")
+WAKE_STATE_SCHEMA_VERSION = schema_version("wake_state_snapshot")
+LAYERED_DEDUPE_SCHEMA_VERSION = schema_version("layered_dedupe")
 TRUTH_BOUNDARY = (
     "Sidecar normalizacji czyta aktywną SQLite jako źródło i zapisuje wyłącznie "
     "do bazy audytowej. Nie nadpisuje kanonicznej pamięci rozmów i nie udaje "
@@ -72,6 +73,13 @@ class WakeStateStatus:
     active_snapshot_present: bool
     active_snapshot: dict[str, Any] | None
     status: str
+    deep_verify: bool = False
+    active_snapshot_count: int = 0
+    source_integrity_check: str | None = None
+    source_foreign_key_error_count: int | None = None
+    sidecar_integrity_check: str | None = None
+    sidecar_foreign_key_error_count: int | None = None
+    errors: list[str] | None = None
     truth_boundary: str = TRUTH_BOUNDARY
 
     def to_dict(self) -> dict[str, Any]:
@@ -88,6 +96,24 @@ class WakeStateBuildReport:
     item_count: int
     actor_count: int
     snapshot: dict[str, Any] | None
+    errors: list[str]
+    truth_boundary: str = TRUTH_BOUNDARY
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class MemoryPrepareReport:
+    schema_version: str
+    dry_run: bool
+    force: bool
+    deep_verify: bool
+    status: str
+    normalization_performed: bool
+    snapshot_built: bool
+    normalization: dict[str, Any] | None
+    wake_state: dict[str, Any]
     errors: list[str]
     truth_boundary: str = TRUTH_BOUNDARY
 
@@ -127,6 +153,9 @@ CREATE TABLE IF NOT EXISTS normalization_runs(
   mode TEXT NOT NULL,
   source_db_path TEXT NOT NULL,
   source_db_sha256 TEXT,
+  source_db_size INTEGER,
+  source_db_mtime_ns INTEGER,
+  source_schema_sha256 TEXT,
   source_integrity_check TEXT,
   source_foreign_key_error_count INTEGER,
   input_counts_json TEXT NOT NULL DEFAULT '{}',
@@ -299,6 +328,41 @@ def _sha256_file(path: Path) -> str | None:
     return h.hexdigest()
 
 
+def _sqlite_checks(path: Path) -> tuple[str | None, int | None, list[str]]:
+    errors: list[str] = []
+    try:
+        with _connect_readonly(path) as con:
+            integrity = str(con.execute("PRAGMA integrity_check").fetchone()[0])
+            fk_count = sum(1 for _ in con.execute("PRAGMA foreign_key_check"))
+        return integrity, fk_count, errors
+    except Exception as exc:
+        errors.append(repr(exc))
+        return None, None, errors
+
+
+def _sqlite_schema_sha256(path: Path) -> str | None:
+    try:
+        digest = hashlib.sha256()
+        with _connect_readonly(path) as con:
+            for row in con.execute(
+                "SELECT type,name,tbl_name,COALESCE(sql,'') FROM sqlite_master "
+                "WHERE name NOT LIKE 'sqlite_%' ORDER BY type,name,tbl_name"
+            ):
+                digest.update(_json(list(row)).encode("utf-8"))
+                digest.update(b"\n")
+        return digest.hexdigest()
+    except Exception:
+        return None
+
+
+def _file_fingerprint(path: Path) -> tuple[int | None, int | None]:
+    try:
+        stat = path.stat()
+        return int(stat.st_size), int(stat.st_mtime_ns)
+    except OSError:
+        return None, None
+
+
 def _connect_readonly(path: Path, *, immutable: bool = False) -> sqlite3.Connection:
     options = "mode=ro&immutable=1" if immutable else "mode=ro"
     uri = f"file:{path.resolve().as_posix()}?{options}"
@@ -412,18 +476,44 @@ class MemoryNormalizationSidecar:
     def ensure_schema(self) -> None:
         with _connect_write(self.sidecar_db_path) as con:
             con.executescript(SIDE_SCHEMA)
+            columns = {str(row[1]) for row in con.execute("PRAGMA table_info(normalization_runs)")}
+            for name, sql_type in (
+                ("source_db_size", "INTEGER"),
+                ("source_db_mtime_ns", "INTEGER"),
+                ("source_schema_sha256", "TEXT"),
+            ):
+                if name not in columns:
+                    con.execute(f"ALTER TABLE normalization_runs ADD COLUMN {name} {sql_type}")
             con.execute("INSERT OR REPLACE INTO sidecar_meta(key,value) VALUES(?,?)", ("schema_version", SCHEMA_VERSION))
             con.execute("INSERT OR REPLACE INTO sidecar_meta(key,value) VALUES(?,?)", ("truth_boundary", TRUTH_BOUNDARY))
             con.commit()
 
-    def status(self) -> MemoryNormalizationStatus:
-        source_counts = self._source_counts(immutable=True)
+            # Legacy sidecars could contain several active rows. Keep the newest one
+            # before installing the partial unique index. Both changes are atomic.
+            con.execute("BEGIN IMMEDIATE")
+            active_rows = con.execute(
+                "SELECT snapshot_id FROM wake_state_snapshots WHERE active=1 "
+                "ORDER BY created_at_utc DESC, rowid DESC"
+            ).fetchall()
+            for row in active_rows[1:]:
+                con.execute("UPDATE wake_state_snapshots SET active=0 WHERE snapshot_id=?", (row[0],))
+            con.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_wake_state_single_active "
+                "ON wake_state_snapshots(active) WHERE active=1"
+            )
+            con.commit()
+
+    def status(self, *, deep_verify: bool = False) -> MemoryNormalizationStatus:
+        # Ordinary startup/status remains bounded: only file metadata and small
+        # sidecar rows are read. Deep verification is explicit.
+        source_counts = self._source_counts(immutable=True) if deep_verify else {}
         sidecar_counts: dict[str, int] = {}
         schema_present = False
         last_run = None
+        read_error = False
         if self.sidecar_db_path.exists():
             try:
-                with _connect_readonly(self.sidecar_db_path, immutable=True) as con:
+                with _connect_readonly(self.sidecar_db_path) as con:
                     required = {"normalization_runs", "actors", "normalized_memory_items", "wake_state_snapshots"}
                     optional = {"layered_dedupe_runs", "layered_dedupe_groups", "layered_dedupe_members"}
                     present = {
@@ -439,6 +529,7 @@ class MemoryNormalizationSidecar:
                         ).fetchone()
                         last_run = dict(row) if row else None
             except Exception as exc:
+                read_error = True
                 sidecar_counts["read_error"] = 1
                 last_run = {"status": "read_error", "error": repr(exc)}
         if not self.source_db_path.exists():
@@ -447,10 +538,35 @@ class MemoryNormalizationSidecar:
             status = "sidecar_missing"
         elif not schema_present:
             status = "sidecar_schema_missing"
-        elif sidecar_counts.get("normalized_memory_items", 0) <= 0:
-            status = "schema_ready_no_normalized_items"
+        elif read_error:
+            status = "read_error"
+        elif not last_run:
+            status = "normalization_required"
+        elif str(last_run.get("status")) != "ok" or not last_run.get("ended_at_utc"):
+            status = "source_run_invalid"
+        elif str(last_run.get("schema_version")) != SCHEMA_VERSION or str(last_run.get("runtime_version")) != self.runtime_version:
+            status = "normalization_stale"
         else:
             status = "ready"
+            source_size, source_mtime_ns = _file_fingerprint(self.source_db_path)
+            stored_size = last_run.get("source_db_size")
+            stored_mtime = last_run.get("source_db_mtime_ns")
+            if stored_size is None or stored_mtime is None:
+                status = "normalization_stale"
+            elif int(stored_size) != source_size or int(stored_mtime) != source_mtime_ns:
+                status = "source_changed"
+            elif deep_verify:
+                integrity, fk_count, errors = _sqlite_checks(self.source_db_path)
+                source_hash = _sha256_file(self.source_db_path)
+                schema_hash = _sqlite_schema_sha256(self.source_db_path)
+                if errors or integrity != "ok" or fk_count != 0:
+                    status = "validation_failed"
+                elif source_hash != last_run.get("source_db_sha256"):
+                    status = "source_changed"
+                elif schema_hash != last_run.get("source_schema_sha256"):
+                    status = "normalization_stale"
+            if status == "ready" and sidecar_counts.get("normalized_memory_items", 0) <= 0:
+                status = "normalization_required"
         return MemoryNormalizationStatus(
             schema_version=SCHEMA_VERSION,
             source_db_path=str(self.source_db_path),
@@ -479,7 +595,25 @@ class MemoryNormalizationSidecar:
                 source_integrity_check=None,
                 source_foreign_key_error_count=None,
             )
+        integrity, fk_count, check_errors = _sqlite_checks(self.source_db_path)
         input_counts = self._source_counts()
+        source_hash = _sha256_file(self.source_db_path)
+        source_size, source_mtime_ns = _file_fingerprint(self.source_db_path)
+        source_schema_hash = _sqlite_schema_sha256(self.source_db_path)
+        if check_errors or integrity != "ok" or fk_count != 0:
+            return NormalizationRunReport(
+                schema_version=SCHEMA_VERSION,
+                run_id=None,
+                dry_run=dry_run,
+                status="validation_failed",
+                source_db_path=str(self.source_db_path),
+                sidecar_db_path=str(self.sidecar_db_path),
+                input_counts=input_counts,
+                output_counts={},
+                errors=check_errors or [f"integrity={integrity!r}, foreign_key_errors={fk_count!r}"],
+                source_integrity_check=integrity,
+                source_foreign_key_error_count=fk_count,
+            )
         if dry_run:
             return NormalizationRunReport(
                 schema_version=SCHEMA_VERSION,
@@ -491,8 +625,8 @@ class MemoryNormalizationSidecar:
                 input_counts=input_counts,
                 output_counts=self._estimated_output_counts(input_counts, limit=limit),
                 errors=[],
-                source_integrity_check=None,
-                source_foreign_key_error_count=None,
+                source_integrity_check=integrity,
+                source_foreign_key_error_count=fk_count,
             )
 
         self.ensure_schema()
@@ -500,19 +634,15 @@ class MemoryNormalizationSidecar:
         started = _now()
         errors: list[str] = []
         output_counts = {"actors": 0, "normalized_memory_items": 0}
-        integrity = None
-        fk_count = None
-
         with _connect_readonly(self.source_db_path) as source:
-            integrity = str(source.execute("PRAGMA integrity_check").fetchone()[0])
-            fk_count = len(source.execute("PRAGMA foreign_key_check").fetchall())
             with _connect_write(self.sidecar_db_path) as side:
                 side.execute(
                     """INSERT INTO normalization_runs
                        (run_id,schema_version,runtime_version,started_at_utc,mode,source_db_path,
-                        source_db_sha256,source_integrity_check,source_foreign_key_error_count,
-                        input_counts_json,output_counts_json,status,errors_json,dry_run,truth_boundary)
-                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                         source_db_sha256,source_db_size,source_db_mtime_ns,source_schema_sha256,
+                         source_integrity_check,source_foreign_key_error_count,
+                         input_counts_json,output_counts_json,status,errors_json,dry_run,truth_boundary)
+                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (
                         run_id,
                         SCHEMA_VERSION,
@@ -520,7 +650,10 @@ class MemoryNormalizationSidecar:
                         started,
                         "sidecar_normalization",
                         str(self.source_db_path),
-                        _sha256_file(self.source_db_path),
+                        source_hash,
+                        source_size,
+                        source_mtime_ns,
+                        source_schema_hash,
                         integrity,
                         fk_count,
                         _json(input_counts),
@@ -564,7 +697,7 @@ class MemoryNormalizationSidecar:
             source_foreign_key_error_count=fk_count,
         )
 
-    def wake_state_status(self) -> WakeStateStatus:
+    def wake_state_status(self, *, deep_verify: bool = False) -> WakeStateStatus:
         if not self.sidecar_db_path.exists():
             return WakeStateStatus(
                 schema_version=WAKE_STATE_SCHEMA_VERSION,
@@ -574,31 +707,80 @@ class MemoryNormalizationSidecar:
                 active_snapshot_present=False,
                 active_snapshot=None,
                 status="sidecar_missing",
+                deep_verify=deep_verify,
+                errors=[],
             )
         try:
-            with _connect_readonly(self.sidecar_db_path, immutable=True) as con:
-                schema_present = _table_exists(con, "wake_state_snapshots")
+            with _connect_readonly(self.sidecar_db_path) as con:
+                required = {"normalization_runs", "normalized_memory_items", "wake_state_snapshots"}
+                schema_present = all(_table_exists(con, name) for name in required)
                 active = None
+                active_count = 0
+                status = "sidecar_schema_missing"
+                errors: list[str] = []
+                source_integrity = None
+                source_fk_count = None
+                sidecar_integrity = None
+                sidecar_fk_count = None
                 if schema_present:
-                    row = con.execute(
-                        "SELECT * FROM wake_state_snapshots WHERE active=1 ORDER BY created_at_utc DESC LIMIT 1"
-                    ).fetchone()
+                    rows = con.execute(
+                        "SELECT * FROM wake_state_snapshots WHERE active=1 ORDER BY created_at_utc DESC, rowid DESC"
+                    ).fetchall()
+                    active_count = len(rows)
+                    row = rows[0] if rows else None
                     if row:
-                        snapshot = json.loads(row["snapshot_json"])
+                        raw = str(row["snapshot_json"])
+                        try:
+                            snapshot = json.loads(raw)
+                        except Exception as exc:
+                            snapshot = {}
+                            errors.append(f"snapshot_json:{exc!r}")
                         active = _snapshot_summary(
-                            snapshot,
-                            snapshot_id=row["snapshot_id"],
-                            snapshot_sha256=row["snapshot_sha256"],
-                            source_run_id=row["source_run_id"],
-                            created_at_utc=row["created_at_utc"],
+                            snapshot, snapshot_id=row["snapshot_id"], snapshot_sha256=row["snapshot_sha256"],
+                            source_run_id=row["source_run_id"], created_at_utc=row["created_at_utc"],
                             validation_status=row["validation_status"],
                         )
-                if active:
-                    status = "ready"
-                elif schema_present:
-                    status = "no_active_wake_state"
-                else:
-                    status = "sidecar_schema_missing"
+                        run = con.execute(
+                            "SELECT * FROM normalization_runs WHERE run_id=?", (row["source_run_id"],)
+                        ).fetchone()
+                        if active_count != 1:
+                            status = "validation_failed"
+                            errors.append(f"active_snapshot_count={active_count}")
+                        elif _hash_text(raw) != str(row["snapshot_sha256"]):
+                            status = "snapshot_hash_mismatch"
+                        elif run is None or str(run["status"]) != "ok" or not run["ended_at_utc"] or int(run["dry_run"]):
+                            status = "source_run_invalid"
+                        elif str(row["validation_status"]) != "valid" or snapshot.get("validation_status") != "valid":
+                            status = "validation_failed"
+                        elif int(snapshot.get("source_counts", {}).get("normalized_memory_items", 0)) <= 0:
+                            status = "validation_failed"
+                            errors.append("empty_snapshot")
+                        elif str(run["schema_version"]) != SCHEMA_VERSION or str(run["runtime_version"]) != self.runtime_version:
+                            status = "normalization_stale"
+                        elif str(Path(run["source_db_path"]).resolve()) != str(self.source_db_path.resolve()):
+                            status = "source_changed"
+                        elif not self.source_db_path.exists():
+                            status = "normalization_required"
+                        else:
+                            source_size, source_mtime = _file_fingerprint(self.source_db_path)
+                            if run["source_db_size"] is None or run["source_db_mtime_ns"] is None:
+                                status = "normalization_stale"
+                            elif int(run["source_db_size"]) != source_size or int(run["source_db_mtime_ns"]) != source_mtime:
+                                status = "source_changed"
+                            else:
+                                status = "ready"
+                        if deep_verify and status == "ready":
+                            source_integrity, source_fk_count, source_errors = _sqlite_checks(self.source_db_path)
+                            sidecar_integrity, sidecar_fk_count, sidecar_errors = _sqlite_checks(self.sidecar_db_path)
+                            errors.extend(source_errors + sidecar_errors)
+                            if errors or source_integrity != "ok" or source_fk_count != 0 or sidecar_integrity != "ok" or sidecar_fk_count != 0:
+                                status = "validation_failed"
+                            elif _sha256_file(self.source_db_path) != run["source_db_sha256"]:
+                                status = "source_changed"
+                            elif _sqlite_schema_sha256(self.source_db_path) != run["source_schema_sha256"]:
+                                status = "normalization_stale"
+                    else:
+                        status = "snapshot_missing"
                 return WakeStateStatus(
                     schema_version=WAKE_STATE_SCHEMA_VERSION,
                     sidecar_db_path=str(self.sidecar_db_path),
@@ -607,6 +789,13 @@ class MemoryNormalizationSidecar:
                     active_snapshot_present=bool(active),
                     active_snapshot=active,
                     status=status,
+                    deep_verify=deep_verify,
+                    active_snapshot_count=active_count,
+                    source_integrity_check=source_integrity,
+                    source_foreign_key_error_count=source_fk_count,
+                    sidecar_integrity_check=sidecar_integrity,
+                    sidecar_foreign_key_error_count=sidecar_fk_count,
+                    errors=errors,
                 )
         except Exception as exc:
             return WakeStateStatus(
@@ -617,10 +806,14 @@ class MemoryNormalizationSidecar:
                 active_snapshot_present=False,
                 active_snapshot={"error": repr(exc)},
                 status="read_error",
+                deep_verify=deep_verify,
+                errors=[repr(exc)],
             )
 
     def build_wake_state(self, *, dry_run: bool = False) -> WakeStateBuildReport:
-        status = self.status()
+        if not dry_run:
+            self.ensure_schema()
+        status = self.status(deep_verify=True)
         if status.status not in {"ready"}:
             return WakeStateBuildReport(
                 schema_version=WAKE_STATE_SCHEMA_VERSION,
@@ -634,16 +827,33 @@ class MemoryNormalizationSidecar:
                 errors=[status.status],
             )
         with _connect_readonly(self.sidecar_db_path) as con:
-            snapshot = self._build_wake_snapshot(con)
+            row = con.execute(
+                "SELECT * FROM normalization_runs WHERE status='ok' AND ended_at_utc IS NOT NULL AND dry_run=0 "
+                "ORDER BY started_at_utc DESC LIMIT 1"
+            ).fetchone()
+            if row is None:
+                return WakeStateBuildReport(
+                    schema_version=WAKE_STATE_SCHEMA_VERSION, dry_run=dry_run, status="source_run_invalid",
+                    snapshot_id=None, snapshot_sha256=None, item_count=0, actor_count=0, snapshot=None,
+                    errors=["no valid normalization run"],
+                )
+            last_run_id = str(row["run_id"])
+            snapshot = self._build_wake_snapshot(con, run_id=last_run_id)
             snapshot_raw = _json(snapshot)
             snapshot_sha = _hash_text(snapshot_raw)
-            snapshot_summary = _snapshot_summary(snapshot, snapshot_id=None, snapshot_sha256=snapshot_sha)
-            item_count = _count_table(con, "normalized_memory_items")
+            snapshot_summary = _snapshot_summary(
+                snapshot, snapshot_id=None, snapshot_sha256=snapshot_sha, source_run_id=last_run_id
+            )
+            item_count = int(con.execute(
+                "SELECT COUNT(*) FROM normalized_memory_items WHERE run_id=?", (last_run_id,)
+            ).fetchone()[0])
             actor_count = _count_table(con, "actors")
-            last_run_id = None
-            row = con.execute("SELECT run_id FROM normalization_runs ORDER BY started_at_utc DESC LIMIT 1").fetchone()
-            if row:
-                last_run_id = row["run_id"]
+        if snapshot.get("validation_status") != "valid" or item_count <= 0:
+            return WakeStateBuildReport(
+                schema_version=WAKE_STATE_SCHEMA_VERSION, dry_run=dry_run, status="validation_failed",
+                snapshot_id=None, snapshot_sha256=snapshot_sha, item_count=item_count, actor_count=actor_count,
+                snapshot=snapshot_summary, errors=["snapshot invalid or empty"],
+            )
         if dry_run:
             return WakeStateBuildReport(
                 schema_version=WAKE_STATE_SCHEMA_VERSION,
@@ -659,6 +869,7 @@ class MemoryNormalizationSidecar:
         self.ensure_schema()
         snapshot_id = str(uuid.uuid4())
         with _connect_write(self.sidecar_db_path) as con:
+            con.execute("BEGIN IMMEDIATE")
             con.execute("UPDATE wake_state_snapshots SET active=0 WHERE active=1")
             con.execute(
                 """INSERT INTO wake_state_snapshots
@@ -677,6 +888,32 @@ class MemoryNormalizationSidecar:
                     TRUTH_BOUNDARY,
                 ),
             )
+            stored = con.execute(
+                "SELECT snapshot_json,snapshot_sha256,source_run_id,validation_status "
+                "FROM wake_state_snapshots WHERE snapshot_id=?", (snapshot_id,)
+            ).fetchone()
+            active_count = int(con.execute(
+                "SELECT COUNT(*) FROM wake_state_snapshots WHERE active=1"
+            ).fetchone()[0])
+            integrity = str(con.execute("PRAGMA integrity_check").fetchone()[0])
+            fk_count = sum(1 for _ in con.execute("PRAGMA foreign_key_check"))
+            stored_valid = bool(
+                stored
+                and _hash_text(str(stored["snapshot_json"])) == str(stored["snapshot_sha256"])
+                and str(stored["source_run_id"]) == last_run_id
+                and str(stored["validation_status"]) == "valid"
+                and active_count == 1
+                and integrity == "ok"
+                and fk_count == 0
+            )
+            if not stored_valid:
+                con.rollback()
+                return WakeStateBuildReport(
+                    schema_version=WAKE_STATE_SCHEMA_VERSION, dry_run=False, status="validation_failed",
+                    snapshot_id=None, snapshot_sha256=snapshot_sha, item_count=item_count, actor_count=actor_count,
+                    snapshot=snapshot_summary,
+                    errors=[f"readback/hash/source/integrity validation failed; active={active_count}, integrity={integrity}, fk={fk_count}"],
+                )
             con.commit()
         report_summary = _snapshot_summary(
             snapshot,
@@ -688,13 +925,94 @@ class MemoryNormalizationSidecar:
         return WakeStateBuildReport(
             schema_version=WAKE_STATE_SCHEMA_VERSION,
             dry_run=False,
-            status="ok",
+            status="ready",
             snapshot_id=snapshot_id,
             snapshot_sha256=snapshot_sha,
             item_count=item_count,
             actor_count=actor_count,
             snapshot=report_summary,
             errors=[],
+        )
+
+    def prepare(
+        self,
+        *,
+        dry_run: bool = False,
+        force: bool = False,
+        deep_verify: bool = True,
+    ) -> MemoryPrepareReport:
+        if not self.source_db_path.exists():
+            wake = self.wake_state_status(deep_verify=False).to_dict()
+            return MemoryPrepareReport(
+                schema_version=schema_version("memory_prepare"), dry_run=dry_run, force=force,
+                deep_verify=deep_verify, status="normalization_required", normalization_performed=False,
+                snapshot_built=False, normalization=None, wake_state=wake,
+                errors=[f"missing source db: {self.source_db_path}"],
+            )
+
+        source_integrity, source_fk_count, source_errors = _sqlite_checks(self.source_db_path)
+        if source_errors or source_integrity != "ok" or source_fk_count != 0:
+            wake = self.wake_state_status(deep_verify=False).to_dict()
+            errors = source_errors or [
+                f"integrity={source_integrity!r}, foreign_key_errors={source_fk_count!r}"
+            ]
+            return MemoryPrepareReport(
+                schema_version=schema_version("memory_prepare"), dry_run=dry_run, force=force,
+                deep_verify=deep_verify, status="validation_failed", normalization_performed=False,
+                snapshot_built=False, normalization=None, wake_state=wake, errors=errors,
+            )
+
+        if dry_run:
+            before = self.status(deep_verify=True)
+            normalization = None
+            if force or before.status != "ready":
+                normalization = self.normalize(dry_run=True).to_dict()
+            wake = self.wake_state_status(deep_verify=deep_verify).to_dict()
+            planned_status = "ready" if before.status == "ready" and wake.get("status") == "ready" and not force else before.status
+            if force:
+                planned_status = "normalization_required"
+            return MemoryPrepareReport(
+                schema_version=schema_version("memory_prepare"), dry_run=True, force=force,
+                deep_verify=deep_verify, status=planned_status, normalization_performed=False,
+                snapshot_built=False, normalization=normalization, wake_state=wake, errors=[],
+            )
+
+        self.ensure_schema()
+        before = self.status(deep_verify=True)
+        normalization_report: dict[str, Any] | None = None
+        normalization_performed = bool(force or before.status != "ready")
+        if normalization_performed:
+            normalized = self.normalize(dry_run=False)
+            normalization_report = normalized.to_dict()
+            if normalized.status != "ok":
+                wake = self.wake_state_status(deep_verify=False).to_dict()
+                return MemoryPrepareReport(
+                    schema_version=schema_version("memory_prepare"), dry_run=False, force=force,
+                    deep_verify=deep_verify, status=normalized.status, normalization_performed=True,
+                    snapshot_built=False, normalization=normalization_report, wake_state=wake,
+                    errors=list(normalized.errors),
+                )
+
+        wake_before = self.wake_state_status(deep_verify=True)
+        snapshot_built = wake_before.status != "ready" or normalization_performed
+        build_report = None
+        if snapshot_built:
+            build_report = self.build_wake_state(dry_run=False)
+            if build_report.status != "ready":
+                return MemoryPrepareReport(
+                    schema_version=schema_version("memory_prepare"), dry_run=False, force=force,
+                    deep_verify=deep_verify, status=build_report.status,
+                    normalization_performed=normalization_performed, snapshot_built=True,
+                    normalization=normalization_report, wake_state=wake_before.to_dict(),
+                    errors=list(build_report.errors),
+                )
+        final_wake = self.wake_state_status(deep_verify=deep_verify)
+        errors = list(final_wake.errors or [])
+        return MemoryPrepareReport(
+            schema_version=schema_version("memory_prepare"), dry_run=False, force=force,
+            deep_verify=deep_verify, status=final_wake.status,
+            normalization_performed=normalization_performed, snapshot_built=snapshot_built,
+            normalization=normalization_report, wake_state=final_wake.to_dict(), errors=errors,
         )
 
     def build_layered_dedupe(self, *, dry_run: bool = False, min_group_size: int = 2) -> LayeredDedupeReport:
@@ -1426,22 +1744,29 @@ class MemoryNormalizationSidecar:
             "source_evidence_json", "created_at_utc", "updated_at_utc", "run_id",
         ]
         placeholders = ",".join("?" for _ in keys)
+        update_columns = [key for key in keys if key not in {"item_id", "dedupe_key", "created_at_utc"}]
+        updates = ",".join(f"{key}=excluded.{key}" for key in update_columns)
         con.execute(
-            f"INSERT OR IGNORE INTO normalized_memory_items({','.join(keys)}) VALUES({placeholders})",
+            f"INSERT INTO normalized_memory_items({','.join(keys)}) VALUES({placeholders}) "
+            f"ON CONFLICT(dedupe_key) DO UPDATE SET {updates}",
             tuple(item.get(k) for k in keys),
         )
 
-    def _build_wake_snapshot(self, con: sqlite3.Connection) -> dict[str, Any]:
+    def _build_wake_snapshot(self, con: sqlite3.Connection, *, run_id: str) -> dict[str, Any]:
         namespace_counts = {
             row["memory_namespace"]: int(row["c"])
             for row in con.execute(
-                "SELECT memory_namespace, COUNT(*) c FROM normalized_memory_items GROUP BY memory_namespace ORDER BY c DESC"
+                "SELECT memory_namespace, COUNT(*) c FROM normalized_memory_items WHERE run_id=? "
+                "GROUP BY memory_namespace ORDER BY c DESC",
+                (run_id,),
             )
         }
         truth_counts = {
             row["truth_status"]: int(row["c"])
             for row in con.execute(
-                "SELECT truth_status, COUNT(*) c FROM normalized_memory_items GROUP BY truth_status ORDER BY c DESC"
+                "SELECT truth_status, COUNT(*) c FROM normalized_memory_items WHERE run_id=? "
+                "GROUP BY truth_status ORDER BY c DESC",
+                (run_id,),
             )
         }
         actors = [dict(row) for row in con.execute("SELECT actor_id, display_name, actor_type, identity_confidence, privacy_namespace FROM actors ORDER BY actor_id")]
@@ -1449,9 +1774,10 @@ class MemoryNormalizationSidecar:
             """SELECT memory_type, source_timestamp, source_conversation_title, memory_namespace,
                       truth_status, content_excerpt
                  FROM normalized_memory_items
-                WHERE source_timestamp IS NOT NULL
-                ORDER BY source_timestamp DESC
-                LIMIT 12"""
+                 WHERE source_timestamp IS NOT NULL AND run_id=?
+                 ORDER BY source_timestamp DESC
+                 LIMIT 12""",
+            (run_id,),
         ).fetchall()
         recent_events = [
             {
@@ -1467,14 +1793,17 @@ class MemoryNormalizationSidecar:
         procedural_rows = con.execute(
             """SELECT content_excerpt, importance
                  FROM normalized_memory_items
-                WHERE memory_namespace='procedural_rules'
-                ORDER BY importance DESC, source_timestamp DESC
-                LIMIT 8"""
+                 WHERE memory_namespace='procedural_rules' AND run_id=?
+                 ORDER BY importance DESC, source_timestamp DESC
+                 LIMIT 8""",
+            (run_id,),
         ).fetchall()
         procedural_rules = [_excerpt(row["content_excerpt"], limit=240) for row in procedural_rows]
         krzysztof_actor = next((a for a in actors if a["actor_id"] == "krzysztof_candidate"), None)
         krzysztof_private_allowed = bool(krzysztof_actor and float(krzysztof_actor["identity_confidence"]) >= 0.85)
-        item_count = _count_table(con, "normalized_memory_items")
+        item_count = int(con.execute(
+            "SELECT COUNT(*) FROM normalized_memory_items WHERE run_id=?", (run_id,)
+        ).fetchone()[0])
         integrity = con.execute("PRAGMA integrity_check").fetchone()[0]
         fk_count = len(con.execute("PRAGMA foreign_key_check").fetchall())
         validation_status = "valid" if integrity == "ok" and fk_count == 0 and item_count > 0 else "invalid_or_empty"
@@ -1509,6 +1838,7 @@ class MemoryNormalizationSidecar:
                 "normalized_memory_items": item_count,
                 "actors": len(actors),
             },
+            "source_run_id": run_id,
             "validation_status": validation_status,
             "validation": {
                 "sidecar_integrity_check": integrity,
@@ -1517,21 +1847,25 @@ class MemoryNormalizationSidecar:
         }
 
 
-def build_memory_normalization_status(config: JaznConfig | None = None) -> MemoryNormalizationStatus:
+def build_memory_normalization_status(
+    config: JaznConfig | None = None, *, deep_verify: bool = False
+) -> MemoryNormalizationStatus:
     cfg = config or JaznConfig()
     return MemoryNormalizationSidecar(
         cfg.root,
         source_db_path=cfg.memory_db_path_readonly,
         sidecar_db_path=cfg.audit_db_path_readonly,
         runtime_version=cfg.version,
-    ).status()
+    ).status(deep_verify=deep_verify)
 
 
-def build_wake_state_status(config: JaznConfig | None = None) -> WakeStateStatus:
+def build_wake_state_status(
+    config: JaznConfig | None = None, *, deep_verify: bool = False
+) -> WakeStateStatus:
     cfg = config or JaznConfig()
     return MemoryNormalizationSidecar(
         cfg.root,
         source_db_path=cfg.memory_db_path_readonly,
         sidecar_db_path=cfg.audit_db_path_readonly,
         runtime_version=cfg.version,
-    ).wake_state_status()
+    ).wake_state_status(deep_verify=deep_verify)

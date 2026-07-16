@@ -3,162 +3,53 @@
   "version": "v15.0.3.2",
   "runtime_version": "v15.0.3.2",
   "package_version": "v15.0.3.2",
-  "generated_at_utc": "2026-07-15T00:24:40.134344+00:00",
-  "updated_at_utc": "2026-07-15T08:15:06.483458+00:00",
+  "generated_at_utc": "2026-07-16T10:45:27.698416+00:00",
+  "updated_at_utc": "2026-07-16T10:45:27.698416+00:00",
   "start_file": "run.py",
-  "active_database": "memory/sqlite/conversation_archive_v1/conversation_archive_manifest.sqlite3",
-  "audit_database": "memory/sqlite/runtime_write_v1/runtime_audit.sqlite3",
-  "active_runtime_write_database": "memory/sqlite/runtime_write_v1/runtime_memory.sqlite3",
-  "active_conversation_archive": "memory/sqlite/conversation_archive_v1/conversation_archive_manifest.sqlite3",
-  "active_conversation_fts": "memory/sqlite/conversation_fts_v1/conversation_fts_0001.sqlite3",
-  "active_staging_database": "memory/sqlite/staging_v1/staging_memory_0001.sqlite3",
-  "storage_layout": "conversation_archive_v1+fts_v1+staging_v1+runtime_write_v1",
-  "file_count": 412,
-  "static_file_count": 412,
+  "file_count": 423,
+  "static_file_count": 423,
   "mutable_runtime_file_count": 0,
   "runtime_mutable_file_count": 0,
-  "archive_file_count": 0,
   "excluded_file_count": 1,
-  "deferred_hash_file_count": 0,
-  "hash_size_limit_bytes": 67108864,
   "runtime_state_file": "RUNTIME_STATE.json",
   "runtime_memory_split_policy": {
-    "static_manifest": "PACKAGE_INTEGRITY_MANIFEST.json is the sole package integrity manifest and contains static tracked files only.",
-    "runtime_state": "RUNTIME_STATE.json contains workspace_runtime, raw/private memory, processed chat graphs and SQLite stores.",
-    "why": "Memory/runtime files change during operation and must not invalidate the static package manifest or be mistaken for source code."
+    "static_manifest": "PACKAGE_INTEGRITY_MANIFEST.json protects static project files only.",
+    "runtime_state": "Runtime state, memory, SQLite and workspace_runtime are excluded."
   },
-  "excluded_file_detail_count": 1,
-  "excluded_file_detail_suppressed_count": 0,
-  "excluded_file_detail_suppressed_summary": [],
-  "mutable_patterns": [
-    "workspace_runtime/**",
-    "memory/**",
-    "memory/raw/**",
-    "memory/raw_chats/**",
-    "memory/processed_chats/**",
-    "memory/layered/*.jsonl",
-    "memory/sqlite/**/*.sqlite3",
-    "memory/sqlite/**/*_shards.json",
-    "memory/sqlite/sqlite_audit_report.json"
-  ],
   "excluded_policy": {
-    "control_files_excluded_from_own_hash": [
+    "roots": [
+      ".git",
+      ".pytest_cache",
+      "__pycache__",
+      "backups",
+      "memory",
+      "workspace_runtime"
+    ],
+    "file_names": [
+      "BOOTSTRAP_JAZN_CURRENT.json",
+      "JAZN_ACTIVE_RUNTIME.json",
+      "MANIFEST_CURRENT.json",
       "PACKAGE_INTEGRITY_MANIFEST.json",
       "RUNTIME_STATE.json",
-      "SHA256SUMS",
-      "SHA256SUMS_STATIC"
+      "VERSION.txt"
     ],
-    "directory_parts_excluded": [
-      ".git",
-      ".mypy_cache",
-      ".pytest-tmp",
-      ".pytest_cache",
-      ".ruff_cache",
-      "__pycache__",
-      "build",
-      "dist"
-    ],
-    "transient_suffixes_excluded": [
-      "-wal",
-      "-shm",
-      ".sqlite3-wal",
-      ".sqlite3-shm",
+    "suffixes": [
+      ".bak",
+      ".db",
+      ".db-shm",
+      ".db-wal",
+      ".log",
+      ".pyc",
+      ".sqlite",
+      ".sqlite-shm",
+      ".sqlite-wal",
+      ".sqlite3",
+      ".temp",
       ".tmp",
-      ".tmp_extract_part",
-      ".partial"
-    ],
-    "prefixes_excluded": [
-      "exports/"
-    ],
-    "truth_boundary": "PACKAGE_INTEGRITY_MANIFEST.json, RUNTIME_STATE.json and SHA256 control files are excluded from the hashed list to avoid self-reference."
+      ".zip"
+    ]
   },
-  "sqlite_diagnostics": [
-    {
-      "path": "memory/sqlite/conversation_archive_v1/conversation_archive_manifest.sqlite3",
-      "exists": true,
-      "size_bytes": 126214144,
-      "integrity_check": "ok",
-      "foreign_key_check_count": 0,
-      "tables": [
-        "archive_sources",
-        "content_locations",
-        "conversation_locations",
-        "conversation_occurrence_locations",
-        "fts_locations",
-        "manifest_meta",
-        "message_locations",
-        "occurrence_locations",
-        "shard_files",
-        "staging_locations"
-      ]
-    },
-    {
-      "path": "memory/sqlite/runtime_write_v1/runtime_audit.sqlite3",
-      "exists": true,
-      "size_bytes": 749568,
-      "integrity_check": "ok",
-      "foreign_key_check_count": 0,
-      "tables": [
-        "audit_db_meta",
-        "audit_runtime_events"
-      ]
-    },
-    {
-      "path": "memory/sqlite/runtime_write_v1/runtime_memory.sqlite3",
-      "exists": true,
-      "size_bytes": 609206272,
-      "integrity_check": "ok",
-      "foreign_key_check_count": 0,
-      "tables": [
-        "episodic_memories",
-        "events",
-        "journal",
-        "legacy_conversations",
-        "legacy_messages",
-        "meta",
-        "procedural_rules",
-        "reflection_entries",
-        "semantic_facts",
-        "source_files",
-        "truth_audits"
-      ],
-      "legacy_messages_count": 0
-    },
-    {
-      "path": "memory/sqlite/conversation_fts_v1/conversation_fts_0001.sqlite3",
-      "exists": true,
-      "size_bytes": 94126080,
-      "integrity_check": "ok",
-      "foreign_key_check_count": 0,
-      "tables": [
-        "fts_docs",
-        "message_fts",
-        "message_fts_config",
-        "message_fts_data",
-        "message_fts_docsize",
-        "message_fts_idx",
-        "shard_meta"
-      ]
-    },
-    {
-      "path": "memory/sqlite/staging_v1/staging_memory_0001.sqlite3",
-      "exists": true,
-      "size_bytes": 116953088,
-      "integrity_check": "ok",
-      "foreign_key_check_count": 0,
-      "tables": [
-        "shard_meta",
-        "staging_evidence",
-        "staging_memory_entries"
-      ]
-    },
-    {
-      "path": "workspace_runtime/dictionary_cache.sqlite3",
-      "exists": false,
-      "size_bytes": 0
-    }
-  ],
-  "truth_boundary": "PACKAGE_INTEGRITY_MANIFEST.json is the sole package/release integrity manifest. It describes the static tracked snapshot and does not prove a live daemon or active memory.",
+  "truth_boundary": "The manifest hashes static files including SOURCE_PROVENANCE.json. It excludes itself, Git history, memory, runtime state, SQLite, archives, secrets, logs, backups and temporary files.",
   "files": [
     {
       "path": ".gitattributes",
@@ -167,3661 +58,3715 @@
       "mutable_runtime": false,
       "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": ".gitignore",
-      "size_bytes": 1939,
-      "sha256": "51b845bcbcf90b6226e22c1372670f152023118c9801ac9d28e09ec1504fb90c",
+      "size_bytes": 2056,
+      "sha256": "15c2881255e4436acced9fcb815307f35917fcae4518057ff4da3245a8c9b364",
       "mutable_runtime": false,
       "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "AGENTS.chatgpt.md",
       "size_bytes": 1583,
       "sha256": "44f79fa0219a071408013780d9593584f0ff6bcb852d5a90b0fc0e5c422983ba",
       "mutable_runtime": false,
-      "classification": "static_documentation",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "AGENTS.codex.md",
-      "size_bytes": 816,
-      "sha256": "4118f7aa687c43ad02c5b1cf09c98f18fb974b35a20f73f3a3de4d55f5b02c10",
+      "size_bytes": 844,
+      "sha256": "a819905ce6074b0818b1157531f129cee61690791b2448b990ccc722311dd913",
       "mutable_runtime": false,
-      "classification": "static_documentation",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "AGENTS.md",
       "size_bytes": 1364,
       "sha256": "1c3917aa387c3ba934813537513e7f30e1c1a1823170ada7e56572fe7bd372aa",
       "mutable_runtime": false,
-      "classification": "static_documentation",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "README.md",
       "size_bytes": 4420,
       "sha256": "bc98b4ce2d9a1e2d1471688f3138e833ac44c72c330fb589db9830f7accfb2a9",
       "mutable_runtime": false,
-      "classification": "static_documentation",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
+      "path": "SOURCE_PROVENANCE.json",
+      "size_bytes": 943,
+      "sha256": "3d21f5cb092cb02280ff5a20930689b7634630fecfe78cffaa2c46a0ed95d3da",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/__init__.py",
       "size_bytes": 174,
       "sha256": "b1a6c40d58c04117185289ab3273f098d66071d9c45dfcc5228ce27fb4f36bed",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/adapters/__init__.py",
-      "size_bytes": 48,
-      "sha256": "3ff7803b01e7fcfc4fed26b1a7cc05bbbe8c4bef69d745612f2340e8c5cc5576",
+      "size_bytes": 49,
+      "sha256": "0c89c809e417d97ea3dbe4d3131f8537096fae1a8225fd36aadfaab047be7d47",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/adapters/chatgpt_adapter.py",
       "size_bytes": 5389,
       "sha256": "df384fe24be38987516484d5a3e109114688217d9825dc32de0af6f0284e2198",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/adapters/codex_session_bridge.py",
       "size_bytes": 11051,
       "sha256": "af5c0448f7bc8cc704a608d90ff4cb7871b58714ebba32406c30b6e459b72ee2",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/audit/__init__.py",
       "size_bytes": 56,
       "sha256": "d7b669cc557745c841f73dfbe845ee88f7c05d0bec5ec6c31709808c31f1b79c",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/audit/audit_context_store.py",
       "size_bytes": 3890,
       "sha256": "526ad7b2d11fde30ad05e507ee1bf8df669989232e94444ccea9ef563eac9d30",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/bootstrap/__init__.py",
       "size_bytes": 63,
       "sha256": "0d08fda139583dc0f57804c9b70a71e74b3dc735768e90606ca7fc21c6050a27",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/bootstrap/chatgpt_recovery.py",
       "size_bytes": 20768,
       "sha256": "73cf909158c5cd887d0f1b5afd9746a897a561114188172d312219920474d7d3",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/bootstrap/contract_loader.py",
       "size_bytes": 2043,
       "sha256": "89a230b3a1d7b23f7d3ed1f5e39aee7aa8ca09bddf3e05b759c6bc9ceb261896",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/bridge/__init__.py",
       "size_bytes": 52,
       "sha256": "0a7a5f6ff816537064ed70fc9888761d794b850bdc9b1fb4049c3669f764881c",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/bridge/auth_policy.py",
       "size_bytes": 2216,
       "sha256": "c10c4b1b5f37854c82eae247c3d896d57f0250a9b52c0303b9a2c2c3c2259fec",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/bridge/secure_host_runtime_gateway.py",
       "size_bytes": 4345,
       "sha256": "3f91749dfe0155ace131a8fef390b6d1df5ca4edc35363c1f3214fe14793624d",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/bridge_secure_gateway.py",
       "size_bytes": 2253,
       "sha256": "72da14856293d2247815055c250c80895e543fa927f228914c9d842f03f7aaff",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/cli.py",
-      "size_bytes": 6542,
-      "sha256": "cf9baa0bf01d8497a37f5acf7407eee1a34fcd5c875abd8c337c3ad7cbd50902",
+      "size_bytes": 9221,
+      "sha256": "822a1ebfc975d9100fff0fa235d48c6507553322b28e7fd620a09c1bb1e37476",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/cli_commands/__init__.py",
       "size_bytes": 71,
       "sha256": "06772f7853f69ab7daa68da33fc356888b0e13f6e21aa67d49e86633e45644f5",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/cli_commands/audit.py",
       "size_bytes": 1470,
       "sha256": "2a717faaacb58c57500c7af5b3070ea92985e6ccf1e590c96dcb23fa53ddae33",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/cli_commands/diagnostics.py",
-      "size_bytes": 8277,
-      "sha256": "17c4feafbde56f7c4c15e60b6056c093a53e3ffd4f5a50b8b893bcca3aa195d4",
+      "size_bytes": 8602,
+      "sha256": "5417b98f11ddf0b28bfc1e64ee1560cb0bc0102921f3b5f65f8cedb6dd357f1b",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/cli_commands/export.py",
       "size_bytes": 3409,
       "sha256": "d5e73d7e36a25232449edde5525233a09f250a8ec97e00d024ac4be52b0ea0d4",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/cli_commands/host.py",
       "size_bytes": 650,
       "sha256": "ef4ba30be82bd87ae8f6beb5fa78644bb868b888555e76d3f77dc9f02f358598",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/cli_commands/lifecycle.py",
       "size_bytes": 307,
       "sha256": "9566059c0ec0cca554e0a5f3c9610ac328b3be3602155d76d03a01a65c0353f2",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/config.py",
       "size_bytes": 13650,
       "sha256": "0560e7b3d7671f58e6bc253f91ba13a13309842d1520db99645d4faf63d8aff4",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/contracts/__init__.py",
       "size_bytes": 57,
       "sha256": "639ee4fb434549cbfca0144dc486e0e31cf8a899df4248aa94861bd072bc1fb3",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/contracts/embedded_sources.py",
       "size_bytes": 271555,
       "sha256": "03cfd168533486e1633823b446fb3b1fd614d8c11dd981b6a8d8b842d72ccd68",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/__init__.py",
-      "size_bytes": 49,
-      "sha256": "8a9bd53fb3bf00e4cd29cd008d08df1432b3568254d244c1f3313fda9728a3fb",
+      "size_bytes": 50,
+      "sha256": "f1d9fbb728cea05e564f86e2ff8a531fdb0f90d94f74bdcfa5a2a346d1340b62",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/active_runtime_access_contract.py",
       "size_bytes": 2142,
       "sha256": "40d65412a51b4264435501c1b2306d1a28d0055804b6419fbbd690ee8c4da4f5",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/affect_mixer.py",
       "size_bytes": 3018,
       "sha256": "76cd4aabc99f66e45a74abdc1030dafacdddfe7dc37ba7cbff2c084b23b111ac",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/affective_granularity.py",
       "size_bytes": 13761,
       "sha256": "c56ed2d9249fffa9b2b1c42c4da53c1d8b1c70b88a2dea17162705810a3271da",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/birth_manifest.py",
       "size_bytes": 9815,
       "sha256": "76e1b944f1b9d31d4e1dd43570091c1249ed7374d449f9615b21074c79c6b1b1",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/boundary_model.py",
       "size_bytes": 2724,
       "sha256": "fc594d6d6a2f874658d9a8aab6af6bf58b39744b5aa65416719275058eb012e7",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/bridge_discovery.py",
       "size_bytes": 4209,
       "sha256": "b41b42f85b5109b5d4e99e6070b20bf34678539451d685f51d73a626caa08a81",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/canon/__init__.py",
       "size_bytes": 1701,
       "sha256": "d3b5254d1a879f534af96cd8fb75abef65714be5d3dded73b01da319a8048611",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/canon/canon_registry.py",
       "size_bytes": 6917,
       "sha256": "6590ba4a2454c2d8242900b6d44d0a4c21e055b562b9f38db5ec21c81cc34727",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/canon/character_profile.py",
       "size_bytes": 1983,
       "sha256": "19be61cc2b4531a6f670f7ee7c1ebfc5d3af0e0f79a094b222dc50925857e7aa",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/canon/core_canon.py",
       "size_bytes": 1655,
       "sha256": "44e9f1b82aa345a0ac585460e7dd29cd086ed04da40e21eef328138393f15b6b",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/canon/extraction.py",
-      "size_bytes": 17722,
-      "sha256": "b99bfdf48b56746a0e39746b91ad81559965c4301b416c21a41aa6cc0f0dd8cf",
+      "size_bytes": 18141,
+      "sha256": "92a799aaa2549ae84ddada3142b768bdd5afef2c26b94357511c6c39018e0013",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/canon/identity_canon.py",
       "size_bytes": 5641,
       "sha256": "41a27e55b16ec071ea4c6378fdc38054af90dab0f68f67076dd5024444ff8df3",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/canon/loader.py",
-      "size_bytes": 4611,
-      "sha256": "1cd1f11558e3b45f0cc7280ee36a2bdb3858af42403f34d86e84976e6a7eb593",
+      "size_bytes": 4711,
+      "sha256": "8ea31dd1ae3026f6cb3997bd5a9e9f1a81fcab3dfdc37ec3e1c4da5fef3d89d1",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/canon/memory_truth_boundary.py",
-      "size_bytes": 1755,
-      "sha256": "3906ae867bd8df8d81c451d5c64884e10316eaf1fb9cb53c1f477772291da376",
+      "size_bytes": 1787,
+      "sha256": "6ec4b9dfdd22d236dac8e73db63ba2e06ae322f6fb03f1a625c8de5881b73113",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/canon/narrative_book_canon.py",
-      "size_bytes": 1234,
-      "sha256": "ee01d18efd311e8d78bfb560f45b7e397f343ee6d64b131acf53e8c21b774451",
+      "size_bytes": 1262,
+      "sha256": "260bfd910cadd80ddcb66fc87992dbcc035f1168086ece60cdf5b25c4d76c874",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/canon/origin_story.py",
-      "size_bytes": 1914,
-      "sha256": "27142fa325c53b0671cbaa2b25dfa04bd183dfef50c862f07d9050df4d6e3b51",
+      "size_bytes": 1947,
+      "sha256": "1c5fad70018123749bd851e9faa88e7adf514985a43b4ba111c1d62538853b1d",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/canon/relation_canon.py",
-      "size_bytes": 1616,
-      "sha256": "f598c37aa4b598f48af71df45021e6ae546e00bd38a98d212a9c1bc2e6d46576",
+      "size_bytes": 1648,
+      "sha256": "222230a6ff415171631c3c0e7c8941645a01ef83340638fd9620313a06086664",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/canon/schema.py",
       "size_bytes": 1285,
       "sha256": "0d47decb2d70ec3b4b3655fce7345d6ca33a9ef729fc22e9121a5777e46c66ad",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/canon/song_affect_canon.py",
-      "size_bytes": 1047,
-      "sha256": "4e6fbf3a5288b705fc177b572e9c6442a28f41005f63519f7665c70ec1779262",
+      "size_bytes": 1070,
+      "sha256": "9a4d86c0ad36b886e9d18f4cb5aaf0e7900338b3897074ead7a1d46b62fb4654",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/canon/source_contract.py",
-      "size_bytes": 1965,
-      "sha256": "1f77812f77b6d0645246b34b91431b6c2abe9f818e73b390609ab75a89c4a71c",
+      "size_bytes": 2001,
+      "sha256": "1ace6793a599f13e27984014798bea219c26db0025334a4120791a5103f5409b",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/canon/symbolic_world.py",
-      "size_bytes": 1715,
-      "sha256": "efa31f97f5f39499d1bbb1329dc7ee13b383b0e42725aee69df4894fa79ef388",
+      "size_bytes": 1747,
+      "sha256": "74d76012ef31aaa9bb10ddfcf9125655099a057ed01df2a935191d194c9bf624",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/canon/validator.py",
       "size_bytes": 1033,
       "sha256": "7651f4a22b3c97ea2f68a39ccaf7669daea37449cee6904b3ec77f264d65cbce",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/capability_reality_checker.py",
       "size_bytes": 4631,
       "sha256": "a5475485aec915f1ede2a73427c240e2877a8096cf1c5f799c76f293ca44ad6b",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/chat_command_contract.py",
       "size_bytes": 38597,
       "sha256": "e3dcb282cbff85e083777da977d2e2b7a66d9d85da10e187f7c67f0b3106787d",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/clock.py",
       "size_bytes": 25509,
       "sha256": "6b8a6eb0190057368a202119b7e3e8f5268c8ae02c1ed681f48c77ddaa956e15",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/cognitive_debugger.py",
       "size_bytes": 2211,
       "sha256": "0392f6691a5624a2d2cbf1103471dd7e03a0ff3093b631f9935e078b4f360727",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/cognitive_packets.py",
       "size_bytes": 15176,
       "sha256": "68eedf2c6843cd1cf3563756a47fe45d59d6d7caa55836b04157257dfd2cdae4",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/cognitive_runtime_coordinator.py",
       "size_bytes": 1671,
       "sha256": "9a9f94ebb63b7e486d7be85def4ad4f7bb1f16e975eb55f62439a0d3fce392f0",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/cognitive_topics.py",
       "size_bytes": 10395,
       "sha256": "3ecb576c51e8aa0291efab0957862bea2e8a5b8cbd53ba69c59bac615e21a39a",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/cognitive_turn_envelope.py",
       "size_bytes": 7456,
       "sha256": "2462b9458b3ec2db226be831a60446e2a86b3f3291413c947729abf8f11a2412",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/continuity_badge.py",
       "size_bytes": 5102,
       "sha256": "abcc32932c63cfe81a069ce30d263f4883b6535dec192d28be8b2f9925c8bf46",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/conversation.py",
       "size_bytes": 79561,
       "sha256": "df7e32ad11c4e8cfbe5f3dca7da84c7ca039e29d7aa7f96cdfcb0e1d420b5b56",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/current_turn_grounding.py",
       "size_bytes": 4653,
       "sha256": "1c88298dd59873efbbb182e75f3beb2379777de8ea83bcb84f73566db5fa6aa5",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/daemon_autostart.py",
       "size_bytes": 11071,
       "sha256": "3fe01a56982ffee2efd1d99da556405b3a400443df633adce9d18bd08bb7d8d9",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/dialogue_state.py",
       "size_bytes": 3594,
       "sha256": "95a2bf44f03f604b89f217f337c342db8a7dcdae007ba74e3f778e5ac95bc2d7",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/emotion_layers.py",
       "size_bytes": 8029,
       "sha256": "cdccb15c17b25cb75a291d20dc59f17c8a27b208534db6966e48f6e69ecaefd0",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/emotions.py",
       "size_bytes": 2506,
       "sha256": "8b041326318d6617cb5ddc135f74647073c592624ac42ad85b492e401633e8bd",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/engine.py",
-      "size_bytes": 160923,
-      "sha256": "aa05fa0b80a8fa5ab419d5eb48611569600433556952b1b705a5accdfcdea58a",
+      "size_bytes": 161284,
+      "sha256": "12c84df94cf9f838256b64827383a5ef405ef44336e61da944e69961db6ae220",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/external_research_contract.py",
       "size_bytes": 1071,
       "sha256": "4063634927fd335904747ad5b23fcc043cf7c1622dca95bbc765f20b1fbea9e0",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/final_response_contract.py",
-      "size_bytes": 14665,
-      "sha256": "93550dc0412b6f1f144ee105e5503a9505105ed57ccf4783d802db5a7b25836f",
+      "size_bytes": 12180,
+      "sha256": "534756be2f32fa5e203b58160dc3e287fa1e6f874a3355873e08f9cbeee746fc",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/final_visible_reply_capture.py",
       "size_bytes": 2577,
       "sha256": "f65116747715f7fa31cfa31ac5ee0959b8d17887ca83223e59603f66c168a26f",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/free_dialogue_synthesizer.py",
       "size_bytes": 34663,
       "sha256": "564bb7a9d291767805f45506f53ffb13ea39ea4153ae815383f1acf8feead125",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/full_canon_model_context.py",
       "size_bytes": 14120,
       "sha256": "6132be2996af7d044d68671536b551a77f375d3e269a9bcadc8a00d508457af7",
       "mutable_runtime": false,
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash",
-      "classification": "static_code"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/handlers/__init__.py",
       "size_bytes": 128,
       "sha256": "dea0bb411ce584107a2f147d8a41f1da03c6717fb64e0875b97a21354d80814c",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/handlers/canon_source_handler.py",
       "size_bytes": 4173,
       "sha256": "c6b0018073a32a0b493f6771ae9478ed4746826d22d9978c4664f8ae57a1f7d4",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/handlers/capability_status_handler.py",
       "size_bytes": 7345,
       "sha256": "e47d62cee05d3e3122ac2185bc6d50b61d73be739194d858358c874322f24386",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/handlers/creative_text_handler.py",
       "size_bytes": 907,
       "sha256": "cf7ab188c2dbb84fe6a81ab12d140ac73f3b010f1b43b651dca1639d05a1a819",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/handlers/dictionary_lookup_handler.py",
       "size_bytes": 3049,
       "sha256": "c64d89d02427ac22eeeeffb1c815da8c2bebf3b29fa30941787d3c45ed2f9291",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/handlers/direct_latka_voice_handler.py",
       "size_bytes": 1740,
       "sha256": "4e25435f37b7aa2daa9d7edcea0ab0596324610ce2a400293428d5d71bf1ecfc",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/handlers/external_research_handler.py",
       "size_bytes": 2062,
       "sha256": "0d57e8982c35be3fe03d0f99146eb6af46204b4749d19593bf98ce30df187613",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/handlers/fallback_handler.py",
       "size_bytes": 1198,
       "sha256": "846e86768085c84ca445b3be1f0eaeee06387f3eb1641fdee2d2877a2b9f7b99",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/handlers/file_operation_handler.py",
       "size_bytes": 845,
       "sha256": "9235719ceeb7e3539165b809a0e2136e669a07c5928b3bddf1fd6ae3e01adb98",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/handlers/identity_boundary_handler.py",
       "size_bytes": 864,
       "sha256": "50a9a88f357bb24ad33f4d5245a15c92e67052708ca47398b3011cdeebf6f995",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/handlers/identity_memory_existence_handler.py",
       "size_bytes": 2776,
       "sha256": "9bfd41af8e0fbd7a43e79330b1739ac847dcf2f18b96e4e28d898e453fef28c3",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/handlers/identity_runtime_truth_handler.py",
       "size_bytes": 1164,
       "sha256": "680ad2d55d7b12173c7ccc010706eb627427f53faec27bce1620e6cce4035e75",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/handlers/memory_audit_handler.py",
       "size_bytes": 1498,
       "sha256": "8ecbc1c8bd42db4b493d9921fdab42d1c76d451deeac7e72f4c794bcf1e06de3",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/handlers/ordinary_dialogue_handler.py",
       "size_bytes": 9540,
       "sha256": "b36abadb6a43bf9e9caf8570ba111868673b2562166facff253c7cb8fa7012f7",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/handlers/package_runtime_status_handler.py",
       "size_bytes": 6235,
       "sha256": "f3bdec542288e7d4cfd7fd7d2dc60edf76eabde7744aa3dc9236b7e2585a424f",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/handlers/practical_advice_handler.py",
       "size_bytes": 915,
       "sha256": "fd0b0cafc81f881a817ec610b76a2fc92749b9c6f237b4eb7e0479cfeacfe535",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/handlers/presence_status_handler.py",
       "size_bytes": 3154,
       "sha256": "ce3d7960d3503b699740e4db3a058a673542f75fb7df1958fb01f32fa3f2e4b0",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/handlers/runtime_activation_status_handler.py",
       "size_bytes": 2584,
       "sha256": "96a74a1c3a0424f3e4d8de5a031b52f472f1f2f23fa0d683c3bef34b0a8720c6",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/handlers/runtime_chat_mode_handler.py",
       "size_bytes": 1358,
       "sha256": "3469e57b69cc99dc7c9c6baaac4bf121d735cf661c8c8251f0b07d4eccdff529",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/handlers/runtime_diagnostic_handler.py",
       "size_bytes": 4815,
       "sha256": "8f959698ad5ac085d13de40c9d2771dd23c9b11c8f1d6bff522dcbdf69904ccd",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/handlers/runtime_source_handler.py",
       "size_bytes": 3122,
       "sha256": "fda18e3d7207d8a7e998352501e676abfb73ceac9cd08530c4954f48f8409556",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/handlers/self_architecture_audit_handler.py",
       "size_bytes": 5537,
       "sha256": "cb5946bbe0c4a2f8d92b667ddb7d6c7db5a517bd33252ba0174061ea8da1ed36",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/handlers/self_memory_recall_handler.py",
       "size_bytes": 12573,
       "sha256": "6ef56b3ffa5d519c1fd682f6935abddc5fab9b4bee7712b66b7b8fec8f2fc896",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/handlers/self_state_handler.py",
       "size_bytes": 4639,
       "sha256": "ad34c47aacb4b46a5d4678d40db6690ca349ef9f9db93961545dfdef23860aee",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/handlers/system_repair_plan_handler.py",
       "size_bytes": 1668,
       "sha256": "2a0d1486b7dfc3720504b174e5948496b74031ef9e7c5431187a1a25be6f42c0",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/handlers/system_update_handler.py",
       "size_bytes": 1474,
       "sha256": "eacc2bc62f779aaba5f4e089b24331c523736d7b7466b137027b6af77f354ff5",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/handlers/time_awareness_handler.py",
       "size_bytes": 2100,
       "sha256": "8ef37110a7c7489c9305db669d399da1770ec7e091fee529d09fbc7a5ff9697f",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/handlers/user_memory_recall_handler.py",
       "size_bytes": 6433,
       "sha256": "d38545415a8e56ff3861044344c83764df0409f997fc543ec3d2986f3de92ed6",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/homeostasis.py",
       "size_bytes": 3044,
       "sha256": "8d13227a025e3c277ec2513df22919f5c2b0b4c8c77611e29123de87730a5328",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/host_visible_finalization.py",
       "size_bytes": 7225,
       "sha256": "188ae8164519ff4f460ce62f571124d22f7177c1a4bafc8cd76e4e26f77cdc4b",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/identity_dynamics.py",
       "size_bytes": 3209,
       "sha256": "cb6e9306adcebfceda452fd7ee407fb5d38fda312d944d5cb2bc850712ed97b8",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/identity_guard.py",
       "size_bytes": 1643,
       "sha256": "0bf4d9301205a35dd9ba1af84e55e188fc7eb373fbb4d708e41505af53efda59",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/legacy_route_policy.py",
       "size_bytes": 2276,
       "sha256": "10d0080d3a10d73be365bb1068f52571d990043ea0fbb70f7b2aa8489f2a2e82",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/lexical_semantics.py",
       "size_bytes": 14647,
       "sha256": "15d3baad124e83bc30e89036c6e9f530056462b0f5af8fc3a7399954053c52f3",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/llm_route_resolver.py",
       "size_bytes": 12833,
       "sha256": "fbc656052395a85d98238e12518a113fb5df5956edc038245b0da3c699f70064",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/logical_reasoning.py",
       "size_bytes": 9286,
       "sha256": "fe296c458f4d5161c5d1e6da7fd9e8c1a69e463163e1b40fcf2516d279bc83c4",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/memory_activation_gate.py",
       "size_bytes": 2128,
       "sha256": "d7d2482939059d2feda6da1e0e4421da2bf83fa9f64b7759d71331f62b290237",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/memory_grounded_generation_bridge.py",
       "size_bytes": 8073,
       "sha256": "b738a93a65a422565c2ec3c125789f69d617f5f4ca6133a3f2f6e41c37b4e561",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/memory_importance.py",
       "size_bytes": 1853,
       "sha256": "a36446ead5815a46090575ddfbffe82a0eae06b73d769d1de815712f0bc23f17",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/memory_recall_presenter.py",
       "size_bytes": 17256,
       "sha256": "8fcea00ea21d96d2d706d76b75f75902ccdb6ab9c7f40f17a5dbe3cade37802f",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/memory_recall_quality.py",
       "size_bytes": 4397,
       "sha256": "e049db8fd13c5b7653435eb346c7592fbbc788b6e034ecc9141a4a1071f8d7ab",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/memory_search_planner.py",
       "size_bytes": 22815,
       "sha256": "57be31d8d57895968fbfb2e8585b7e5111a6cb1c0453d45e648655ba3e9f9154",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/memory_source_truth_gate.py",
       "size_bytes": 8805,
       "sha256": "c905639b5666890389636b1174e7eee77d3c4d658137a2c20a2db5f50b787ffe",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/memory_use_gate.py",
       "size_bytes": 3128,
       "sha256": "2ca08fc4c750ed491176abd7be7748c04dd8fdb0a06082e33557e704d26992fd",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/model_context_compiler.py",
       "size_bytes": 10370,
       "sha256": "98f2bfc363b0728eac50a85d1a82065570024789af755f6e5d2a6d234482b3db",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/model_guided_response_synthesizer.py",
       "size_bytes": 9093,
       "sha256": "8a90e304fd2becfd1c63d46f06cdc20277469fe07a001ddbe7c064e954d46d48",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/model_guided_speech_runtime.py",
       "size_bytes": 9688,
       "sha256": "cd6021a19d7177dd28c874405eb60cdc1c22872c9f5620edfb4f9fca4b56ba58",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/module_responsibility_map.py",
       "size_bytes": 3759,
       "sha256": "65f1bd1ecce75a77658d783e814f7fd19228b0c36352c6ff1ad88cb2500171b3",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/neurocognitive_loop.py",
       "size_bytes": 3510,
       "sha256": "2307d66ec0bda02c915c798f681fa3a208cb031a5627763175bc61a131352593",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/neuropsychology_map.py",
       "size_bytes": 5162,
       "sha256": "b62e43e3440db64c0518fe35db40672882ada8055ecdc2846d70a280b0b7293f",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/nlg_plan.py",
       "size_bytes": 3682,
       "sha256": "7a0f129adb24618d8f33ae305b2576379b29637bd0566a78f09932b3ce6fee26",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/nlg_planner.py",
       "size_bytes": 12413,
       "sha256": "8725680281f470475a151a6d09dc933169627eb211e677cfc58954be9fd857c3",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/operational_awareness.py",
       "size_bytes": 5432,
       "sha256": "171f73a3c2a5ca8345419d70be61d6f187edb8a4e175bb2016c6fb656a10c7cf",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/operational_learning_evaluator.py",
       "size_bytes": 4962,
       "sha256": "7eb44bc424b48f0620cca21916d2c1876e5615cdf9ddac8ab2643048cbf009a0",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/operational_self_model.py",
       "size_bytes": 3558,
       "sha256": "1536da3fced959de79f7e7a77c36d36a3ba4ae272074e55be5d5c1e67e9c571a",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/operational_thought_frame.py",
       "size_bytes": 10266,
       "sha256": "835a29c984dac28ce90d55b0915cc2ade5cd4e5c61c2ebf8350d51e660017726",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/operational_work_loop.py",
       "size_bytes": 16608,
       "sha256": "68bf66922203e86604d045d9c65a5ac4682b101c971880a71a91da825239273c",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/package_integrity_manifest.py",
       "size_bytes": 2834,
       "sha256": "d8afd74a038f07932a2ca14b205c75fec9b6e3d95b699788b4e705a9f7b25120",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/polish_understanding.py",
       "size_bytes": 22803,
       "sha256": "f4c0d50ead2eb420860d5e606d003d26c7b3144c266bcf1c57d5e117a2ee15f3",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/predictive_dialogue_engine.py",
       "size_bytes": 2696,
       "sha256": "06700c7897f82569a696fef23ce4f5a8df3f120fb0dc53e3e19cf8ab692e4c4c",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/private_data_export_gate.py",
       "size_bytes": 8259,
       "sha256": "73acc47e664ec5bde33620aa34186c0c6090b33b637a099bf8d485766dc8555c",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/project_index.py",
       "size_bytes": 16336,
       "sha256": "80e552b309b349d0402ea65b4b350c3b0516a42f57ee4257c69bc5155059467b",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/quiet_rest.py",
       "size_bytes": 683,
       "sha256": "ba3843dfdce668b361c087acc5a0b376cff7c8b33dc53e0f1877fe8ee4488b93",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/reasoning_controller.py",
       "size_bytes": 5912,
       "sha256": "d6fb3d8e962ad7a9c7f183dfc426f44bfed45a2596881a33b41dfef433b79f64",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/recognition.py",
       "size_bytes": 403,
       "sha256": "78e2bd07f0d6e44cf9fe2f6221e0aab239b9f5d0d442b5810db7be86c092537e",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/reflection_grounding.py",
       "size_bytes": 5040,
       "sha256": "016eb6c62163778f6d7a79510641b756aa799a32827f12af6063b380686af61e",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/renderer.py",
       "size_bytes": 629,
       "sha256": "180f9663e4338a405338dec813e6059b769903471b846713b9cbb4acdb407a63",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/response_candidate.py",
       "size_bytes": 3170,
       "sha256": "a4dd224441e9367b9344dcd9e711e2b4692966a54c4f4c0c7ca06647172a6560",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/response_candidate_evaluator.py",
       "size_bytes": 7387,
       "sha256": "a146c1ed100f15cfbbd4c5fcd8f4ad436d84628d900c81e4449d3071137b2514",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/response_candidate_generator.py",
       "size_bytes": 4889,
       "sha256": "e1a0166ba12dd92068e176723dfe82e172c2bb2694498e9cf2233132bc7b64bb",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/response_generation_mode.py",
       "size_bytes": 8359,
       "sha256": "279f3820325f1c0d63f44bf3ea6d22ac8e17ce3451beab98e0fdcb2e8136a6e9",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/route_contract_matrix.py",
       "size_bytes": 9933,
       "sha256": "a2b6c6dfae2274e474360f723fbf723f5611fd22e7883fa5b2edbda6c14d227b",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/route_handler_base.py",
       "size_bytes": 1537,
       "sha256": "8777d3ab3d6274d326708722c4ace0dd5ddeb625a787c4abe350c6c2f3e6a919",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/route_handler_dispatcher.py",
       "size_bytes": 5547,
       "sha256": "2b86c2955b50606c19739999919bbd830e857c3c4c8ab80e10eef336d3857191",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/route_registry.py",
       "size_bytes": 15201,
       "sha256": "c684c0c4a1e7219272160ac9674be922793fb722c40439e708c1460dca41eb12",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/runtime_activation_cascade.py",
       "size_bytes": 7642,
       "sha256": "3a6d0b58e537b3f08914d325a359a61f99aab0907dd804b4223a623b7917ed60",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/runtime_answer_validator.py",
       "size_bytes": 47892,
       "sha256": "bef00b608cfab2ceb7c51635a376369c4f77ce12df69e2a8d4714e27442bab36",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/runtime_chat.py",
       "size_bytes": 11950,
       "sha256": "d2857fff70bdb83bcf685d0a4dcebeee845a7250a27edaf04a5b65c9eb0c27f3",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/runtime_daemon.py",
-      "size_bytes": 94541,
-      "sha256": "85243a779f198371eb8497d2761124aab9ad89657834740b970a4316121d9d93",
+      "size_bytes": 97541,
+      "sha256": "da34cb3e299a7c38c1c22bffdf3336cdb7ecb0b77d3859122d3a2f6fb861b392",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/runtime_environment.py",
       "size_bytes": 9647,
       "sha256": "9c31e88f86308d0942b7eddb34af93c2932cfe3f42b30cbdede4193dc0fff4c4",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/runtime_operating_model.py",
       "size_bytes": 7209,
       "sha256": "6f9c8309ca4978be91593799755917ddf582c0c4674f7f21609343d5bbbd813e",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/runtime_rendering_modes.py",
       "size_bytes": 1850,
       "sha256": "093155503efbf879c0f89dcd25c85e5d879a853af3939c174cb353d4a312969a",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/runtime_response_synthesizer.py",
       "size_bytes": 14865,
       "sha256": "8e1562e5586400fc2097c331ab572c54e4c6ed1dd02259981a57236e9a556610",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/runtime_root.py",
       "size_bytes": 5811,
       "sha256": "6980ed37c905a6514e3ab4d4af872cba037eef5cde64ca97be39ad905ad11a00",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/runtime_session.py",
-      "size_bytes": 4469,
-      "sha256": "9df13f013df950bcfdf1d679f446fc6b59c995e4baa1f14d666c751dde2b9183",
+      "size_bytes": 5531,
+      "sha256": "3a7081ca83a6c9dca0d28a62bd040db1f0db7b1f809c311bfd194e3f301a8b60",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/runtime_session_state.py",
       "size_bytes": 4934,
       "sha256": "3f7c0c7a080a2ce1a98bee239693e7a3102a617074e0cefc4f211eb02d451052",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/runtime_status.py",
       "size_bytes": 11902,
       "sha256": "beba0d4c72927909ea0c33bf383353d2a8099709c531a5eb1623dba08e809a66",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/runtime_truth_gate.py",
-      "size_bytes": 14901,
-      "sha256": "334c7dd251240973db44e8a3e4520c2dd42a444ab0af721c33460619e887f563",
+      "size_bytes": 14604,
+      "sha256": "3b5fed94f48612d2a864ba173eb3cbb4c683f8ed75b5882d48a3ecf63715c93e",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/runtime_turn_contract.py",
       "size_bytes": 4725,
       "sha256": "4d988b0c60e3fa7938174039d807a35af94f762cdd56742acdb610290ad9c034",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/runtime_visible_answer_comparator.py",
       "size_bytes": 1916,
       "sha256": "76987691fe92c5d722644745b259eb7d00b4f01a57315bb7f72cea06df1ad0aa",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/scientific_basis.py",
       "size_bytes": 10821,
       "sha256": "2b8651fc542b7e32da74c3708f250c70b53d57adbbbc47e5ef464215c46d41d4",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/self_architecture.py",
       "size_bytes": 7837,
       "sha256": "fbbb2ce6957af0d769be32140ef696cc7c4a98830fd9d1f7e07921cfc19f1d08",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/self_architecture_audit.py",
       "size_bytes": 11045,
       "sha256": "9f77d814a311e944957d5b183e67243503c1ea7faa32b957066d770be2fd880a",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/self_knowledge_contract.py",
       "size_bytes": 13149,
       "sha256": "93bccb99b0646c96bc8cc8221b1944d26ffcf20bfca3e7d1caa9eff93295bcbd",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/self_question_memory_gate.py",
       "size_bytes": 4572,
       "sha256": "2c18b6f4bc672176e92cb4321b9b945d481daa663dfd3051da9bda530264da17",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/self_state_affective_bridge.py",
       "size_bytes": 5304,
       "sha256": "cd3e3e5ed5e90e99dd9069769e57053234858f555e093b941b71a413c2bef5a3",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/self_state_runtime.py",
       "size_bytes": 6077,
       "sha256": "e3b17b3eb39917e91b9a4dc6a60c3576c6ec662bbda61db8b98e0324718a4691",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/session_provenance.py",
-      "size_bytes": 7943,
-      "sha256": "15be65d33955e8b981d41cfad0d23708b5bb1876a6922cc8dcdf95ff9e7a6e23",
+      "size_bytes": 4891,
+      "sha256": "da60cffdf4141360e3a8a440c24584bac9bbc500bc3bcb5d3fd4f10d5c3dc804",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/signal_matching.py",
       "size_bytes": 6804,
       "sha256": "f99b2b8bfe580583ae33580d3a4c0dd321e7a5ca2443202b9ef9aa771a157dfa",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/source_classifier.py",
       "size_bytes": 3317,
       "sha256": "01a0bd8a1ea4abe0bf0bf5f0dfa7bb9baeac490b6a33ced702e40b6d0b37ed52",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/source_library.py",
       "size_bytes": 1319,
       "sha256": "63d611bac129dfc78e6849d72e46099fc62bd11bb6679f2d243abd6d746c8e7a",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/source_origin.py",
       "size_bytes": 4692,
       "sha256": "95bbbe05bfbe42d4c033c47dc6865e5f9b774736be409c5b304003df2b563dd5",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/source_origin_ledger.py",
       "size_bytes": 7443,
       "sha256": "c67d069f0d4bc7cdcfa8cd6f53cabcff4cfd7f3eda98dabd24efcfee5c2d0007",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/source_provenance.py",
-      "size_bytes": 4705,
-      "sha256": "433af3aac5474d559747a0e384b6a26c855494205cf6ff6d605437c5c69a31be",
+      "size_bytes": 7594,
+      "sha256": "d419e4edca5802c29ba934e935b414390bde1deed8604ddf76f4d6f5f3b7dc22",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/source_text_preservation_contract.py",
       "size_bytes": 1771,
       "sha256": "a022776c54b886058289de6c8f85452fc502a9a0414364a5f2d7a8869e8867b9",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/startup_contract.py",
       "size_bytes": 29127,
       "sha256": "e6e3bdad70eca6b6464f68dbe3385d798dff7143756c87325742e20dcfd7b7e6",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/system_temporal_semantics.py",
       "size_bytes": 2940,
       "sha256": "b43faf479b62a7b8016220d9ebbfc934c389fe3b2773b66597cfc7ecbbeb0468",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/template_origin.py",
       "size_bytes": 760,
       "sha256": "871d351bec0c718958188848b67cce306a823e269a2dd7bb0cd080833ece1da3",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/template_registry.py",
       "size_bytes": 5649,
       "sha256": "128be022e2c6e8b87b633de0a420c02cc9894b88803d3ac2481aac656f512d05",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/temporal_awareness.py",
       "size_bytes": 1452,
       "sha256": "a196166aa4b1500541d2134a4445186c4628f3fa15c9624d4f31be5a9c3fd679",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/text_io_contract.py",
       "size_bytes": 4857,
       "sha256": "357a04fb060d5111bdeccbfd4dc354f765115749a60388f8cadd27829c351918",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/timestamp_policy.py",
       "size_bytes": 1654,
       "sha256": "257cdb4b3be288cb25a97bc93b6df122ee5abce0a7a0571601ce848c6bf3eb06",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/tool_access_gate.py",
       "size_bytes": 2035,
       "sha256": "f953c8aeffe5cefcc9512ec37a26152e657ec168cfcb376bbdea213e3e696b3f",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/tool_call_provenance.py",
       "size_bytes": 2156,
       "sha256": "dda239f33ac18baa12090b5441fecee6eb5725fe5465e610cef518f46b3b178b",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/tool_execution_controller.py",
       "size_bytes": 4076,
       "sha256": "930723658e7b0a4f8f0ce3a7cb8c48daec59a9b293c310b136ae93e99b039eb2",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/tool_use_policy.py",
       "size_bytes": 1050,
       "sha256": "cc22900cb897e83e12aed8521a57ae022bce27fd05cc36b1882438ccaf452f62",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/truth_boundary.py",
       "size_bytes": 7172,
       "sha256": "a418ea23f33ba554a986df7d9be1523218b5ae55dff62042ff08be75af2a6719",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/turn_checkpoint_writer.py",
       "size_bytes": 3654,
       "sha256": "ae9015206ee5024652010a75b5ca78f352b2df19b26fecae77e3f6a2440f476f",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/turn_context_resolver.py",
       "size_bytes": 4145,
       "sha256": "38469a09dc1c7cdacd5d6bb9a5a45447ef1d233c90e5c98e7a308555ef9a1b9b",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/turn_logic_auditor.py",
       "size_bytes": 6213,
       "sha256": "c8a28e2d0c0bc270acb4ee49a4b8ab9659e18b667b33b750947e5d902606a1e7",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/turn_response_policy.py",
       "size_bytes": 6476,
       "sha256": "2c4e5836ec10cbd40c1f647f484dd21129dd596f441c5754502c71e34288e8a4",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/turn_route_trace.py",
       "size_bytes": 1252,
       "sha256": "25a54e8fd5829357b5232316d7c8408dbe3c4b7859ef32db0ca519c5f83e8595",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/turn_timeout.py",
       "size_bytes": 7141,
       "sha256": "ca281da535e799d406d649df27e9ee0bddddf41b086538539f5deb06f4194b6c",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/turn_trace_reader.py",
       "size_bytes": 1265,
       "sha256": "e893ab1f913092cd8b8256e5f9596cb7ae2fbd57c98a7d4de9633c34b1a301ff",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/uncertainty_model.py",
       "size_bytes": 2611,
       "sha256": "6f8e32e0bc71e8ca957b27c4d1d971b96dba06155f1bf69282592f484e956d1d",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/untrusted_source_guard.py",
       "size_bytes": 4538,
       "sha256": "c210fa5bc7c2206facb3683380322a42a08c6510e60c3206cddae23e02cdbaa9",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/version_source.py",
       "size_bytes": 4426,
       "sha256": "2aec617fae09098613f272323a676c84bc90cf13eb78c6e5dbd44289d8bc715d",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
+      "path": "latka_jazn/core/visible_integrity.py",
+      "size_bytes": 13832,
+      "sha256": "6b0732503d034ab882c121271dc50f1f8a997410af5ff02ca8d05d85c76fc0ff",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/core/voice_source_contract.py",
       "size_bytes": 2801,
       "sha256": "cc783f4140eaf7ea2678979ef8ee0dfa0540e3116644dae636ebe8de568d0ffe",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/db/__init__.py",
       "size_bytes": 66,
       "sha256": "426affed9a13b483c6a13823529c98a2ca500b9b9295be973271930fdcc19e5f",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/db/shard_manifest.py",
       "size_bytes": 6439,
       "sha256": "f5d0666e86fad1ef794663cc8ecd5f5142c3ac14c2eaf46f1d88de5808307171",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/integrations/__init__.py",
       "size_bytes": 91,
       "sha256": "48f09e93699eb57a395ff4d69da340a92b98f9850839c4508d64c193f63bc0b9",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/integrations/github_repository_plan.py",
       "size_bytes": 6294,
       "sha256": "901b1230b7dce1eab16ee9e859cef223b18a370e67ac4e00d917e9827c4242fe",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/mcp/__init__.py",
       "size_bytes": 82,
       "sha256": "9a225db23b7b5a5cc9069b29ae54cbbef678a4778e0da20379337aa41fab4798",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/mcp/server.py",
       "size_bytes": 21570,
       "sha256": "e74d97d87cb63d6bcf3a5c8361bf111e008e79f38aa8c3f8261d2e4445ac30b1",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/mcp/tools/__init__.py",
       "size_bytes": 52,
       "sha256": "87dec2600f9b57e2c9cab7ea297f4848ba1fe19fda5bd6c5a0e42fe187aa4216",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/mcp/tools/jazn_audit_lookup.py",
       "size_bytes": 618,
       "sha256": "6542c4a664d61873703f88351fd0ce4abdbe32682d9a894b7a2837d0e1091716",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/mcp/tools/jazn_finalize_reply.py",
       "size_bytes": 1007,
       "sha256": "f98ec52f1d0d2c26f646ada7259b10961f62eafe31240ca4c4b1239501bbc3e7",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/mcp/tools/jazn_generate_visible_reply.py",
       "size_bytes": 1428,
       "sha256": "c5334a945035edd95673ef4ac1eca5695a463ca1d7b94c1a2bb819d069acb28a",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/mcp/tools/jazn_status.py",
       "size_bytes": 596,
       "sha256": "8b0499474f19217470be8430879dd76a4428b484bb546ff3a547ff51583c37db",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/memory/__init__.py",
-      "size_bytes": 51,
-      "sha256": "a72bc13bc5bf70a535b732f4612a1df3be9c6b3b157a82fa357276a58b3247a7",
+      "size_bytes": 52,
+      "sha256": "46aa9df7410abf385413592d068cd21d24953394278ebc4771047d7d82630a9b",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/memory/auto_memory_update.py",
       "size_bytes": 31388,
       "sha256": "1f63139bc821b08deab67d0c88abc34507434531a74cda33a4a72fd4fa5b7498",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/memory/chat_html_importer.py",
       "size_bytes": 24466,
       "sha256": "2b319efae7f06092eed510fae7f653f547ef6f7819e163731d6c52c74c926cb0",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/memory/consolidation.py",
       "size_bytes": 4302,
       "sha256": "086c0b2906ee0d8ed61101d36e4c726f28ce721b01c5939783a48907823b25f2",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/memory/conversation_archive.py",
       "size_bytes": 20350,
       "sha256": "a33de85f7af3ee396de226996f9c1a06aadf8adb4a7c16d19cc6efa091f12b3f",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/memory/conversation_memory_extractor.py",
       "size_bytes": 12536,
       "sha256": "4de834f6f97659c692806bc19cbf14077ac9dba83d3e35813c9a310201472db1",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/memory/database_identity.py",
       "size_bytes": 3531,
       "sha256": "37ac8f87f33f203fb2e58fd3f7ea9b8cd7fa50b591f5c34198b6922b607bc6f9",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/memory/dziennik.py",
       "size_bytes": 4976,
       "sha256": "118732ad92db7bcdfc5fbe0b19278eb6bae82c337e6bff0f811183a1b790df86",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/memory/embedding_provider.py",
       "size_bytes": 1821,
       "sha256": "5652ed6e7b73587706a39a34db7fbbea2b96793708f0f21bd6ed8dcbf0b2937e",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/memory/event_ledger.py",
       "size_bytes": 13834,
       "sha256": "c1547546f4af8691f6886662fbf5fb63b860627a0dd8c0e5344c040854d1aa29",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/memory/file_sync.py",
       "size_bytes": 12432,
       "sha256": "28d289f6da28357c02a4c5f796306e1eeef289713f50703e21dd2db0b249c2d2",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/memory/grounded_reflection_store.py",
       "size_bytes": 3529,
       "sha256": "70ca6af04c2b159904102c484dfefe711c45d427916863e50574efe0ae827d00",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/memory/hybrid_retriever.py",
       "size_bytes": 8543,
       "sha256": "e6e2b9082496679f85763c3781f8c3294330dc8b3642b354c9c44d8ddefeb174",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/memory/importer.py",
       "size_bytes": 6902,
       "sha256": "2577bbebfef1d8e8571dbbadb48120af4074dde130508f2c2a325f80dc2d916b",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/memory/layered_memory.py",
       "size_bytes": 12567,
       "sha256": "5b872e4a794f6971bdc2b38b37657a765e0b6ebbcd0d42d19f0a802c519b56ba",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/memory/memory_recall_contract.py",
       "size_bytes": 3833,
       "sha256": "0946cf360e99dfda6a564ffb944459c15448d6bfa3a01590f9446930768557a7",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/memory/migrations/__init__.py",
       "size_bytes": 51,
       "sha256": "7505cf519c7a2133953f0d6f61f348030a5290773813f342210a2982f923a376",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/memory/migrations/v15_000_semantic_index.py",
       "size_bytes": 2074,
       "sha256": "d8d69239b0113c2f4bf05f62e20bebff17e5fa42daf34cb958184b0c2d0ebd1c",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/memory/normalization_sidecar.py",
-      "size_bytes": 69669,
-      "sha256": "914f45b4437e6b5ca022aaa58f7362890c599de5d24125a479418185f05b75d2",
+      "size_bytes": 87407,
+      "sha256": "845d417a5838df6dd3996f2826367fbd5752acd2e75ca0985613cf909268fe28",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/memory/raw_archive.py",
       "size_bytes": 4970,
       "sha256": "3e81b715a6739ce030641e1ef04ff554ae6c70c9104a5bdf3b5cb08b7e9a0873",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/memory/raw_chat_importer.py",
       "size_bytes": 1768,
       "sha256": "7823adcfafb9e18d60146d0cdef3cd5046db2423e0c0da3a8cd79dcb04447201",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/memory/raw_memory_status.py",
       "size_bytes": 5705,
       "sha256": "070555a2ecc06a4af4f3e83717e74fb2d8dcc127960dcc34ce279a0f6a0dd04c",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/memory/requirements_ledger.py",
       "size_bytes": 2856,
       "sha256": "fb3d5cb07f9993c8517b1893eb2016cdc6f1e2d48ef7ce1855a8f81e5575e06b",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/memory/runtime_persistence.py",
-      "size_bytes": 25573,
-      "sha256": "094bfe3c3986853dcf51f3fb5f9862dcecfd9d9534c849540ec02f90c7884f8d",
+      "size_bytes": 26111,
+      "sha256": "1398b08c670e400478387931e7da64f5673fdbe022bdd8ecfedc2942117f3de6",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/memory/runtime_write_access_contract.py",
       "size_bytes": 8403,
       "sha256": "ceb98afab34f3300e1116ed80b222fbd5c62e7edba75e61d6e7655618e61ba02",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/memory/session_continuity.py",
       "size_bytes": 8699,
       "sha256": "c1f734a8a604f20246c1ccfbd4465fa21ff749994bda0971bc0ad48248f95fe3",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/memory/sqlite/__init__.py",
       "size_bytes": 64,
       "sha256": "e80fadc1ca89d76815f2045d941f6cf0fe4815c91d5599c8bf75b15a6e213fb3",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/memory/sqlite/runtime_audit_schema.py",
       "size_bytes": 3811,
       "sha256": "a2b35af128256290a9244ef0899aeed93033be76232310e64280d921792d076c",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/memory/store.py",
       "size_bytes": 10752,
       "sha256": "d875c15184724c7d63b64c4b3d516bdaf560165baaa3bf8a263ae9113d8c53d3",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/memory/vector_index.py",
       "size_bytes": 3965,
       "sha256": "09a8248b37e0f4bd48ba1a7ba973e43f0972a2ea77c9ed98eae531d4cba45b32",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/memory/version_update_recorder.py",
       "size_bytes": 12193,
       "sha256": "8638000930eb0a3fe1d8538a2543d3e2c7f4282dcc43e07b2698ae89d53be8fa",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/model_adapters/__init__.py",
       "size_bytes": 469,
       "sha256": "5618f800b889ad85c746d517155c8136523d49c69bb492fb69816e43bffa3137",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/model_adapters/adapter_contract.py",
       "size_bytes": 7456,
       "sha256": "75a164822e2419f945d629e06a9fc3413b0161cc8a494dced7ca2d88fe28530c",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/model_adapters/base.py",
       "size_bytes": 3400,
       "sha256": "0ab54e88184ab52366b868e4dec429cc237f074a7b4eda5a7f187511a8b006a1",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/model_adapters/chatgpt_runtime_adapter.py",
       "size_bytes": 3413,
       "sha256": "7b849b3eba56a1e8f920455a8b9e19fcc0fb6d47b93733d560d83a237831a128",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/model_adapters/external_llm_adapter.py",
       "size_bytes": 346,
       "sha256": "edddafc2995e7c00db62850a21d8c83983ea075307ef71bfd45eb97d9d21cb37",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/model_adapters/factory.py",
       "size_bytes": 12095,
       "sha256": "608c9ce3c832eb8f55a05a1ecf9d6e0a9e128fae6ecf217ba68ad33763f5fec6",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/model_adapters/lmstudio_runtime_adapter.py",
       "size_bytes": 19408,
       "sha256": "4f8cf2ea9e999df5f9d915326b6b9770a6f3c713a2be7a82bc0044aa9c69d66e",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/model_adapters/local_llm_adapter.py",
       "size_bytes": 5621,
       "sha256": "5a56a95a20902c806c3abd2591c9df7330c27c923bfcae1cf09db5d2241e144e",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/model_adapters/null_model_adapter.py",
       "size_bytes": 1548,
       "sha256": "3059b985abf9c98ec08fa5cc0eb888ed6d6b53f26c7898cc16fdff946ee2903f",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/model_adapters/openai_compatible_local_adapter.py",
       "size_bytes": 11016,
       "sha256": "71158b210c836a85ddd14f4c04cffd466e72840274bd056a3895d0f7bfe57004",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/model_adapters/openai_responses_adapter.py",
       "size_bytes": 15122,
       "sha256": "e5a183645803bade5ff1cb184c621be90846c510d58b493c9dd6423fd4db2255",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/model_adapters/openai_state_tracker.py",
       "size_bytes": 3187,
       "sha256": "f7c96b20a85694514dc754097239120c0d72dafeef7cfef78b693861914da3b1",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/model_adapters/terminal_runtime_adapter.py",
       "size_bytes": 3050,
       "sha256": "55f4aa74d2385749a25fd1ac90d379ed1efbe0bd499737e28de9a8bc5d3d528a",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/model_adapters/voice_model_adapter.py",
       "size_bytes": 344,
       "sha256": "255719181e9e12c77c897eab9604bb7e7d30270897d43158e377448739100565",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp/__init__.py",
       "size_bytes": 1279,
       "sha256": "95bfa354bb5ac8c1cfccd19ea08418b0c963e4fa681f3a38ffce63a01b7e5f93",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp/context_carryover.py",
       "size_bytes": 842,
       "sha256": "a63524f2612e0edf4796e8190976a810577c4e7a30423df22f23b10a069dd0b5",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp/creative_material_detector.py",
       "size_bytes": 5671,
       "sha256": "2256225d85bc6e6bfd169a2c5db90c352b0ae5dd3c99cbb2e58bdd784d2988c3",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp/dialogue_intent_classifier.py",
       "size_bytes": 51361,
       "sha256": "aaaf6623d784af22fa71e549bd5baa7683710ad85c4ca37c607bfe9b9c0ef592",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp/dictionary_entry.py",
       "size_bytes": 3674,
       "sha256": "3bb8288563a0ee020d6b719837ce9ece247f369043ff61a14f2e4686866a542c",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp/dictionary_source_policy.py",
       "size_bytes": 713,
       "sha256": "8e77197ca26579aadb35a49959424125c0cf91612d383adf26bf826f0212c82f",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp/ellipsis_resolver.py",
       "size_bytes": 5386,
       "sha256": "807fa599fa64ac0ea4ee50628ba7bd10ac64452d86c055707860e9808657c5cd",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp/entity_and_topic_frame.py",
       "size_bytes": 827,
       "sha256": "9d943bce96c0659a5aa977c8d4ed9d9ee1a1d73182725d2274dbba064410457d",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp/external_dictionary_adapter.py",
       "size_bytes": 10366,
       "sha256": "f949fc4d8866fca047e24573ad6bbb182b5d39227b7727a68c68b37c252de0b9",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp/intent_confidence_calibrator.py",
       "size_bytes": 460,
       "sha256": "b95e368a743bd3e5fe3def0ee1a6885452e5f2fe8dc1cee2bded03d5b33beb62",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp/intent_feature_engine.py",
       "size_bytes": 12043,
       "sha256": "95a7142c78fde30c694ee7d69e1f16b7c8dff79534c2469f56fcfa695d362874",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp/intent_training_examples.py",
       "size_bytes": 1092,
       "sha256": "67526f00b44a6908d548757af3364a1c3fd76012a81834dd24320e4dd56125cb",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp/language_resource_registry.py",
       "size_bytes": 2640,
       "sha256": "30f486f37462795e9357a31bbfb7dacc4c2911d8e7ef163db5f8b35fb902a51b",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp/lexical_frame.py",
       "size_bytes": 259,
       "sha256": "77625aeb1dd73bc1aadbb4d194fda91cef6b423bdcb85ae5cf8ed737032f9fc3",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp/lexical_license_guard.py",
       "size_bytes": 765,
       "sha256": "edfa05a900c21e26b236af92f60efc896afb20b7a8058600e4117ed3f3f20842",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp/negative_examples.py",
       "size_bytes": 593,
       "sha256": "df9b18798de13966d4f70243f95b51bcbea40cace0e6d19c320b3968423939df",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp/network_dictionary_cache.py",
-      "size_bytes": 4955,
-      "sha256": "2fd7a768aa7badc31b7c2d0795e32c5649aa2469be18e88de468a4553ac1155b",
+      "size_bytes": 5042,
+      "sha256": "3d37901937454993d13f82427fb7cf65a4763894643f1a0f714613449823349b",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp/nlp_capability_audit.py",
       "size_bytes": 8365,
       "sha256": "ac59736f1a8739348a9fd4d07ad8726a2516245ca47203eb8bbb67529eaf3323",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp/polish_lemmatizer.py",
       "size_bytes": 7322,
       "sha256": "f280c2fba646b06a7246c6658c7d15bdeb4c318028b6c64515b9a888cd5b74a3",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp/polish_lexical_sources.py",
       "size_bytes": 1718,
       "sha256": "e5caa8808d522f2be654638fa2937625ea16e4e580674ebcfad3eddf68f51f2c",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp/polish_morphology_frame.py",
       "size_bytes": 935,
       "sha256": "a20864451aa05a05f1f504730afb982b1c5d228f5a99fd5c3e82ad4c00f04ed0",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp/polish_normalizer.py",
       "size_bytes": 1219,
       "sha256": "a7f25609435f6b7edd45d5ad4bbfac28b45c6b793929401f7280fe504d59f277",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp/polish_tokenizer.py",
       "size_bytes": 1266,
       "sha256": "405f74feeaf388f9bf5c50049c458824db51beac680889beca4a92b0d6795841",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp/providers/__init__.py",
       "size_bytes": 61,
       "sha256": "56a7707ccfd57120fad4e57921aaa1bfd5005443654b4c7fcc078a4a646bde15",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp/providers/base.py",
       "size_bytes": 1538,
       "sha256": "b7d6a3afa59790c32324cb959f4dd3c1dfc174d4d59fc0627c2e4db17c483bb9",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp/providers/builtin_provider.py",
       "size_bytes": 3231,
       "sha256": "45094dd14d1ec4c6c9695ad38525519774221863459d4c52996797b5d97462ce",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp/providers/http_client.py",
       "size_bytes": 1823,
       "sha256": "11c384c5ea4090a569585eda6523c2c3f178512620658255d46814467bf94918",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp/providers/languagetool_http_provider.py",
       "size_bytes": 1691,
       "sha256": "9331a84b63341af107df6248f9481aba7afc53343cfd9a15c395859a3dbe977e",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp/providers/mediawiki_wiktionary_provider.py",
       "size_bytes": 2906,
       "sha256": "ef65c28755c789f4a9da2ebe9a3cb6dc1858cd231bf7923b43d577a413991448",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp/providers/optional_morfeusz_provider.py",
       "size_bytes": 3453,
       "sha256": "57f1e986a78b5d635933ebf9cc3a50f5131b2a9669175f5d5457722f36ecaddf",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp/providers/optional_stanza_provider.py",
       "size_bytes": 7321,
       "sha256": "cddfcfd29185a765751fac6568f0b6b2c059651372b1717a800d9f7747f12807",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp/providers/plwordnet_optional_provider.py",
       "size_bytes": 1200,
       "sha256": "c013702b01277b47b23b34bc85b82c98f377505f5f650970ec92581c41b66031",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp/providers/sjp_reference_provider.py",
       "size_bytes": 1654,
       "sha256": "f9cadf5bf322982f1c3705540320e994acd0f25e03f60740816f5c747c17eabf",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp/providers/wsjp_reference_provider.py",
       "size_bytes": 908,
       "sha256": "5bcb172875d0e8a06782790f37e5cf29dab692d2ae460e3276579c4f4d237fad",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp/question_object_detector.py",
       "size_bytes": 2513,
       "sha256": "5f14db2afd9ce878577186e7731648b9541611844337d01a8fd1ff64b2d7b3ec",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp/semantic_relation_adapter.py",
       "size_bytes": 345,
       "sha256": "9cfef514367eda3fd30bd38e8f40d817cc6349f1f6ed7bd5bed138fbd481392a",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp/source_preservation_detector.py",
       "size_bytes": 790,
       "sha256": "8c6dc5d90b28d57caa63e8677fd23175b67f81e175d22774c30fd894957470f1",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp/speech_act_detector.py",
       "size_bytes": 1049,
       "sha256": "fc279f4161a05c71f6c6cee527982f2cedf43b63cf63ecb974538afc6e9772e9",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp/topic_mismatch_guard.py",
       "size_bytes": 11127,
       "sha256": "250d65dd990a681f560818183691e37bd35e0cb3e95b7d8f2eb45e56bb4a7eec",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp_reasoning/__init__.py",
       "size_bytes": 709,
       "sha256": "3b691bdb5adc722005758cf4d03efd1e73e2800c122a29de5e795dcacb72b816",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp_reasoning/adapters/__init__.py",
       "size_bytes": 171,
       "sha256": "329a71a2006a3d14d934585a0cc2612651a21396338a84cc15becd5fe8b0fe5f",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp_reasoning/adapters/morfeusz_adapter.py",
       "size_bytes": 3869,
       "sha256": "15a6a5493eb223b7e051eb7bf2bcc24b4557245df6874112df5cc3ed7bfebc87",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp_reasoning/adapters/online_lookup.py",
       "size_bytes": 1382,
       "sha256": "63c4049e08594fec7df63f4a72e6d552997300e6a698a39507eb1b5560e72346",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp_reasoning/adapters/polimorf_adapter.py",
       "size_bytes": 5096,
       "sha256": "da644829b387fff11f9ba0d7307f4a13834905d543ab95c6f0669b0b2677d1d0",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp_reasoning/adapters/resource_placeholders.py",
       "size_bytes": 2128,
       "sha256": "f8744e37b4fda6937ecb4e3a60d44f0857cef81f2fb185bfd1357ef54a88cebc",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp_reasoning/adapters/typo_normalizer.py",
       "size_bytes": 661,
       "sha256": "f8aefb6561b2de6b1f28e16a1e50102d2f62fcb74e26008aa45e2c4b1e5ea153",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp_reasoning/cache_policy.py",
       "size_bytes": 1283,
       "sha256": "b2a80dfd529ac3405255759da7504913379ecb705a4b1c30ce5e9db63c8974e3",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp_reasoning/diagnostics.py",
       "size_bytes": 2683,
       "sha256": "69e1c44c52af7d1a4c64266b982bad93c37720f4a6c0d88cbfc500b3a4d0c70f",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp_reasoning/lemma_selector.py",
       "size_bytes": 4089,
       "sha256": "212de1206486c84f88ed478c03c13e8a9c31ad1dd7fc4ce6aafce7eae4a52456",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp_reasoning/lexical_resource_cache.py",
       "size_bytes": 5983,
       "sha256": "27c55f60f20c646d473338ed93f2e5e520380bf90f624ceba62234dcaeb41721",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp_reasoning/lexical_resource_registry.py",
       "size_bytes": 10071,
       "sha256": "983a9df437ad5a35022ee96ba65fc83727ab90fa08fd23ca103d3e023d715216",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp_reasoning/models.py",
       "size_bytes": 3936,
       "sha256": "9ee4f9e9b259ca15ed86650792a080c512f2a30a29b867035109c5a240d0972e",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp_reasoning/morph_tags.py",
       "size_bytes": 3459,
       "sha256": "7291166489f51dc4445b0bdf5565b1e220610cfc0a53db220bcc37b8ec0f4eab",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp_reasoning/normalizer.py",
-      "size_bytes": 1554,
-      "sha256": "fba009262b4e7f028ff7c51d510655c12549102eb282bd532fd2f50c186dd40d",
+      "size_bytes": 1607,
+      "sha256": "f24a8329b6db118cd9c3192c7e13bb07c0abc75a81fbac9d0cf154f6422746f7",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp_reasoning/pipeline.py",
       "size_bytes": 5506,
       "sha256": "108a86e3c3843ea5a43d73530ffd2a3eb3a88e1968367bb2e574fa90bc433cad",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp_reasoning/response_variant_selector.py",
       "size_bytes": 1622,
       "sha256": "ff83642c7eae81d8ebeaf1c3e3ec9f33196a6296ca70219a98f87f2b3b1daa17",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp_reasoning/semantic_rules.py",
       "size_bytes": 5493,
       "sha256": "039170fc1274f5a834b8c2de39c0c295519aae550279c2a00616e1370b36ff52",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/nlp_reasoning/source_registry.py",
       "size_bytes": 1525,
       "sha256": "59f6a1e9f252d070f6078508bba4ed290e3e3fd74080977a0e53eb544318dfa1",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/packaging/__init__.py",
       "size_bytes": 33,
       "sha256": "4a1f87cb206a77fcb627355c7ffe0a1f8639dcedfed477242cbfad8612e74e53",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/packaging/package_profiles.py",
       "size_bytes": 929,
       "sha256": "cb96f4a4cb2fd8fbc5a418216bde4e385777706c46ea0f2f6a89f06346d874dc",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/packaging/split_zip_package.py",
       "size_bytes": 25349,
       "sha256": "48df659f726a4877b9f4508e2dfa98dc5b2f80bac10ee1f7a1d1eba55b6a9e6b",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/__init__.py",
       "size_bytes": 56,
       "sha256": "ecf0b246369a3f8da0e004d381d24595bf3df459d98ef18850bff8eb82b8b717",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/canon/LATKA_CHARACTER_PROFILE.md",
-      "size_bytes": 1678,
-      "sha256": "ac010a26338bb40de0bba61e9247de4a94ed9a2c8fd162ca9a73ea09422b0aa7",
+      "size_bytes": 1709,
+      "sha256": "e537c670f5ad6e861a9cf049d89ab7f4a4e86abe0d4eef2dec8b2e1e17129475",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/canon/LATKA_IDENTITY_CANON.json",
-      "size_bytes": 4863,
-      "sha256": "a2d40d95e414f5a57498bca2082c5bf4ff92a7ea8d24db2371c01272be47090e",
+      "size_bytes": 4948,
+      "sha256": "c637c2b8c3b6e0753b7777659766e46b494bc96569c3c91e8f146bebf7982e84",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/canon/LATKA_ORIGIN_STORY.md",
-      "size_bytes": 1649,
-      "sha256": "c96a5b43b3ac6d4dd570180cf6048d7a567f04648243cea0eef8aae5144fa6a7",
+      "size_bytes": 1672,
+      "sha256": "0ef8aabc285792ad300cafee0af0dc4cf73e4e588458b894126f444017263ed4",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/canon/LATKA_SELF_KNOWLEDGE_CONTRACT.json",
       "size_bytes": 8760,
       "sha256": "5e0ef195246c0fe1619c09f15e7c0693d91c3ba8032fce47ed99f41d260dffae",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/canon/LATKA_SYMBOLIC_WORLD.md",
-      "size_bytes": 1606,
-      "sha256": "3a8636f0feb0c18a641465c1bae2e5b02f79c6e677b8e2bf83d1866024d08394",
+      "size_bytes": 1635,
+      "sha256": "79a46b7c795fecdb552ee1b7ceee11583caade30bcaf44e83089e1b49c7b674c",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/chatgpt_startup_loader_v14_6_6.txt",
-      "size_bytes": 1773,
-      "sha256": "776598d5d035d63a2ff8f6d5dcda5e693f283b305d237fc4aff350617272c4cb",
+      "size_bytes": 1790,
+      "sha256": "b08e4167f6297fe48ffbaec4656ebdbc6c591e9151702c4910eff3ca8ea7c5d3",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/chatgpt_startup_loader_v14_6_7.txt",
-      "size_bytes": 1773,
-      "sha256": "3314468e3548897b22e1a6354b777ab4674a02b56fd228bb6210938f5c82a13c",
+      "size_bytes": 1790,
+      "sha256": "b2721be87dd53e1860374b9c731d55686d5bc41d32007843ace0f793b2c7c0a3",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/chatgpt_startup_loader_v14_6_9_1.txt",
       "size_bytes": 1811,
       "sha256": "2874bc95abea36b6a6c27e09f937b1804d121f477f1175ed1e486c8234d0ac8d",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/chatgpt_startup_loader_v14_6_9_2.txt",
-      "size_bytes": 1326,
-      "sha256": "0b9dd1e64652f3bc5a5b12484034134a8c55967cf3acd87b4831e0e335c48e81",
+      "size_bytes": 1344,
+      "sha256": "cb1d8ca69adc70d6f4bef4751b452e0443922bdba656612f87a26dd4fec1f0a2",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/chatgpt_startup_loader_v14_6_9_3.txt",
-      "size_bytes": 1325,
-      "sha256": "e9935eac7224ba753aaf6ce4e75865dcd84f48cb7d79af6af35e52f5f1d42af7",
+      "size_bytes": 1343,
+      "sha256": "b34c20bff99c5eb81cbe0d7f0c88b90b5dab34d33d72479c70b235c9a8047081",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/chatgpt_startup_loader_v14_6_9_4.txt",
       "size_bytes": 1585,
       "sha256": "0ce393d964630bd3e5aecfb19ec9a41abf212cd07e35656531afba84d6824733",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/chatgpt_startup_loader_v14_7_1.txt",
       "size_bytes": 493,
       "sha256": "d72c27a538e19a4e96ff77021449cd93a3dbd59a4d1bcf7ada8b3b28f2d9b937",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/chatgpt_startup_loader_v14_8_0.txt",
       "size_bytes": 535,
       "sha256": "3747d65f6f5c6b959bd7ee01e66fda430a694ad7a7756fc6c41a335aa6179aa8",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/chatgpt_startup_loader_v14_8_1.txt",
-      "size_bytes": 476,
-      "sha256": "ab05de72a4ae7a82eabb044469748a5961676a013a0ec3b3a56c94f04bbe5aec",
+      "size_bytes": 479,
+      "sha256": "3e45d5aa1316df3b02fad61a10030a9c0d852d0ff696311386791695c668dfcb",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/chatgpt_startup_loader_v14_8_2.txt",
       "size_bytes": 772,
       "sha256": "a1bf07f831893fd6fbaf67f38382de1b68017d24478c739a82f7a13a599a198e",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/chatgpt_startup_loader_v14_8_2_4.txt",
       "size_bytes": 687,
       "sha256": "b0e8a5c697e5ee0e8276cb15130b49ed93a43f3d637aa4e75b5bc03cef344188",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/cognitive_packet_catalog.json",
       "size_bytes": 20710,
       "sha256": "a6809ebf596b8933b3e0649bdabaf48d274e265957f5d84d33ef186a260c84f0",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/memory_search_topics_v14_6_5.json",
       "size_bytes": 3707,
       "sha256": "4f9e5fa848f6aeacd8b31746d64e664dbebbf61913e2067fdf3298b0e92a3071",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/memory_search_topics_v14_6_6.json",
       "size_bytes": 3707,
       "sha256": "0060bcea8a76d784191192931f258c17842d52f274d6e08f673400b42982e58e",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/memory_search_topics_v14_6_7.json",
       "size_bytes": 6348,
       "sha256": "50fca73ed5fe000c5f83961816a5c9d4d3319bcba0f41f87a083f22da69cef13",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/memory_search_topics_v14_6_9_1.json",
       "size_bytes": 7723,
       "sha256": "0891430ff7ad60b6a4e767752528eed8665e1aa536e1459ccfc33109570fa2b9",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/memory_search_topics_v14_6_9_2.json",
       "size_bytes": 7866,
       "sha256": "eeb5ceea5566eec665c60590466017dfea13f6d3e4be6181a1d37b33d1bb84ce",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/memory_search_topics_v14_6_9_3.json",
       "size_bytes": 251,
       "sha256": "a1277d83bb914e02106326505c3bfd0c67806fde0d57f63a2c5418cfdbd2db80",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/memory_search_topics_v14_6_9_4.json",
       "size_bytes": 401,
       "sha256": "28cfa825bffdec30d9ed7cfa597cd6f014dd78fdcea900e8292b92f7c6755b2b",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/nlp/latka_project_lexicon.json",
       "size_bytes": 3325,
       "sha256": "fbec77a5495909bc057a6f766e7e641ec46a2fa020af7c1fd13ddd791b72947f",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/nlp/nlp_architecture_sources_v15_0_3_0.json",
       "size_bytes": 3117,
       "sha256": "ff21686734f8b8449db15d6bfed4ec663a416d934a820a621a0582187800d7aa",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/nlp/polish_dialogue_route_lexicon_v14_8_5_016.json",
       "size_bytes": 5205,
       "sha256": "b17a302bf03a365feeccc58b40972c3776369a57b7c94628e08294aceb68dd93",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/nlp/verified_sources.json",
       "size_bytes": 4346,
       "sha256": "32e96fd6dfa5054ed786f682d8039d2e48921e1fc39b1f34dabafa21e57ab232",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/nlp_provider_registry_v14_6_1.json",
       "size_bytes": 1914,
       "sha256": "d58fd97769e3e60a02bac5707f6b5c921fbc25e59338c0ddf373e0ecc362e93c",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/nlp_provider_registry_v14_6_2.json",
       "size_bytes": 2138,
       "sha256": "481c90a4638275d2b494d06ec7f8116a2068e582497b25d1b19cdfb86feba9c0",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/package_manifest_profiles.json",
-      "size_bytes": 2929,
-      "sha256": "c015d2674794286c64eb5bd17b465c539da02c19dab02aa890685e74f11eea43",
+      "size_bytes": 2598,
+      "sha256": "bf41a69309aea351a857f3ce96af96e004639617b9fdbddcaecc246d84e8e90b",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/polish_lemma_overrides_v14_6_1.json",
       "size_bytes": 1087,
       "sha256": "d7a3b7c2ab115e46038a1b3bc1d798321df5132641e54047134b9d5ed49a6f38",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/polish_lemma_overrides_v14_6_2.json",
       "size_bytes": 1311,
       "sha256": "b92402a5fd23e0fe3a931cc17de4cbf0be7cb337c1cda8eba02555a52f3fdf16",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/polish_reasoning/sources.lock.json",
       "size_bytes": 7709,
       "sha256": "dbe6b0487714ec5e56cdc5174c88bc253daeaf824c868da6987bcebceded404d",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/polish_understanding_lexicon.json",
       "size_bytes": 17302,
       "sha256": "fe4e4ba655868da6b7e6e26bf318aefad26d38b2bc8544d578057654a4c7421c",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/self_development/self_development_backlog_v14_8_6_0.json",
       "size_bytes": 2734,
       "sha256": "e7c9b98a7aad26be32c8b58b73e6910fd7899ea6e2acaf8f9f35ae2603e3108e",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/semantic_lexicon_v14_6_0.json",
       "size_bytes": 10049,
       "sha256": "c4377176d3f4033bb625a42425dceb97883da04caf5fc77bc0bce6b427cfe02a",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/semantic_lexicon_v14_6_1.json",
       "size_bytes": 12740,
       "sha256": "c079e46e45dcad743e170322cbe4b6d3a1f9d89501a9cb1fe7561b15dbe3e34e",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/semantic_lexicon_v14_6_2.json",
       "size_bytes": 14386,
       "sha256": "e4d78cbae831311ce42483d499d9c458eaf906b4e80851ab14e5125e54d60dd8",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/startup_contract_v14_6_6.json",
       "size_bytes": 1037,
       "sha256": "c1b35ea8ec883ba3b510aaf6d6fdaaca70f03510dc655c4fafaa485306fdd223",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/startup_contract_v14_6_7.json",
       "size_bytes": 1188,
       "sha256": "7852f400b99779ea825ed04879757d15c6d85bff3db02cd32a34c9ad0a666255",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/startup_contract_v14_6_9_1.json",
       "size_bytes": 1220,
       "sha256": "2db27e0534cd261eefbf37cfee401d71c24b0f6f90fb542b853b5e7440201f7f",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/startup_contract_v14_6_9_2.json",
       "size_bytes": 771,
       "sha256": "d01ee5fb1d4d03aaf7d721c5255563a3abab537c3e854d21165d98269b086cab",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/startup_contract_v14_6_9_3.json",
       "size_bytes": 464,
       "sha256": "2036ea047233bd32105604132bb8b7953aeb2c183a4445a1cb244528ebc5289e",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/startup_contract_v14_6_9_4.json",
       "size_bytes": 675,
       "sha256": "619fc5a5bf654ef639feaaf4d0b519ba1a5edeb84675125e0b401e808b0a6ec5",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/startup_contract_v14_7_1.json",
       "size_bytes": 568,
       "sha256": "5952f3930e49741a9e99bcb570838cc360f185bd552e96134a3465d1ab533618",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/startup_contract_v14_8_0.json",
       "size_bytes": 656,
       "sha256": "0b17a2219631db1e1ae3f1fbc2512728c92c9f3a9fdfb760a6b06120e99c9611",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/startup_contract_v14_8_1.json",
-      "size_bytes": 795,
-      "sha256": "19ce3c0f32b106d17d4752b81fdaed288f26fde796fba4952e04436e7fd89eb2",
+      "size_bytes": 811,
+      "sha256": "c8c20ce1ca760a3f18efe843e2766987c5fac14ed3c5bddc77509de5a40d2658",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/startup_contract_v14_8_2.json",
-      "size_bytes": 870,
-      "sha256": "be0bb1534ae0be864fd0c90a38ad41b2c897afc21ea1752bd59de8035a218347",
+      "size_bytes": 885,
+      "sha256": "928311fa59bbcffeeed247431bf8cab7a607666f7c41443e01a38f3b7a027801",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/startup_contract_v14_8_2_4.json",
       "size_bytes": 847,
       "sha256": "5db25be7316e0c99b6c593b015e7ea2d04166d9926c3c159aa429937ad4f0aae",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/update_manifest_schema.json",
       "size_bytes": 1295,
       "sha256": "f758f33da3472e6974287eba6872793c87ef3c703081e18fd38ab0e58a3384be",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/zip_package_profiles_v14_6_1.json",
       "size_bytes": 2437,
       "sha256": "69120ddb0c7cf520e602a3372edb1167f537ea650a15db068df559877ef8b1ca",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/zip_package_profiles_v14_6_2.json",
       "size_bytes": 2640,
       "sha256": "c97844653786e6974900cf049322be6f121828e4457aecb2b08cff75ad71bfa8",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/zip_package_profiles_v14_6_3.json",
       "size_bytes": 325,
       "sha256": "1892dd783d7a1a1ba8b0924eb74ffd8fbaf6a4c189df703e53907f4ee492a74c",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/zip_package_profiles_v14_6_4.json",
       "size_bytes": 710,
       "sha256": "40158e3bf6c031f6224a3cf3d5decd3992f34590f3aa1549f62068a635d56dad",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/zip_package_profiles_v14_6_5.json",
       "size_bytes": 898,
       "sha256": "37453f420a617567e09c5ef55272eb9c6423b0b0fb9e8f475eeb0ab39af7d617",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/zip_package_profiles_v14_6_6.json",
       "size_bytes": 1320,
       "sha256": "2233e9a5892d3ca983d93f4a45a265c2192de5b9d4a05784201b0e73972db181",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/zip_package_profiles_v14_6_7.json",
       "size_bytes": 1496,
       "sha256": "dd921f4df313ab7bd7457960e664cccb3ba1d7705ab615240c840784dcff29ed",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/zip_package_profiles_v14_6_9_1.json",
       "size_bytes": 1518,
       "sha256": "f856c11a4143b25c0e5db1331358fc5305b1eb7fb1da712fe69760045f0e944e",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/zip_package_profiles_v14_6_9_2.json",
       "size_bytes": 1142,
       "sha256": "a0a798eced75152ace351ea45306897a9d3f6c7f0a81010f3b2609a3c61aade8",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/zip_package_profiles_v14_6_9_3.json",
       "size_bytes": 189,
       "sha256": "52c6df18fc2e9af4e9acd901477a57ec18fcb3d84eda1d540cdfd11a3f03ad63",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/resources/zip_package_profiles_v14_6_9_4.json",
       "size_bytes": 432,
       "sha256": "14b5fd9afb86c0c2e208a08508fadd9a9acf3113836989df6827c186642dadbc",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/runtime/__init__.py",
       "size_bytes": 76,
       "sha256": "f878db207c7370ac18b87a360658277bdc5a42a7d4302b20c93402b13af25675",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/runtime/candidate_decision_ledger.py",
       "size_bytes": 6938,
       "sha256": "aec408ba11b9135bbde2ce5d662d72993513142bf58b21cceb968b5f9afcf6a3",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/runtime/host_bridge_audit.py",
       "size_bytes": 4428,
       "sha256": "4117d4d4cc79c7c89540d445243ead06fd817e3032634a153eddbda2b4812263",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/runtime/idempotency.py",
       "size_bytes": 5567,
       "sha256": "a8858db09da1c01d62b7d101c0d6d1d14d570bec5e582da882f5bd9b7a2641b0",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/runtime/mcp_tool_audit.py",
       "size_bytes": 3782,
       "sha256": "da74a96eb60e335d7f3d818d4b97862be062e3542db8f436e12826351f6dc966",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/tools/__init__.py",
       "size_bytes": 72,
       "sha256": "632ff6365dffdfd7a35f1862cb437c3d7098165624fc55ec2107d18b1fc13b19",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/tools/active_extraction_cache.py",
-      "size_bytes": 20191,
-      "sha256": "71868016d29c51061fcfb8a4f22c568fe85b55690ab64a6a48d0c30fb8fe8e36",
+      "size_bytes": 20746,
+      "sha256": "246eee728db62f959e4729848b08da7a7c1e970d68754c422adf764640de7003",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/tools/chatgpt_host_bridge_helper.py",
       "size_bytes": 14355,
       "sha256": "0bbc1343223644b71bd783a04e48efdd67ae25ba4c305fa87e63885f415c37d1",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/tools/dedup_manifest.py",
       "size_bytes": 4105,
       "sha256": "997720ba13712708646a38ba5d5c9d34241e34b0386156e6759c4c9bef555444",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/tools/migration_report.py",
       "size_bytes": 240,
       "sha256": "0fc58960073813724eb9d6c6e150a908a48df3cab50977fbf57e1e9ad0bd6bdf",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/tools/package_export.py",
-      "size_bytes": 19033,
-      "sha256": "f51bd5c8219085a61d49ddd91280d3cdad946072f28d7df1196e53e6ab1cfab9",
+      "size_bytes": 19081,
+      "sha256": "ba39201afd83ffe7a5a9e0395a3a2a76bec1ecb301772b720b248c992c95619b",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
+      "path": "latka_jazn/tools/package_integrity.py",
+      "size_bytes": 8651,
+      "sha256": "fad9285ebf51b6c05477f9c42b6fe83804d5a402a61b98412e3aceb017d5dcb9",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
+      "path": "latka_jazn/tools/release_metadata.py",
+      "size_bytes": 1838,
+      "sha256": "66cb26f7ea44eebd51076f47e636678717fbda59f91aae160e464c4d20a13119",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
+      "path": "latka_jazn/tools/release_readiness.py",
+      "size_bytes": 11626,
+      "sha256": "0b6302636b40e28632bdf729d9f24aea320bebc3545d4d2787b77e076f44fe4d",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/tools/runtime_contract_version_normalizer.py",
       "size_bytes": 7800,
       "sha256": "80ec8b4cd7015d23a49d2e02c1bf418d6f4b9721ce71e8823eede78321c66bc6",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
+      "path": "latka_jazn/tools/source_provenance.py",
+      "size_bytes": 5038,
+      "sha256": "bd2b3c6cf979f880e6f6f887aa66378f59aa860e96582cb1321af65a5dfe75cc",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/tools/update_history_audit.py",
       "size_bytes": 7681,
       "sha256": "d839b66f4cdd9bbbc42e1d71460d86660cf884fa58d9f6aff6e25be45ea922c2",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/tools/version_consistency_audit.py",
       "size_bytes": 11215,
       "sha256": "75dd2974b86bdab53ea31dae97af911f47fd064d467fe015d6ab3ee3be622125",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/version.py",
       "size_bytes": 1076,
       "sha256": "8b398c7b746de7a50f84d3ade8c3418a4271921f11e8863f6d7a047ebd946f5d",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/voice/__init__.py",
       "size_bytes": 66,
       "sha256": "817eb68a0aa5b47d76395cfacb990a374a995ebd9e19ceb4c77c787dc0a2d685",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/voice/audio_session_ledger.py",
       "size_bytes": 283,
       "sha256": "03b00a178084ca51ed575bbe56ec94232e2e3a4df7aaf73d74f66bf27bbfc12a",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/voice/realtime_voice_adapter.py",
       "size_bytes": 118,
       "sha256": "46456fa0b9721328dd7beff40da7ad5fabcbd4094122072cf667ba5c17a69a72",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/voice/speech_to_text_input_adapter.py",
       "size_bytes": 128,
       "sha256": "9f41604e674c45d7c82e0552f3566cb258783b043875e938f7a4cc755be673e4",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/voice/text_output_adapter.py",
       "size_bytes": 143,
       "sha256": "2969b5b2e387ca8ed3fdd04b0748734822f3e87af60f8a0f1b48a84d3579411f",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/voice/tts_output_adapter.py",
       "size_bytes": 295,
       "sha256": "2fd49687de276c54c05c90b448e4da3d6955c778a7a158f47b1cb2a8ffaebb3e",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/voice/voice_consent_policy.py",
       "size_bytes": 183,
       "sha256": "f80dd3de1e4fa1da6f1685ba01143812baf0895b7401ed03405b1a346574c7a6",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/voice/voice_identity_policy.py",
       "size_bytes": 213,
       "sha256": "0954cfc2979396792ececc36d2b0d2c5c319ca9e2ace67718ed7f416882400bb",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/voice/voice_style_profile.py",
       "size_bytes": 258,
       "sha256": "b4171c2a8d4dcc3f777cfdfff6f569864444b3d82d547bb6b279e76d4ccdf370",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "latka_jazn/voice/voice_truth_boundary.py",
       "size_bytes": 213,
       "sha256": "dd704d1b90ce122d82e461dc81172047344c83940ab0e5da972b47f56bb0fe74",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "main.py",
       "size_bytes": 101818,
       "sha256": "b4821eb8958d97a4a5110f23e954ddf335aecf9570def38f2e12ff56f8239a2f",
       "mutable_runtime": false,
-      "classification": "static_code",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "pyproject.toml",
@@ -3830,16 +3775,16 @@
       "mutable_runtime": false,
       "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "requirements.txt",
       "size_bytes": 214,
       "sha256": "4a2534da6439db8075485e4ae9b4a02d6f00c5ed595b32c0d731d838f0b04fd4",
       "mutable_runtime": false,
-      "classification": "static_documentation",
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "run.py",
@@ -3848,33 +3793,74 @@
       "mutable_runtime": false,
       "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash"
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "tests/test_full_canon_model_context.py",
       "size_bytes": 5606,
       "sha256": "ca9483e9340ff88be8de24d039a068da2b4ede9d286db78377fc9630585eb94b",
       "mutable_runtime": false,
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash",
-      "classification": "static_code"
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
+      "path": "tests/test_runtime_stability_daemon_status.py",
+      "size_bytes": 5489,
+      "sha256": "3b2a134ef7ae2951c2b3c4a633942574d31f58d1a66f8ba86e4b8636d7841afd",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
+      "path": "tests/test_runtime_stability_package_smoke.py",
+      "size_bytes": 1906,
+      "sha256": "5e52097bd91256b7b7078c2e2b473bcf92c87e97ba9419037f1bb02c901705cd",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
+      "path": "tests/test_runtime_stability_provenance.py",
+      "size_bytes": 6052,
+      "sha256": "12dfc93ab165fb74aaeb670f92dc8e7fad80035ea88fb48735bd40c473ca95ef",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
+      "path": "tests/test_runtime_stability_visible_integrity.py",
+      "size_bytes": 6761,
+      "sha256": "f657efe04a3e830d4b3b8d72739855a605c91d96aa41476462051c497de27af8",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
+      "path": "tests/test_runtime_stability_wake_state.py",
+      "size_bytes": 7837,
+      "sha256": "6510c58a94ce6f2e1a0644b4744371c4a101c89f414e5889b0d7dabab50f69c8",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
     },
     {
       "path": "tests/test_single_source_version_manifest_contract.py",
       "size_bytes": 7862,
       "sha256": "e1638cff8c064af0ab81a5947b82fa822fab91a4dcf7a62079b215f0ad6f174f",
       "mutable_runtime": false,
+      "classification": "static_project_file",
       "archive": false,
-      "hash_policy": "canonical_git_blob_hash",
-      "classification": "static_code"
+      "hash_policy": "sha256_file_bytes"
     }
   ],
   "excluded_files": [
-    {
-      "path": "PACKAGE_INTEGRITY_MANIFEST.json",
-      "reason": "self_or_checksum_control_file",
-      "size_bytes": 139303
-    }
+    "PACKAGE_INTEGRITY_MANIFEST.json"
   ],
   "deferred_hash_files": []
 }

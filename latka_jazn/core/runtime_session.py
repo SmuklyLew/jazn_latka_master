@@ -6,6 +6,7 @@ from latka_jazn.core.engine import JaznEngine
 from latka_jazn.core.runtime_session_state import RuntimeSessionStateStore
 from latka_jazn.core.session_provenance import build_session_provenance, repair_final_visible_integrity, validate_final_visible_integrity
 from latka_jazn.core.runtime_truth_gate import apply_runtime_truth_gate
+from latka_jazn.core.visible_integrity import enforce_integrity_consensus
 
 from latka_jazn.version import schema_version
 
@@ -76,9 +77,22 @@ class JaznRuntimeSession:
         }
         result, integrity_repairs = repair_final_visible_integrity(result)
         result["final_visible_integrity"] = validate_final_visible_integrity(result)
+        contract = dict(result.get("final_response_contract") or {})
+        contract["final_visible_integrity"] = dict(result["final_visible_integrity"])
+        result["final_response_contract"] = contract
+        decision = dict(result.get("conversation_decision") or {})
+        decision["origin_truth_valid"] = bool(result["final_visible_integrity"].get("origin_truth_valid"))
+        decision["origin_truth_errors"] = list(result["final_visible_integrity"].get("errors") or [])
+        result["conversation_decision"] = decision
+        session_provenance = dict(result.get("session_provenance") or {})
+        session_provenance["final_visible_integrity_valid"] = bool(result["final_visible_integrity"].get("valid"))
+        result["session_provenance"] = session_provenance
         if integrity_repairs:
             result["final_visible_integrity"]["repairs"] = integrity_repairs
         result, gate_payload = apply_runtime_truth_gate(result)
+        result, consensus = enforce_integrity_consensus(result)
+        result["final_visible_integrity_consensus"] = consensus
+        gate_payload = dict(result.get("runtime_truth_gate") or gate_payload)
         if gate_payload.get("normal_response_allowed") is False:
             result["final_visible_integrity"]["runtime_truth_gate_blocked"] = not bool(gate_payload.get("ok"))
             result["final_visible_integrity"]["truthful_degraded_disclosure"] = bool(gate_payload.get("truthful_degraded_disclosure"))

@@ -356,6 +356,34 @@ def _project_retained_trusted_time(
 def pid_is_alive(pid: int | None) -> bool:
     if not pid or int(pid) <= 0:
         return False
+    if os.name == "nt":
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+            kernel32.OpenProcess.restype = wintypes.HANDLE
+            kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+            kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+            kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+            kernel32.CloseHandle.restype = wintypes.BOOL
+            process_query_limited_information = 0x1000
+            still_active = 259
+            handle = kernel32.OpenProcess(process_query_limited_information, False, int(pid))
+            if not handle:
+                return ctypes.get_last_error() == 5  # access denied still proves an existing PID
+            try:
+                exit_code = wintypes.DWORD()
+                if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+                    return False
+                return int(exit_code.value) == still_active
+            finally:
+                kernel32.CloseHandle(handle)
+        except Exception:
+            # Fall through to the portable probe only if the Windows API is
+            # unexpectedly unavailable.
+            pass
     try:
         os.kill(int(pid), 0)
         return True
@@ -1365,13 +1393,19 @@ def _endpoint_confirms_runtime_identity(
 
 def _probe_daemon_status(host: str, port: int, *, timeout: float = DEFAULT_LITE_STATUS_HTTP_TIMEOUT_SECONDS) -> tuple[dict[str, Any] | None, str | None, str | None]:
     errors: list[str] = []
-    for endpoint in ("/ready", "/status-lite", "/status"):
+    # Three bounded attempts cover a transient timeout without invoking the
+    # heavier /status endpoint. Alternating paths also preserves compatibility
+    # with daemons that expose only one of the two lightweight endpoints.
+    for attempt, endpoint in enumerate(("/ready", "/status-lite", "/ready"), start=1):
         try:
-            payload = http_json("GET", daemon_url(host, int(port), endpoint), timeout=timeout if endpoint != "/status" else DEFAULT_STATUS_HTTP_TIMEOUT_SECONDS)
+            payload = http_json("GET", daemon_url(host, int(port), endpoint), timeout=timeout)
             payload.setdefault("endpoint", endpoint)
+            payload.setdefault("endpoint_probe_attempt", attempt)
             return payload, None, endpoint
         except Exception as exc:
-            errors.append(f"{endpoint}: {type(exc).__name__}: {exc}")
+            errors.append(f"attempt={attempt} {endpoint}: {type(exc).__name__}: {exc}")
+            if attempt < 3:
+                time.sleep(0.05 * attempt)
     return None, "; ".join(errors) if errors else "daemon endpoint unavailable", None
 
 
@@ -1596,14 +1630,37 @@ def status_daemon(
             )
             active_state_reason = "endpoint_runtime_identity_confirmed"
     elif os_pid_alive and marker_heartbeat_fresh:
-        active_state = "active_degraded"
-        active_state_reason = (
-            "fresh_marker_and_live_pid_endpoint_unreachable"
-            if probe_endpoint
-            else "fresh_marker_and_live_pid_read_only_snapshot"
-        )
+        if probe_endpoint:
+            active_state = "active_degraded"
+            active_state_reason = "fresh_marker_and_live_pid_endpoint_unreachable"
+        else:
+            active_state = "active_unverified"
+            active_state_reason = "fresh_marker_and_live_pid_endpoint_not_probed"
     elif os_pid_alive:
         active_state_reason = "live_pid_but_heartbeat_stale"
+
+    if process_identity_confirmed:
+        identity_state = "endpoint_identity_confirmed"
+    elif endpoint_reachable:
+        identity_state = "identity_mismatch"
+    elif marker_root_valid and os_pid_alive:
+        identity_state = "marker_pid_unverified"
+    else:
+        identity_state = "unknown"
+    process_state = "active" if alive else ("dead" if pid_int else "not_observed")
+    heartbeat_state = "fresh" if heartbeat_is_fresh else ("stale" if heartbeat_age_seconds is not None else "unknown")
+    if not probe_endpoint:
+        readiness_state = "endpoint_not_probed"
+        observation_state = "endpoint_not_probed"
+    elif active_state == "active_trusted":
+        readiness_state = "ready"
+        observation_state = "live_verified"
+    elif active_state == "active_degraded":
+        readiness_state = "temporarily_unreachable_or_stale"
+        observation_state = "live_degraded"
+    else:
+        readiness_state = "not_ready"
+        observation_state = "live_probe_failed"
 
     return {
         "schema_version": DAEMON_SCHEMA_VERSION,
@@ -1611,6 +1668,11 @@ def status_daemon(
         "active_state": active_state,
         "degraded": active_state == "active_degraded",
         "runtime_active_state": active_state,
+        "process_state": process_state,
+        "identity_state": identity_state,
+        "readiness_state": readiness_state,
+        "heartbeat_state": heartbeat_state,
+        "observation_state": observation_state,
         "time_trust_state": time_state,
         "timestamp_degraded": timestamp_trusted is not True,
         "timestamp_does_not_block_startup": True,
