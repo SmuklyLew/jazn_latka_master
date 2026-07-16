@@ -69,6 +69,7 @@ class MemorySearchPlanner:
 
     SCHEMA_VERSION = "memory_search_planner/v14.6.10"
     RESOURCE_NAME = "memory_search_topics_v14_6_10.json"
+    RESOURCE_SCHEMA_VERSION = "memory_search_topics/v14.6.10"
 
     RECALL_MARKERS = {
         "pamiętasz", "pamietasz", "przypomnij", "przypomnieć", "przypomniec",
@@ -94,6 +95,7 @@ class MemorySearchPlanner:
 
     def __init__(self, root: Path | str) -> None:
         self.root = Path(root)
+        self.resource_status: dict[str, Any] = {}
         self.topics = self._load_topics()
 
     def plan(self, text: str, *, fallback_terms: list[str] | None = None) -> MemorySearchPlan:
@@ -122,7 +124,9 @@ class MemorySearchPlanner:
         topic_keys = [key for key, score in topic_scores if score > 0]
         expanded: list[str] = []
         source_hints: list[str] = []
-        routing_notes: list[str] = []
+        routing_notes: list[str] = [
+            "topic_resource=" + str(self.resource_status.get("status") or "unknown")
+        ]
         for key, score in topic_scores:
             if score <= 0:
                 continue
@@ -259,14 +263,48 @@ class MemorySearchPlanner:
 
     def _load_topics(self) -> dict[str, MemorySearchTopic]:
         path = self.root / "latka_jazn" / "resources" / self.RESOURCE_NAME
-        if path.exists():
-            try:
-                data = json.loads(path.read_text(encoding="utf-8"))
-                raw_topics = data.get("topics") or []
-                return {item["key"]: MemorySearchTopic(**item) for item in raw_topics}
-            except Exception:
-                pass
-        return {topic.key: topic for topic in self._default_topics()}
+        if not path.is_file():
+            self.resource_status = {
+                "status": "fallback_missing_resource",
+                "path": str(path),
+                "error": None,
+            }
+            return {topic.key: topic for topic in self._default_topics()}
+
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                raise ValueError("topic resource root must be an object")
+            if data.get("schema_version") != self.RESOURCE_SCHEMA_VERSION:
+                raise ValueError(
+                    f"topic resource schema must be {self.RESOURCE_SCHEMA_VERSION!r}"
+                )
+            raw_topics = data.get("topics")
+            if not isinstance(raw_topics, list) or not raw_topics:
+                raise ValueError("topics must be a non-empty list")
+            topics: dict[str, MemorySearchTopic] = {}
+            for index, item in enumerate(raw_topics):
+                if not isinstance(item, dict):
+                    raise ValueError(f"topics[{index}] must be an object")
+                topic = MemorySearchTopic(**item)
+                if not topic.key or topic.key in topics:
+                    raise ValueError(f"duplicate or empty topic key: {topic.key!r}")
+                topics[topic.key] = topic
+            self.resource_status = {
+                "status": "loaded",
+                "path": str(path),
+                "schema_version": data.get("schema_version"),
+                "topic_count": len(topics),
+                "error": None,
+            }
+            return topics
+        except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
+            self.resource_status = {
+                "status": "fallback_invalid_resource",
+                "path": str(path),
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+            return {topic.key: topic for topic in self._default_topics()}
 
     def _default_topics(self) -> list[MemorySearchTopic]:
         return [

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import sqlite3
+import threading
 import time
 
 import pytest
@@ -123,6 +124,9 @@ def test_turn_local_semantic_staging_is_rejected_on_failed_gate(tmp_path: Path, 
 class _LateWritingSession:
     writes: list[str] = []
     executions: dict[str, int] = {}
+    slow_started = threading.Event()
+    allow_finish = threading.Event()
+    slow_finished = threading.Event()
 
     def __init__(self, _config, **kwargs) -> None:
         self.state = type("State", (), {"session_id": kwargs.get("session_id")})()
@@ -135,17 +139,22 @@ class _LateWritingSession:
                 stage="candidate_persistence_staging",
                 commit=lambda: self.writes.append("late-write"),
             )
-            time.sleep(0.12)
+            self.slow_started.set()
+            self.allow_finish.wait(2.0)
             _turn_context.commit_if_allowed(_successful_result(), job_status="completed")
+            self.slow_finished.set()
         return _successful_result()
 
     def close(self) -> None:
         return
 
 
-def test_execution_timeout_cancels_late_commit_and_same_worker_handles_next_turn(tmp_path: Path) -> None:
+def test_execution_timeout_cancels_late_commit_and_retires_worker(tmp_path: Path) -> None:
     _LateWritingSession.writes = []
     _LateWritingSession.executions = {}
+    _LateWritingSession.slow_started = threading.Event()
+    _LateWritingSession.allow_finish = threading.Event()
+    _LateWritingSession.slow_finished = threading.Event()
     worker = RuntimeSessionWorker(
         session_factory=_LateWritingSession,
         config=JaznConfig(root=tmp_path),
@@ -158,16 +167,76 @@ def test_execution_timeout_cancels_late_commit_and_same_worker_handles_next_turn
     try:
         with pytest.raises(RuntimeTurnTimeoutError):
             worker.process_user_text("slow", request_id="timeout-request")
-        time.sleep(0.14)
+        assert _LateWritingSession.slow_started.is_set()
+        assert worker.timed_out is True
+        assert worker.usable is False
 
+        _LateWritingSession.allow_finish.set()
+        assert _LateWritingSession.slow_finished.wait(1.0)
         assert _LateWritingSession.writes == []
-        assert worker.process_user_text("fast", request_id="next-request")["ok"] is True
-        assert _LateWritingSession.executions == {"slow": 1, "fast": 1}
-        assert worker.last_turn_context is not None
-        assert worker.last_turn_context.snapshot()["cancellation"]["cancelled"] is False
+        with pytest.raises(RuntimeError, match="retired after an execution timeout"):
+            worker.process_user_text("fast", request_id="next-request")
+        assert _LateWritingSession.executions == {"slow": 1}
     finally:
+        _LateWritingSession.allow_finish.set()
         worker.close()
 
+
+
+def test_technical_audit_failure_is_fail_soft(tmp_path: Path, monkeypatch) -> None:
+    from latka_jazn.audit import audit_context_store
+
+    class _BrokenAuditStore:
+        def __init__(self, _path) -> None:
+            raise OSError("audit store unavailable")
+
+    monkeypatch.setattr(audit_context_store, "AuditContextStore", _BrokenAuditStore)
+    context = TurnExecutionContext.create(
+        request_id="audit-failure",
+        turn_id="turn-audit-failure",
+        session_id="session-audit-failure",
+        timeout_seconds=1.0,
+        audit_db_path=tmp_path / "runtime_audit.sqlite3",
+    )
+    context.record_technical_event("probe", {"value": 1})
+
+    status = context.persist_audit()
+
+    assert status["ok"] is False
+    assert status["available"] is True
+    assert status["error_code"] == "OSError"
+    assert "audit store unavailable" in status["error"]
+    assert context.snapshot()["stages"]["audit_persistence"]["status"] == "failed_non_blocking"
+
+
+def test_timeout_is_not_masked_by_technical_audit_failure(tmp_path: Path, monkeypatch) -> None:
+    from latka_jazn.audit import audit_context_store
+
+    class _BrokenAuditStore:
+        def __init__(self, _path) -> None:
+            raise OSError("audit store unavailable")
+
+    monkeypatch.setattr(audit_context_store, "AuditContextStore", _BrokenAuditStore)
+    _LateWritingSession.writes = []
+    _LateWritingSession.executions = {}
+    _LateWritingSession.slow_started = threading.Event()
+    _LateWritingSession.allow_finish = threading.Event()
+    _LateWritingSession.slow_finished = threading.Event()
+    worker = RuntimeSessionWorker(
+        session_factory=_LateWritingSession,
+        config=JaznConfig(root=tmp_path),
+        session_id="audit-timeout",
+        no_carryover=False,
+        source_client="isolated-test",
+        command="isolated-test",
+        timeout_seconds=0.03,
+    )
+    try:
+        with pytest.raises(RuntimeTurnTimeoutError):
+            worker.process_user_text("slow", request_id="audit-timeout-request")
+    finally:
+        _LateWritingSession.allow_finish.set()
+        worker.close()
 
 def test_health_presence_phrases_are_detected_before_expensive_cognitive_work() -> None:
     classifier = DialogueIntentClassifier()

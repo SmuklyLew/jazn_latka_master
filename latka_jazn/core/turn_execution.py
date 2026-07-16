@@ -386,9 +386,25 @@ class TurnExecutionContext:
                 "stages": stages,
             }
 
-    def persist_audit(self, *, event_type: str = "runtime_turn_telemetry") -> None:
+    def persist_audit(self, *, event_type: str = "runtime_turn_telemetry") -> dict[str, Any]:
+        """Persist non-canonical telemetry without changing the turn outcome.
+
+        Audit storage is deliberately fail-soft.  A locked, missing or damaged
+        runtime_audit database must not mask an execution timeout and must not
+        turn an already validated response into a failed turn after canonical
+        persistence has completed.
+        """
+
         if self.audit_db_path is None:
-            return
+            return {
+                "ok": False,
+                "available": False,
+                "event_type": event_type,
+                "technical_event_count": 0,
+                "error_code": "audit_db_unavailable",
+                "error": None,
+            }
+
         from latka_jazn.audit.audit_context_store import AuditContextStore
 
         with self._lock:
@@ -397,8 +413,9 @@ class TurnExecutionContext:
             self._audit_sequence += 1
             sequence = self._audit_sequence
         self.start_stage("audit_persistence")
-        store = AuditContextStore(self.audit_db_path)
+        store: AuditContextStore | None = None
         try:
+            store = AuditContextStore(self.audit_db_path)
             for technical_type, payload in technical:
                 enriched = {
                     "request_id": self.request_id,
@@ -415,6 +432,7 @@ class TurnExecutionContext:
                     trace_id=self.request_id,
                     turn_id=self.turn_id,
                 )
+            self.complete_stage("audit_persistence", status="completed")
             store.append_event(
                 event_type,
                 {"audit_sequence": sequence, **self.snapshot()},
@@ -424,6 +442,31 @@ class TurnExecutionContext:
                 trace_id=self.request_id,
                 turn_id=self.turn_id,
             )
+            return {
+                "ok": True,
+                "available": True,
+                "event_type": event_type,
+                "technical_event_count": len(technical),
+                "error_code": None,
+                "error": None,
+            }
+        except Exception as exc:
+            self.complete_stage(
+                "audit_persistence",
+                status="failed_non_blocking",
+                error_code=type(exc).__name__,
+            )
+            return {
+                "ok": False,
+                "available": True,
+                "event_type": event_type,
+                "technical_event_count": len(technical),
+                "error_code": type(exc).__name__,
+                "error": str(exc),
+            }
         finally:
-            store.close()
-        self.complete_stage("audit_persistence", status="completed")
+            if store is not None:
+                try:
+                    store.close()
+                except Exception:
+                    pass

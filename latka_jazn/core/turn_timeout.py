@@ -100,6 +100,7 @@ class RuntimeSessionWorker:
         self._requests: queue.Queue[tuple[str, Any, queue.Queue[tuple[str, object]] | None]] = queue.Queue()
         self._ready: queue.Queue[tuple[str, object]] = queue.Queue(maxsize=1)
         self._closed = False
+        self._timed_out = False
         self.state: Any = None
         self.config = config
         self.last_turn_context: TurnExecutionContext | None = None
@@ -168,6 +169,14 @@ class RuntimeSessionWorker:
                     if response_queue is not None:
                         response_queue.put(("error", exc))
 
+    @property
+    def timed_out(self) -> bool:
+        return self._timed_out
+
+    @property
+    def usable(self) -> bool:
+        return not self._closed and not self._timed_out and self._thread.is_alive()
+
     def _call(
         self,
         op: str,
@@ -178,14 +187,27 @@ class RuntimeSessionWorker:
     ) -> Any:
         if self._closed:
             raise RuntimeError("RuntimeSessionWorker is closed")
+        if self._timed_out:
+            raise RuntimeError("RuntimeSessionWorker is retired after an execution timeout")
         response_queue: queue.Queue[tuple[str, object]] = queue.Queue(maxsize=1)
         self._requests.put((op, payload, response_queue))
         deadline = time.monotonic() + self._timeout_seconds
         while True:
             if heartbeat_callback is not None:
                 heartbeat_callback()
+
+            # Prefer a result that is already available at the deadline boundary.
+            # This avoids reporting a timeout merely because the scheduler woke the
+            # caller a fraction late after the worker had already completed.
+            try:
+                status, value = response_queue.get_nowait()
+                break
+            except queue.Empty:
+                pass
+
             remaining = deadline - time.monotonic()
             if remaining <= 0:
+                self._timed_out = True
                 if turn_context is not None:
                     turn_context.cancel(
                         reason=f"{self._command} execution deadline exceeded",
@@ -235,9 +257,13 @@ class RuntimeSessionWorker:
         if self._closed:
             return
         self._closed = True
+        if not self._thread.is_alive():
+            return
         response_queue: queue.Queue[tuple[str, object]] = queue.Queue(maxsize=1)
         self._requests.put(("close", None, response_queue))
+        wait_seconds = min(max(self._timeout_seconds, 1.0), 5.0)
         try:
-            response_queue.get(timeout=min(max(self._timeout_seconds, 1.0), 5.0))
+            response_queue.get(timeout=wait_seconds)
         except queue.Empty:
             pass
+        self._thread.join(timeout=wait_seconds)

@@ -1,47 +1,35 @@
-JAZN v15.0.3.3 release-hardening — self.config compatibility repair
+JAZN release-hardening — historical self.config compatibility report
 
-Source bundle:
-- branch: fix/v15.0.3.3-release-hardening
-- bundle HEAD: 67b4d9c33c4ed0ea585988f0af8184f0032b39de
-- bundle verified as complete history
+Status of this document:
+- informational historical record only;
+- not a version source, package manifest, provenance file or release approval;
+- current version remains defined exclusively by latka_jazn/version.py;
+- current package integrity remains defined exclusively by PACKAGE_INTEGRITY_MANIFEST.json.
 
-Files changed by this repair:
+Original repair scope:
 - latka_jazn/core/runtime_session.py
 - latka_jazn/core/runtime_daemon.py
 
-Repair:
+Original repair:
 1. JaznRuntimeSession.process_user_text no longer assumes self.config exists on a partially constructed object.
-2. Missing config uses default turn timeout, no audit DB path, records a technical diagnostic, rejects semantic staging, and leaves canonical persistence fail-closed.
-3. POSIX PID probing treats zombie/terminal /proc process states as dead. This fixes deterministic isolated daemon cleanup without weakening pre-shutdown endpoint/root/PID identity verification.
+2. Missing config uses the default turn timeout, no audit DB path, records a technical diagnostic, rejects semantic staging, and leaves canonical persistence fail-closed.
+3. POSIX PID probing treats zombie/terminal /proc process states as dead without weakening endpoint, root and PID identity verification before shutdown.
 
-Verification:
+Original isolated verification:
 - tests/test_release_hardening_integrity_pipeline.py: 7 passed
 - targeted atomicity/daemon/wake/integrity set: 49 passed
-- compileall: passed for latka_jazn, tests, main.py, run.py
 - full non-live pytest: 130 passed
-- doctor: exit 0, ok=true
-- package-smoke system: exit 0, ok=true, required checks 14/14 passed; source checkout manifest mismatch remained optional/expected for dirty working tree
-- package-smoke release: exit 1, ok=false; dirty_worktree rejection confirmed
-- isolated daemon smoke:
-  - staging/prepare ready
-  - active_trusted
-  - Działasz? route=runtime_health_check
-  - job_status=completed, ok=true
-  - final_visible_integrity.valid=true
-  - consensus=true, mismatch=false
-  - runtime_truth_gate.ok=true
-  - wake_state=ready, logical_fingerprint_changed=false
-  - semantic counts unchanged
-  - stop=true; final active_state=inactive; PID dead; endpoint down
-- git diff --check: clean
-- memory/ and workspace_runtime/: no changes in the repair checkout
+- doctor: ok=true
+- package-smoke system: ok=true
+- package-smoke release: dirty_worktree rejected as expected
+- isolated health-check: completed, integrity valid, consensus true, truth gate true
+- wake_state remained ready and semantic counts were unchanged
 
-Not performed:
-- version bump
-- commit
-- push
-- PR
-- merge/rebase/tag
-- final SOURCE_PROVENANCE.json
-- final PACKAGE_INTEGRITY_MANIFEST.json
-- final ZIP
+Repository history after that verification:
+- the repair was committed and pushed;
+- PR #4 was created and merged into master;
+- merge commit: ac97634a9826b0dcfccf92f7d4b04f1c7a010803;
+- the first Windows CI attempt failed in the full pytest step, while Ubuntu passed;
+- a rerun of the failed Windows job completed successfully through all workflow steps.
+
+This file must not be used as evidence that a later working tree, commit, package, manifest, provenance file or runtime process has been verified. Re-run the active tests and release checks for the exact revision being evaluated.

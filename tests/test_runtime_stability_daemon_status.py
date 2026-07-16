@@ -27,6 +27,48 @@ class _FakeSession:
         return
 
 
+class _BlockingSession:
+    instance_count = 0
+    writes: list[str] = []
+    slow_started = threading.Event()
+    release_slow = threading.Event()
+    slow_finished = threading.Event()
+
+    def __init__(self, _config, **kwargs) -> None:
+        type(self).instance_count += 1
+        self.instance_id = type(self).instance_count
+        self.state = SimpleNamespace(session_id=kwargs.get("session_id"))
+
+    @staticmethod
+    def _successful_result() -> dict:
+        return {
+            "ok": True,
+            "final_visible_text": "[czas] Działam.",
+            "final_visible_integrity": {"valid": True, "consensus": True},
+            "final_visible_integrity_consensus": {"valid": True, "mismatch": False},
+            "runtime_truth_gate": {"ok": True, "normal_response_allowed": True},
+            "normal_response_blocked": False,
+        }
+
+    def process_user_text(self, user_text: str, *, _turn_context, **_kwargs) -> dict:
+        result = self._successful_result()
+        result["instance_id"] = self.instance_id
+        if user_text == "slow":
+            _turn_context.stage_semantic_write(
+                data_type="truth_audit",
+                stage="candidate_persistence_staging",
+                commit=lambda: self.writes.append("late-write"),
+            )
+            self.slow_started.set()
+            self.release_slow.wait(2.0)
+            _turn_context.commit_if_allowed(result, job_status="completed")
+            self.slow_finished.set()
+        return result
+
+    def close(self) -> None:
+        return
+
+
 def _test_server(tmp_path: Path, *, execution_timeout: float = 1.0) -> runtime_daemon.JaznDaemonServer:
     root = tmp_path.resolve()
     marker = root / "workspace_runtime" / "JAZN_ACTIVE_RUNTIME.json"
@@ -247,6 +289,55 @@ def test_execution_timeout_is_terminal_and_worker_accepts_next_job(tmp_path: Pat
         assert fast.status == "completed"
         assert server.chat_job_summary()["worker_state"] == "alive"
     finally:
+        server.close_sessions()
+        server.server_close()
+
+
+def test_execution_timeout_replaces_poisoned_session_worker_for_same_session(tmp_path: Path) -> None:
+    _BlockingSession.instance_count = 0
+    _BlockingSession.writes = []
+    _BlockingSession.slow_started = threading.Event()
+    _BlockingSession.release_slow = threading.Event()
+    _BlockingSession.slow_finished = threading.Event()
+    root = tmp_path.resolve()
+    marker = root / "workspace_runtime" / "JAZN_ACTIVE_RUNTIME.json"
+    server = runtime_daemon.JaznDaemonServer(
+        ("127.0.0.1", 0),
+        runtime_daemon.JaznDaemonHandler,
+        config=JaznConfig(root=root),
+        marker_path=marker,
+        session_factory=_BlockingSession,
+        execution_timeout_seconds=0.04,
+    )
+    server.write_marker = lambda **_kwargs: {"manifest_current_sha256": None}  # type: ignore[method-assign]
+    try:
+        slow, created, error = server.submit_chat_job(
+            user_text="slow", input_field="test", session_id="same-session",
+            no_carryover=False, client="isolated-test", request_id="replace-timeout",
+        )
+        assert created is True and error is None and slow is not None
+        assert _BlockingSession.slow_started.wait(1.0)
+        assert slow.done_event.wait(1.0)
+        assert slow.status == "execution_timeout"
+
+        fast, created, error = server.submit_chat_job(
+            user_text="fast", input_field="test", session_id="same-session",
+            no_carryover=False, client="isolated-test", request_id="replace-next",
+        )
+        assert created is True and error is None and fast is not None
+        assert fast.done_event.wait(1.0)
+        assert fast.status == "completed"
+        assert fast.result["instance_id"] >= 2
+
+        _BlockingSession.release_slow.set()
+        assert _BlockingSession.slow_finished.wait(1.0)
+        assert _BlockingSession.writes == []
+        summary = server.chat_job_summary()
+        assert summary["execution_timeout"] == 1
+        assert summary["completed"] == 1
+        assert summary["worker_state"] == "alive"
+    finally:
+        _BlockingSession.release_slow.set()
         server.close_sessions()
         server.server_close()
 

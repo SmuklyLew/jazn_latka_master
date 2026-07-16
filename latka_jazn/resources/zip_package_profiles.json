@@ -1,0 +1,125 @@
+{
+  "schema_version": "zip_package_profiles/v1",
+  "version_source": "latka_jazn/version.py",
+  "manifest_source": "PACKAGE_INTEGRITY_MANIFEST.json",
+  "truth_boundary": "Package profiles select transport content only. They are not a version source, runtime marker, memory source or integrity proof.",
+  "profiles": [
+    {
+      "name": "system",
+      "includes": [
+        "run.py",
+        "main.py",
+        "latka_jazn/**",
+        "tests/**",
+        ".github/**",
+        "AGENTS.md",
+        "AGENTS.codex.md",
+        "AGENTS.chatgpt.md",
+        "README.md",
+        "PACKAGE_INTEGRITY_MANIFEST.json",
+        "SOURCE_PROVENANCE.json",
+        "pyproject.toml",
+        "requirements.txt",
+        ".gitignore",
+        ".gitattributes"
+      ],
+      "excludes": [
+        "memory/**",
+        "workspace_runtime/**",
+        "exports/**",
+        "**/__pycache__/**",
+        "**/.pytest_cache/**",
+        "**/*.sqlite3",
+        "**/*.sqlite3-wal",
+        "**/*.sqlite3-shm",
+        "**/*.zip",
+        "**/*.zip.*"
+      ],
+      "purpose": "Kod, testy, konfiguracja CI i kanoniczne metadane pakietu bez pamięci oraz stanu roboczego runtime."
+    },
+    {
+      "name": "memory",
+      "includes": [
+        "memory/**"
+      ],
+      "excludes": [
+        "workspace_runtime/**",
+        "exports/**",
+        "**/__pycache__/**",
+        "**/.pytest_cache/**"
+      ],
+      "purpose": "Pamięć transportowana oddzielnie od kodu i workspace runtime."
+    },
+    {
+      "name": "nlp",
+      "includes": [
+        "latka_jazn/nlp/**",
+        "latka_jazn/nlp_reasoning/**",
+        "latka_jazn/resources/*lexicon*.json",
+        "latka_jazn/resources/*lemma*.json",
+        "latka_jazn/resources/nlp_provider_registry*.json",
+        "latka_jazn/resources/zip_package_profiles.json"
+      ],
+      "excludes": [
+        "memory/**",
+        "workspace_runtime/**",
+        "exports/**",
+        "**/__pycache__/**"
+      ],
+      "purpose": "Lekkie zasoby NLP i adaptery bez prywatnej pamięci oraz ciężkich modeli."
+    },
+    {
+      "name": "full",
+      "includes": [
+        "**"
+      ],
+      "excludes": [
+        ".git/**",
+        "VERSION.txt",
+        "MANIFEST_CURRENT.json",
+        "workspace_runtime/**",
+        "exports/**",
+        "**/__pycache__/**",
+        "**/.pytest_cache/**",
+        "**/*.sqlite3-wal",
+        "**/*.sqlite3-shm",
+        "**/*.zip",
+        "**/*.zip.*"
+      ],
+      "purpose": "Kod i pamięć bez repozytorium Git, przejściowego workspace, cache oraz zagnieżdżonych paczek."
+    },
+    {
+      "name": "github_source_safe",
+      "includes": [
+        "run.py",
+        "main.py",
+        "latka_jazn/**",
+        "tests/**",
+        ".github/**",
+        "AGENTS.md",
+        "AGENTS.codex.md",
+        "AGENTS.chatgpt.md",
+        "README.md",
+        "PACKAGE_INTEGRITY_MANIFEST.json",
+        "SOURCE_PROVENANCE.json",
+        "pyproject.toml",
+        "requirements.txt",
+        ".gitignore",
+        ".gitattributes"
+      ],
+      "excludes": [
+        "memory/**",
+        "workspace_runtime/**",
+        "exports/**",
+        "**/__pycache__/**",
+        "**/.pytest_cache/**",
+        "**/*.sqlite3",
+        "**/*.sqlite3-wal",
+        "**/*.sqlite3-shm",
+        "**/*.zip",
+        "**/*.zip.*"
+      ],
+      "purpose": "Źródłowy snapshot GitHub bez prywatnej pamięci, runtime workspace, baz i paczek transportowych."
+    }
+  ]
+}

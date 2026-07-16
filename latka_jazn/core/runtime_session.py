@@ -174,7 +174,7 @@ class JaznRuntimeSession:
                 result["session_provenance"] = session_provenance
 
             turn_context.finalize_total(status="completed" if result["ok"] else "rejected")
-            turn_context.persist_audit()
+            result["turn_audit_persistence"] = turn_context.persist_audit()
             result["turn_telemetry"] = turn_context.snapshot()
             return result
         except BaseException as exc:
