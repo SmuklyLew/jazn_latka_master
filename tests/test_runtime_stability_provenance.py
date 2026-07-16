@@ -16,6 +16,7 @@ from latka_jazn.tools.source_provenance import (
     generate_source_provenance,
 )
 from latka_jazn.tools.active_extraction_cache import build_active_runtime_status
+from latka_jazn.version import DISTRIBUTION_VERSION, PACKAGE_VERSION
 
 
 def _git(root: Path, *args: str) -> str:
@@ -30,7 +31,9 @@ def _repo(tmp_path: Path) -> Path:
     root = tmp_path / "repo"
     (root / "latka_jazn").mkdir(parents=True)
     (root / "latka_jazn" / "version.py").write_text(
-        'DISTRIBUTION_VERSION = "15.0.3.2"\nPACKAGE_VERSION = "v15.0.3.2"\nPACKAGE_RELEASE_NAME = ""\n',
+        f"DISTRIBUTION_VERSION = {DISTRIBUTION_VERSION!r}\n"
+        f"PACKAGE_VERSION = {PACKAGE_VERSION!r}\n"
+        'PACKAGE_RELEASE_NAME = ""\n',
         encoding="utf-8",
     )
     (root / "run.py").write_text("print('run')\n", encoding="utf-8")
@@ -66,7 +69,9 @@ def test_dirty_checkout_is_blocked_or_truthfully_declared(tmp_path: Path) -> Non
 def test_missing_git_never_invents_sha(tmp_path: Path) -> None:
     (tmp_path / "latka_jazn").mkdir()
     (tmp_path / "latka_jazn" / "version.py").write_text(
-        'DISTRIBUTION_VERSION="15.0.3.2"\nPACKAGE_VERSION="v15.0.3.2"\n', encoding="utf-8"
+        f"DISTRIBUTION_VERSION={DISTRIBUTION_VERSION!r}\n"
+        f"PACKAGE_VERSION={PACKAGE_VERSION!r}\n",
+        encoding="utf-8",
     )
     report = generate_source_provenance(tmp_path, allow_dirty=True)
     assert report["ok"] is False
