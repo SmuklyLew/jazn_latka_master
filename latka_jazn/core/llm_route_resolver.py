@@ -9,16 +9,15 @@ from urllib.request import Request, urlopen
 
 from latka_jazn.core.runtime_environment import (
     CHATGPT_ADAPTER,
-    LMSTUDIO_ADAPTER,
     NULL_ADAPTER,
+    OLLAMA_ADAPTER,
     OPENAI_ADAPTER,
-    OPENAI_COMPATIBLE_ADAPTER,
     detect_runtime_environment,
 )
 from latka_jazn.version import schema_version
 
 LLM_ROUTE_AUTO = "auto"
-ROUTE_LOCAL = "local_openai_compatible"
+ROUTE_LOCAL = "ollama_local"
 ROUTE_CHATGPT_BRIDGE = "chatgpt_host_bridge"
 ROUTE_OPENAI_PAID = "openai_api_paid"
 ROUTE_NULL = "null_fallback"
@@ -35,14 +34,15 @@ def _env_get(env: Mapping[str, str], *names: str, default: str = "") -> str:
 
 
 def _truthy(value: str | None) -> bool:
-    return str(value or "").strip().lower() in {"1", "true", "yes", "tak", "on"}
+    return str(value or "").strip().casefold() in {"1", "true", "yes", "tak", "on"}
 
 
 def _normalize_mode(value: str | None) -> str:
-    raw = str(value or "auto").strip().lower().replace("-", "_") or "auto"
+    raw = str(value or "auto").strip().casefold().replace("-", "_") or "auto"
     aliases = {
         "local_llm": "local",
         "local_openai_compatible": "local",
+        "ollama": "local",
         "chatgpt": "chatgpt_bridge",
         "chat_gpt": "chatgpt_bridge",
         "bridge": "chatgpt_bridge",
@@ -57,94 +57,104 @@ def _normalize_mode(value: str | None) -> str:
     return mode if mode in _ALLOWED_MODES else "auto"
 
 
-def _normalise_base_url(url: str, *, wants_v1: bool = True) -> str:
-    base = (url or "").strip().rstrip("/")
-    if wants_v1 and base and not base.endswith("/v1") and not base.endswith("/api"):
-        base += "/v1"
-    return base
+def _ollama_base_url(value: str) -> str:
+    base = str(value or "http://127.0.0.1:11434").strip().rstrip("/")
+    for suffix in ("/api", "/v1"):
+        if base.endswith(suffix):
+            base = base[: -len(suffix)]
+    return base or "http://127.0.0.1:11434"
 
 
-def _local_candidates(config: Any, env: Mapping[str, str]) -> list[dict[str, Any]]:
-    lm_model = _env_get(env, "JAZN_LM_STUDIO_MODEL", "JAZN_LMSTUDIO_MODEL", default=str(getattr(config, "lm_studio_model_name", "") or "").strip())
-    lm_base = _env_get(
-        env,
-        "JAZN_LM_STUDIO_API_BASE",
-        "JAZN_LMSTUDIO_API_BASE",
-        default=str(getattr(config, "lm_studio_api_base", "http://127.0.0.1:1234/v1") or "http://127.0.0.1:1234/v1"),
+def _http_json(url: str, *, timeout_seconds: float) -> dict[str, Any]:
+    request = Request(url, headers={"Accept": "application/json"}, method="GET")
+    with urlopen(request, timeout=timeout_seconds) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    return payload if isinstance(payload, dict) else {}
+
+
+def _model_names(payload: dict[str, Any]) -> list[str]:
+    result: list[str] = []
+    models = payload.get("models")
+    if isinstance(models, list):
+        for item in models:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("model") or item.get("name") or "").strip()
+            if name and name not in result:
+                result.append(name)
+    return result
+
+
+def probe_ollama(
+    config: Any,
+    env: Mapping[str, str],
+    *,
+    timeout_seconds: float = 2.0,
+) -> dict[str, Any]:
+    base_url = _ollama_base_url(
+        _env_get(
+            env,
+            "JAZN_OLLAMA_BASE_URL",
+            "JAZN_LOCAL_LLM_BASE_URL",
+            "JAZN_LOCAL_LLM_API_BASE",
+            "JAZN_LOCAL_MODEL_API_BASE",
+            default=str(getattr(config, "local_model_api_base", "http://127.0.0.1:11434") or "http://127.0.0.1:11434"),
+        )
     )
-    local_model = _env_get(
+    configured_model = _env_get(
         env,
+        "JAZN_OLLAMA_MODEL",
         "JAZN_LOCAL_LLM_MODEL",
         "JAZN_LOCAL_MODEL_NAME",
         default=str(getattr(config, "local_model_name", "") or "").strip(),
     )
-    local_base = _env_get(
-        env,
-        "JAZN_LOCAL_LLM_BASE_URL",
-        "JAZN_LOCAL_LLM_API_BASE",
-        "JAZN_LOCAL_MODEL_API_BASE",
-        default=str(getattr(config, "local_model_api_base", "http://127.0.0.1:11434") or "http://127.0.0.1:11434"),
-    )
-    provider = _env_get(env, "JAZN_LOCAL_LLM_PROVIDER", default="openai_compatible").lower()
-    candidates = [
-        {
-            "provider": "lmstudio",
-            "adapter": LMSTUDIO_ADAPTER,
-            "base_url": _normalise_base_url(lm_base, wants_v1=True),
-            "model": lm_model,
-            "api_key": "",
-        },
-        {
-            "provider": provider or "openai_compatible",
-            "adapter": OPENAI_COMPATIBLE_ADAPTER,
-            "base_url": _normalise_base_url(local_base, wants_v1=(provider != "ollama_native")),
-            "model": local_model,
-            "api_key": _env_get(env, "JAZN_LOCAL_LLM_API_KEY", default="ollama" if provider == "ollama" else ""),
-        },
-    ]
-    return [item for item in candidates if item["base_url"]]
+    running: list[str] = []
+    installed: list[str] = []
+    errors: list[str] = []
+    endpoint_reachable = False
+    for path, target in (("/api/ps", running), ("/api/tags", installed)):
+        try:
+            data = _http_json(base_url + path, timeout_seconds=timeout_seconds)
+            target.extend(_model_names(data))
+            endpoint_reachable = True
+        except HTTPError as exc:
+            errors.append(f"{path}:http_{exc.code}")
+        except (URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError):
+            errors.append(f"{path}:unavailable")
 
+    union = list(dict.fromkeys([*running, *installed]))
+    selected = ""
+    reason = "ollama_unavailable"
+    if configured_model:
+        if configured_model in union:
+            selected = configured_model
+            reason = "configured_model_available"
+        elif endpoint_reachable:
+            reason = "configured_model_not_installed"
+    elif len(running) == 1:
+        selected = running[0]
+        reason = "single_running_model"
+    elif len(installed) == 1:
+        selected = installed[0]
+        reason = "single_installed_model"
+    elif len(union) > 1:
+        reason = "ollama_model_ambiguous"
+    elif endpoint_reachable:
+        reason = "ollama_has_no_models"
 
-def _extract_first_model_id(data: dict[str, Any]) -> str:
-    models = data.get("data")
-    if isinstance(models, list):
-        for item in models:
-            if isinstance(item, dict) and str(item.get("id") or "").strip():
-                return str(item["id"]).strip()
-    return ""
-
-
-def discover_openai_compatible_model(base_url: str, *, api_key: str = "", timeout_seconds: float = 2.0) -> tuple[str, str | None]:
-    headers = {"Accept": "application/json"}
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-    try:
-        request = Request(f"{base_url.rstrip('/')}/models", headers=headers, method="GET")
-        with urlopen(request, timeout=timeout_seconds) as response:
-            data = json.loads(response.read().decode("utf-8"))
-        if isinstance(data, dict):
-            model = _extract_first_model_id(data)
-            if model:
-                return model, None
-        return "", "models_response_empty"
-    except HTTPError as exc:
-        return "", f"http_error_{exc.code}"
-    except (URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError):
-        return "", "provider_unavailable"
-
-
-def probe_openai_compatible_endpoint(candidate: dict[str, Any], *, timeout_seconds: float = 2.0) -> dict[str, Any]:
-    base_url = str(candidate.get("base_url") or "").rstrip("/")
-    model = str(candidate.get("model") or "").strip()
-    api_key = str(candidate.get("api_key") or "")
-    if not base_url:
-        return {"available": False, "reason": "base_url_missing"}
-    if not model:
-        discovered, error = discover_openai_compatible_model(base_url, api_key=api_key, timeout_seconds=timeout_seconds)
-        if not discovered:
-            return {"available": False, "reason": error or "model_missing", "model": ""}
-        model = discovered
-    return {"available": True, "reason": "configured", "model": model}
+    return {
+        "provider": "ollama",
+        "adapter": OLLAMA_ADAPTER,
+        "base_url": base_url,
+        "model": selected,
+        "configured_model": configured_model,
+        "running_models": running,
+        "installed_models": installed,
+        "available": bool(endpoint_reachable and selected),
+        "endpoint_reachable": endpoint_reachable,
+        "reason": reason,
+        "errors": errors,
+    }
 
 
 @dataclass(slots=True)
@@ -162,8 +172,9 @@ class LlmRouteStatus:
     selected_adapter: str | None = None
     schema_version: str = schema_version("llm_route_status")
     truth_boundary: str = (
-        "Routing LLM wybiera backend językowy, nie tożsamość Jaźni. ChatGPT Plus nie jest API key; "
-        "OpenAI API jest trasą płatną i wymaga OPENAI_API_KEY oraz JAZN_ALLOW_PAID_OPENAI=1."
+        "Routing wybiera wykonawcę językowego, nie tożsamość Jaźni. "
+        "Potwierdzony host ChatGPT ma pierwszeństwo; w terminalu lokalnym wykrywana jest Ollama. "
+        "Płatne OpenAI API wymaga jawnego trybu, OPENAI_API_KEY i JAZN_ALLOW_PAID_OPENAI=1."
     )
 
     def to_dict(self) -> dict[str, Any]:
@@ -184,39 +195,6 @@ def build_llm_route_status(
     api_key_present = bool(str(env_map.get("OPENAI_API_KEY") or "").strip())
     openai_model = _env_get(env_map, "JAZN_OPENAI_MODEL", "JAZN_MODEL_NAME", default=str(getattr(config, "openai_paid_model_name", getattr(config, "model_name", "")) or ""))
 
-    candidates = _local_candidates(config, env_map)
-    local_status: dict[str, Any] = {
-        "checked": True,
-        "available": False,
-        "candidates": [],
-        "selected_candidate": None,
-    }
-    selected_local: dict[str, Any] | None = None
-    for candidate in candidates:
-        item = dict(candidate)
-        probe = probe_openai_compatible_endpoint(candidate, timeout_seconds=2.0) if probe_local else {
-            "available": bool(candidate.get("model") and candidate.get("base_url")),
-            "reason": "probe_skipped",
-            "model": candidate.get("model") or "",
-        }
-        item.update(probe)
-        if probe.get("model"):
-            item["model"] = probe["model"]
-        local_status["candidates"].append(item)
-        if item.get("available") and selected_local is None:
-            selected_local = item
-    if selected_local:
-        local_status.update({
-            "available": True,
-            "provider": selected_local.get("provider"),
-            "adapter": selected_local.get("adapter"),
-            "base_url": selected_local.get("base_url"),
-            "model": selected_local.get("model"),
-            "selected_candidate": selected_local,
-        })
-    else:
-        local_status["reason"] = "no_local_openai_compatible_endpoint_available"
-
     environment = detect_runtime_environment(
         config,
         command=command,
@@ -224,6 +202,37 @@ def build_llm_route_status(
         infer_host_environment=infer_host_environment,
     )
     bridge_available = bool(environment.is_chatgpt_host_bridge)
+
+    if probe_local:
+        local_probe = probe_ollama(config, env_map)
+    else:
+        configured = _env_get(env_map, "JAZN_OLLAMA_MODEL", "JAZN_LOCAL_LLM_MODEL", default=str(getattr(config, "local_model_name", "") or ""))
+        local_probe = {
+            "provider": "ollama",
+            "adapter": OLLAMA_ADAPTER,
+            "base_url": _ollama_base_url(str(getattr(config, "local_model_api_base", "http://127.0.0.1:11434"))),
+            "model": configured,
+            "configured_model": configured,
+            "running_models": [],
+            "installed_models": [],
+            "available": bool(configured),
+            "endpoint_reachable": None,
+            "reason": "probe_skipped",
+            "errors": [],
+        }
+    local_status = {
+        "checked": True,
+        "available": bool(local_probe.get("available")),
+        "provider": "ollama",
+        "adapter": OLLAMA_ADAPTER,
+        "base_url": local_probe.get("base_url"),
+        "model": local_probe.get("model") or None,
+        "selected_candidate": local_probe if local_probe.get("available") else None,
+        "candidate": local_probe,
+        "reason": local_probe.get("reason"),
+    }
+    selected_local = local_probe if local_probe.get("available") else None
+
     chatgpt_status = {
         "checked": True,
         "available": bridge_available,
@@ -240,7 +249,7 @@ def build_llm_route_status(
         "paid_route": bool(api_key_present and paid_allowed),
     }
 
-    def _status(ok: bool, route: str, reason: str, *, error: str | None = None, adapter: str | None = None) -> LlmRouteStatus:
+    def status(ok: bool, route: str, reason: str, *, error: str | None = None, adapter: str | None = None) -> LlmRouteStatus:
         return LlmRouteStatus(
             ok=ok,
             route_mode=mode,
@@ -256,44 +265,39 @@ def build_llm_route_status(
         )
 
     if mode == "none":
-        return _status(True, ROUTE_NULL, "JAZN_LLM_ROUTE=none")
+        return status(True, ROUTE_NULL, "JAZN_LLM_ROUTE=none", adapter=NULL_ADAPTER)
     if mode == "local":
         if selected_local:
-            return _status(True, ROUTE_LOCAL, "forced local route available", adapter=str(selected_local.get("adapter") or OPENAI_COMPATIBLE_ADAPTER))
-        return _status(False, ROUTE_NULL, "forced local route unavailable", error="local_llm_unavailable", adapter=NULL_ADAPTER)
+            return status(True, ROUTE_LOCAL, "forced Ollama route available", adapter=OLLAMA_ADAPTER)
+        return status(False, ROUTE_NULL, "forced Ollama route unavailable", error="local_llm_unavailable", adapter=NULL_ADAPTER)
     if mode == "chatgpt_bridge":
         if bridge_available:
-            return _status(True, ROUTE_CHATGPT_BRIDGE, "forced ChatGPT host bridge available", adapter=CHATGPT_ADAPTER)
-        return _status(False, ROUTE_NULL, "forced ChatGPT host bridge unavailable", error="chatgpt_bridge_unavailable", adapter=NULL_ADAPTER)
+            return status(True, ROUTE_CHATGPT_BRIDGE, "forced ChatGPT host bridge available", adapter=CHATGPT_ADAPTER)
+        return status(False, ROUTE_NULL, "forced ChatGPT host bridge unavailable", error="chatgpt_bridge_unavailable", adapter=NULL_ADAPTER)
     if mode == "openai_api":
         if not api_key_present:
-            return _status(False, ROUTE_NULL, "forced OpenAI API route blocked: OPENAI_API_KEY missing", error="openai_api_key_missing", adapter=NULL_ADAPTER)
+            return status(False, ROUTE_NULL, "forced OpenAI API route blocked: OPENAI_API_KEY missing", error="openai_api_key_missing", adapter=NULL_ADAPTER)
         if not paid_allowed:
-            return _status(False, ROUTE_NULL, "forced OpenAI API route blocked: JAZN_ALLOW_PAID_OPENAI is not 1", error="paid_openai_not_allowed", adapter=NULL_ADAPTER)
-        return _status(True, ROUTE_OPENAI_PAID, "forced paid OpenAI API route allowed", adapter=OPENAI_ADAPTER)
+            return status(False, ROUTE_NULL, "forced OpenAI API route blocked: JAZN_ALLOW_PAID_OPENAI is not 1", error="paid_openai_not_allowed", adapter=NULL_ADAPTER)
+        return status(True, ROUTE_OPENAI_PAID, "forced paid OpenAI API route allowed", adapter=OPENAI_ADAPTER)
 
-    if selected_local:
-        return _status(True, ROUTE_LOCAL, "local OpenAI-compatible endpoint available", adapter=str(selected_local.get("adapter") or OPENAI_COMPATIBLE_ADAPTER))
     if bridge_available:
-        return _status(True, ROUTE_CHATGPT_BRIDGE, "local endpoint unavailable; ChatGPT host bridge available", adapter=CHATGPT_ADAPTER)
+        return status(True, ROUTE_CHATGPT_BRIDGE, "confirmed ChatGPT host bridge available", adapter=CHATGPT_ADAPTER)
+    if selected_local:
+        return status(True, ROUTE_LOCAL, "local Ollama endpoint and model available", adapter=OLLAMA_ADAPTER)
     if api_key_present and paid_allowed:
-        return _status(True, ROUTE_OPENAI_PAID, "local and bridge unavailable; paid OpenAI API explicitly allowed", adapter=OPENAI_ADAPTER)
-    return _status(True, ROUTE_NULL, "no local endpoint, no host bridge, and paid OpenAI API unavailable or not allowed", adapter=NULL_ADAPTER)
+        return status(True, ROUTE_OPENAI_PAID, "host and Ollama unavailable; paid OpenAI API explicitly allowed", adapter=OPENAI_ADAPTER)
+    return status(True, ROUTE_NULL, "no host bridge, no usable Ollama model, and paid OpenAI API unavailable or not allowed", adapter=NULL_ADAPTER)
 
 
-def apply_llm_route_to_config(config: Any, status: LlmRouteStatus) -> Any:
-    route = status.selected_route
+def apply_llm_route_to_config(config: Any, route_status: LlmRouteStatus) -> Any:
+    route = route_status.selected_route
     if route == ROUTE_LOCAL:
-        candidate = status.local.get("selected_candidate") if isinstance(status.local, dict) else None
+        candidate = route_status.local.get("selected_candidate") if isinstance(route_status.local, dict) else None
         if isinstance(candidate, dict):
-            adapter = str(candidate.get("adapter") or OPENAI_COMPATIBLE_ADAPTER)
-            setattr(config, "model_adapter", adapter)
-            if adapter == LMSTUDIO_ADAPTER:
-                setattr(config, "lm_studio_model_name", str(candidate.get("model") or ""))
-                setattr(config, "lm_studio_api_base", str(candidate.get("base_url") or ""))
-            else:
-                setattr(config, "local_model_name", str(candidate.get("model") or ""))
-                setattr(config, "local_model_api_base", str(candidate.get("base_url") or ""))
+            setattr(config, "model_adapter", OLLAMA_ADAPTER)
+            setattr(config, "local_model_name", str(candidate.get("model") or ""))
+            setattr(config, "local_model_api_base", str(candidate.get("base_url") or ""))
         return config
     if route == ROUTE_CHATGPT_BRIDGE:
         setattr(config, "model_adapter", CHATGPT_ADAPTER)

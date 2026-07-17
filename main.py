@@ -47,6 +47,7 @@ from latka_jazn.memory.raw_memory_status import RawMemoryInspector
 from latka_jazn.memory.normalization_sidecar import MemoryNormalizationSidecar
 from latka_jazn.memory.conversation_archive import ConversationArchiveStore
 from latka_jazn.cli_commands.export import export_payload
+from latka_jazn.cli_commands.diagnostics import doctor_payload
 from latka_jazn.tools.dedup_manifest import write_dedup_report
 from latka_jazn.tools.active_extraction_cache import build_active_runtime_status, write_active_runtime_marker, visible_preview_contract_version
 from latka_jazn.core.polish_understanding import PolishUnderstandingEngine
@@ -75,7 +76,8 @@ from latka_jazn.core.turn_route_trace import TurnRouteTrace
 from latka_jazn.nlp_reasoning.lexical_resource_registry import LexicalResourceRegistry
 from latka_jazn.core.chat_command_contract import apply_chat_cli_settings, apply_chatgpt_cli_settings, apply_lm_studio_cli_settings, apply_local_llm_cli_settings, apply_openai_cli_settings, attach_cli_flag_warning, build_chatgpt_host_bridge_turn_contract, guard_cli_flags_in_user_text, run_jsonl_chat_bridge, write_chat_bridge_payload
 from latka_jazn.core.bridge_discovery import discover_runtime_bridges
-from latka_jazn.core.llm_route_resolver import build_llm_route_status
+from latka_jazn.core.llm_route_resolver import ROUTE_CHATGPT_BRIDGE, apply_llm_route_to_config, build_llm_route_status
+from latka_jazn.core.cli_normalization import normalize_cli_argv
 from latka_jazn.core.model_guided_speech_runtime import build_model_guided_speech_status
 from latka_jazn.core.daemon_autostart import daemon_autostart_policy_status, ensure_daemon_for_runtime_turn
 from latka_jazn.core.turn_timeout import RuntimeSessionWorker, runtime_turn_timeout_seconds
@@ -115,12 +117,16 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Runtime JaÄąĹźni ÄąÂatki: rozmowa bezpoÄąâ€şrednia, cognitive-frame, diagnostyka i eksport paczek.",
         allow_abbrev=False,
     )
+    parser.add_argument("--version", action="version", version=PACKAGE_VERSION_FULL)
+    parser.add_argument("--doctor", action="store_true", help="Uruchom diagnostykę pakietu i kontraktów bez rozpoczynania rozmowy.")
+    parser.add_argument("--package-smoke", action="store_true", dest="package_smoke", help="Uruchom kontrolę gotowości paczki.")
+    parser.add_argument("--package-profile", choices=("development", "system", "release", "export-without-git", "memory", "full"), default="system")
     parser.add_argument("--root", type=Path, default=None, help="Folder gÄąâ€šÄ‚Ĺ‚wny aktywnej paczki JaÄąĹźni.")
     parser.add_argument("--status", "--status-readonly", "--diagnostics-readonly", action="store_true", dest="status_readonly", help="PokaÄąÄ˝ diagnostykĂ„â„˘ bez zapisu do pamiĂ„â„˘ci. --status jest jawnym aliasem, nie skrÄ‚Ĺ‚tem argparse.")
     parser.add_argument("--cognitive-frame", "--chatgpt-frame", "--brain-frame", action="store_true", dest="cognitive_frame", help="ZwrÄ‚Ĺ‚Ă„â€ˇ wewnĂ„â„˘trzny pakiet poznawczy JSON dla ChatGPT, nie gotowĂ„â€¦ odpowiedÄąĹź uÄąÄ˝ytkownikowi.")
     parser.add_argument("--debug-direct", action="store_true", dest="debug_direct", help="PokaÄąÄ˝ technicznĂ„â€¦ Äąâ€şcieÄąÄ˝kĂ„â„˘ bezpoÄąâ€şredniĂ„â€¦ i fallback diagnostyczny zamiast rozmownej odpowiedzi.")
     parser.add_argument("--chat", "--loop", action="store_true", dest="chat_loop", help="Uruchom staÄąâ€šĂ„â€¦ pĂ„â„˘tlĂ„â„˘ rozmowy: jeden JaznEngine dziaÄąâ€ša przez wiele tur aÄąÄ˝ do /exit lub EOF.")
-    parser.add_argument("--chat-gpt", action="store_true", dest="chat_gpt", help="Kanoniczny most ChatGPT. Z wiadomoĹ›ciÄ… po -- wypisuje tylko final_visible_text; ze stdin JSONL dziaĹ‚a jako protokĂłĹ‚ maszynowy. Nie uĹĽywa OPENAI_API_KEY.")
+    parser.add_argument("--chat-gpt", "--chatgpt", action="store_true", dest="chat_gpt", help="Kanoniczny most ChatGPT. Z wiadomoĹ›ciÄ… po -- wypisuje tylko final_visible_text; ze stdin JSONL dziaĹ‚a jako protokĂłĹ‚ maszynowy. Nie uĹĽywa OPENAI_API_KEY.")
     parser.add_argument("--chat-gpt-final-only", action="store_true", dest="chat_gpt_final_only", help=argparse.SUPPRESS)
     parser.add_argument("--final-only", action="store_true", dest="final_only", help=argparse.SUPPRESS)
     parser.add_argument("--chat-open-ai", "--openai-api", action="store_true", dest="chat_open_ai", help="Uruchom lokalny runtime JaÄąĹźni z model_adapter przez OpenAI Responses API; wymaga OPENAI_API_KEY i nie udaje poÄąâ€šĂ„â€¦czenia bez klucza.")
@@ -134,7 +140,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--lm-studio-model", default=None, help="Model LM Studio dla --chat-lm-studio.")
     parser.add_argument("--lm-studio-timeout", type=float, default=None, help="Timeout sekund dla adaptera LM Studio.")
     parser.add_argument("--lm-studio-max-output-tokens", type=int, default=None, help="Limit output tokens dla adaptera LM Studio.")
-    parser.add_argument("--local-llm", action="store_true", dest="local_llm", help="Uruchom runtime z lokalnym lub zewnÄ™trznym backendem OpenAI-compatible jako generatorem kandydata.")
+    parser.add_argument("--local-llm", "--ollama", action="store_true", dest="local_llm", help="Uruchom runtime z lokalnym lub zewnÄ™trznym backendem OpenAI-compatible jako generatorem kandydata.")
     parser.add_argument("--local-llm-api-base", default=None, help="Bazowy URL OpenAI-compatible dla --local-llm.")
     parser.add_argument("--local-llm-model", default=None, help="Nazwa modelu dla --local-llm.")
     parser.add_argument("--local-llm-provider", default=None, choices=("openai_compatible", "ollama", "llama_cpp"), help="WskazĂłwka provider-specific dla kolejnoĹ›ci endpointĂłw.")
@@ -142,6 +148,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--daemon-run", action="store_true", dest="daemon_run", help="Uruchom foreground daemon staÄąâ€šej aktywnej JaÄąĹźni: lokalny HTTP loopback + PID + heartbeat + marker JAZN_ACTIVE_RUNTIME.json.")
     parser.add_argument("--daemon-start", action="store_true", dest="daemon_start", help="Uruchom daemon JaÄąĹźni w tle i zwrÄ‚Ĺ‚Ă„â€ˇ status startu.")
     parser.add_argument("--daemon-status", action="store_true", dest="daemon_status", help="SprawdÄąĹź marker, PID, heartbeat i endpoint /status daemonu JaÄąĹźni.")
+    parser.add_argument("--daemon-snapshot", action="store_true", dest="daemon_snapshot", help="Z --daemon-status nie sonduj endpointu; pokaż marker, PID i heartbeat.")
     parser.add_argument("--daemon-stop", action="store_true", dest="daemon_stop", help="PoproÄąâ€ş dziaÄąâ€šajĂ„â€¦cy lokalny daemon JaÄąĹźni o zatrzymanie i zamkniĂ„â„˘cie sesji.")
     parser.add_argument("--daemon-host", default=DEFAULT_DAEMON_HOST, help="Adres bindowania daemonu; domyÄąâ€şlnie tylko loopback 127.0.0.1.")
     parser.add_argument("--daemon-port", type=int, default=DEFAULT_DAEMON_PORT, help="Port lokalnego daemonu JaÄąĹźni.")
@@ -585,10 +592,11 @@ def _run_chat_command_one_shot(
 def main(argv: list[str] | None = None) -> int:
     _configure_stdio_utf8()
     argv = list(sys.argv[1:] if argv is None else argv)
+    parser = _build_parser()
+    argv = normalize_cli_argv(argv, parser)
     if "--chat-jsonl" in argv:
         sys.stderr.write("Flaga --chat-jsonl zostaÄąâ€ša usuniĂ„â„˘ta z aktywnego CLI. UÄąÄ˝yj: python main.py --chat-gpt --session-id <id>\n")
         return 2
-    parser = _build_parser()
     ns = parser.parse_args(argv)
     if ns.runtime_preview_output is None and "--runtime-preview-output" in ns.message:
         idx = ns.message.index("--runtime-preview-output")
@@ -617,6 +625,18 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     runtime_root = (root or Path(__file__).resolve().parent).resolve()
+
+    if ns.doctor:
+        payload = doctor_payload(runtime_root)
+        print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+        return 0 if payload.get("ok") else 1
+
+    if ns.package_smoke:
+        from latka_jazn.tools.release_readiness import build_release_readiness_report
+
+        payload = build_release_readiness_report(runtime_root, profile=ns.package_profile)
+        print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+        return int(payload.get("exit_code", 2))
 
     if ns.runtime_preflight:
         report = runtime_preflight(runtime_root)
@@ -724,6 +744,22 @@ def main(argv: list[str] | None = None) -> int:
     if ns.final_only and not ns.chat_gpt:
         parser.error("--final-only jest legacy aliasem i wymaga kanonicznego --chat-gpt")
 
+    # --chat is the universal route. A confirmed ChatGPT host wins; otherwise
+    # local Ollama is probed and the runtime falls back truthfully without a model.
+    if ns.chat_loop and not ns.chat_gpt:
+        cfg = config or JaznConfig()
+        route_status = build_llm_route_status(
+            cfg,
+            command="--chat",
+            infer_host_environment=True,
+            probe_local=True,
+        )
+        apply_llm_route_to_config(cfg, route_status)
+        config = cfg
+        if route_status.selected_route == ROUTE_CHATGPT_BRIDGE:
+            ns.chat_gpt = True
+            ns.chat_loop = False
+
     if ns.bridge_discovery:
         cfg = config or JaznConfig()
         print(json.dumps(discover_runtime_bridges(cfg), ensure_ascii=False, indent=2, sort_keys=True))
@@ -802,6 +838,7 @@ def main(argv: list[str] | None = None) -> int:
             host=ns.daemon_host,
             port=ns.daemon_port,
             marker_output=ns.daemon_marker_output,
+            probe_endpoint=not ns.daemon_snapshot,
         ), ensure_ascii=False, indent=2, sort_keys=True))
         return 0
 
@@ -1643,7 +1680,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if payload.get("ok", True) else 2
 
     if ns.chat_loop:
-        cfg = apply_chat_cli_settings(config or JaznConfig())
+        cfg = config or apply_chat_cli_settings(JaznConfig(), infer_host_environment=True, probe_local=True)
         bridge_text = _message_from_remainder(ns.message)
         daemon_ensure, daemon_exit = _ensure_daemon_or_error(ns, cfg, "--chat")
         if daemon_exit is not None:

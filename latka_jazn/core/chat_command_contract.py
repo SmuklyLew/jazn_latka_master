@@ -231,9 +231,22 @@ def apply_chatgpt_cli_settings(config: JaznConfig) -> JaznConfig:
     return config
 
 
-def apply_chat_cli_settings(config: JaznConfig) -> JaznConfig:
-    """Select the truthful local terminal adapter for the --chat loop."""
-    config.model_adapter = "terminal_runtime_adapter"
+def apply_chat_cli_settings(
+    config: JaznConfig,
+    *,
+    infer_host_environment: bool = True,
+    probe_local: bool = True,
+) -> JaznConfig:
+    """Resolve the universal ``--chat`` language route for this environment."""
+    from latka_jazn.core.llm_route_resolver import apply_llm_route_to_config, build_llm_route_status
+
+    route_status = build_llm_route_status(
+        config,
+        command="--chat",
+        infer_host_environment=infer_host_environment,
+        probe_local=probe_local,
+    )
+    apply_llm_route_to_config(config, route_status)
     if not os.environ.get("JAZN_TERMINAL_MODEL_NAME"):
         config.terminal_model_name = "terminal_visible_layer"
     return config

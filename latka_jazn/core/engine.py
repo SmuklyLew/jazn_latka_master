@@ -1752,7 +1752,7 @@ class JaznEngine:
             "status": "included_in_startup_summary",
         }
         truth_boundary_check = {
-            "schema_version": "truth_boundary_check/v15.0.3.3-frame",
+            "schema_version": "truth_boundary_check/v15.0.3.4-frame",
             "runtime_version": self.config.version,
             "startup_status_mode": startup_summary.get("startup_status_mode"),
             "truth_boundary": startup_summary.get("truth_boundary"),
