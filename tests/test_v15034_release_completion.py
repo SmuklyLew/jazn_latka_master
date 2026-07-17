@@ -245,3 +245,87 @@ def test_doctor_separates_installation_activation_release_and_live_readiness(mon
     assert stale["installation_ok"] is True
     assert stale["activation_ready"] is False
     assert stale["release_ready"] is False
+
+def test_release_build_persists_final_report_paths(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "exports" / "jazn_latka_v15.0.3.4.zip"
+
+    monkeypatch.setattr(
+        "latka_jazn.tools.release_bundle.create_release_staging",
+        lambda *_args, **_kwargs: {"ok": True},
+    )
+    monkeypatch.setattr(
+        "latka_jazn.tools.release_bundle.build_release_readiness_report",
+        lambda *_args, **_kwargs: {"ok": True, "exit_code": 0},
+    )
+
+    def fake_export_package(_root, _mode, candidate):
+        candidate = Path(candidate)
+        candidate.parent.mkdir(parents=True, exist_ok=True)
+        candidate.write_bytes(b"verified-release-fixture")
+
+        package_manifest = candidate.with_name(
+            candidate.name + ".package_manifest.json"
+        )
+        packing_audit = candidate.with_name(
+            candidate.name + ".PACKING_AUDIT.json"
+        )
+        report_path = candidate.with_suffix(".report.json")
+
+        package_manifest.write_text("{}\n", encoding="utf-8")
+        packing_audit.write_text("{}\n", encoding="utf-8")
+
+        temporary_report = {
+            "output_zip": str(candidate),
+            "package_manifest_path": str(package_manifest),
+            "packing_audit_path": str(packing_audit),
+        }
+        report_path.write_text(
+            json.dumps(temporary_report, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+        digest = hashlib.sha256(candidate.read_bytes()).hexdigest()
+
+        return SimpleNamespace(
+            to_dict=lambda: {
+                **temporary_report,
+                "crc_ok": True,
+                "extract_smoke_ok": True,
+                "sha256": digest,
+            }
+        )
+
+    monkeypatch.setattr(
+        "latka_jazn.tools.release_bundle.export_package",
+        fake_export_package,
+    )
+    monkeypatch.setattr(
+        "latka_jazn.tools.release_bundle.verify_release_zip_manifest",
+        lambda path: {
+            "ok": True,
+            "zip_path": str(path),
+            "errors": [],
+        },
+    )
+
+    result = build_release_bundle(tmp_path, output)
+
+    assert result["ok"] is True
+
+    persisted = json.loads(
+        Path(result["report_path"]).read_text(encoding="utf-8")
+    )
+
+    assert persisted["output_zip"] == result["output_zip"]
+    assert (
+        persisted["package_manifest_path"]
+        == result["package_manifest_path"]
+    )
+    assert (
+        persisted["packing_audit_path"]
+        == result["packing_audit_path"]
+    )
+    assert ".jazn-release-output-" not in json.dumps(persisted)

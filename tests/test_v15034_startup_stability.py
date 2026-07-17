@@ -24,10 +24,11 @@ from latka_jazn.core.runtime_environment import (
 )
 from latka_jazn.model_adapters.base import ModelAdapterRequest
 from latka_jazn.model_adapters.local_llm_adapter import LocalLlmAdapter
+from io import StringIO
 
-
-class _FakeStream:
+class _FakeStream(StringIO):
     def __init__(self, is_tty: bool) -> None:
+        super().__init__()
         self._is_tty = is_tty
 
     def isatty(self) -> bool:
