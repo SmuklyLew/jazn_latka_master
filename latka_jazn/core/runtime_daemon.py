@@ -1653,7 +1653,7 @@ def build_daemon_start_command(
     heartbeat_interval: float = DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
 ) -> list[str]:
     root = Path(root).resolve()
-    start_file = find_start_file(root) or root / "main.py"
+    start_file = root / "main.py" if (root / "main.py").is_file() else (find_start_file(root) or root / "main.py")
     cmd = [sys.executable, str(start_file), "--root", str(root), "--daemon-run", "--daemon-host", host, "--daemon-port", str(int(port)), "--daemon-heartbeat-interval", str(float(heartbeat_interval))]
     if marker_output:
         cmd.extend(["--daemon-marker-output", str(resolve_active_runtime_marker_path(root, marker_output))])

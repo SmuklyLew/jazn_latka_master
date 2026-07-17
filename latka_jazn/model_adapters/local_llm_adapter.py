@@ -68,28 +68,32 @@ class LocalLlmAdapter:
                 model="not_configured",
                 status="not_configured",
             )
+        system_text = (
+            "Jesteś językową warstwą wykonawczą Jaźni Łatki. Odpowiadaj po polsku i naturalnie. "
+            "Nie wymyślaj pamięci ani faktów poza przekazanym kontekstem."
+            "\n\nKONTEKST_JAZNI_JSON:\n"
+            + json.dumps(request.system_context or {}, ensure_ascii=False)
+        )
         payload = {
             "model": self.model,
             "stream": False,
-            "system": (
-                "Jesteś językową warstwą wykonawczą Jaźni Łatki. Odpowiadaj po polsku i naturalnie. "
-                "Nie wymyślaj pamięci ani faktów poza przekazanym kontekstem."
-            ),
-            "prompt": request.prompt
-            + "\n\nKONTEKST_JAZNI_JSON:\n"
-            + json.dumps(request.system_context or {}, ensure_ascii=False),
+            "messages": [
+                {"role": "system", "content": system_text},
+                {"role": "user", "content": request.prompt},
+            ],
             "options": {"num_predict": self.max_output_tokens},
         }
         try:
             req = Request(
-                f"{self.api_base}/api/generate",
+                f"{self.api_base}/api/chat",
                 data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
             with urlopen(req, timeout=self.timeout_seconds) as response:
                 data = json.loads(response.read().decode("utf-8"))
-            text = str(data.get("response") or "").strip()
+            message = data.get("message") if isinstance(data.get("message"), dict) else {}
+            text = str(message.get("content") or data.get("response") or "").strip()
             if text:
                 self._endpoint_reachable = True
                 self._probe_state = "probed_ok"
@@ -101,7 +105,7 @@ class LocalLlmAdapter:
                 model=self.model,
                 status="completed" if text else "empty_output",
                 adapter_id=self.name,
-                endpoint_used="/api/generate",
+                endpoint_used="/api/chat",
                 status_snapshot=self._status_snapshot(),
             )
         except HTTPError as exc:
