@@ -51,6 +51,10 @@ def build_parser() -> argparse.ArgumentParser:
     _add_common(child)
     child.add_argument("--allow-dirty", action="store_true")
 
+    child = sub.add_parser("release-build", allow_abbrev=False)
+    _add_common(child)
+    child.add_argument("--output", type=Path)
+
     for name in ("memory-prepare", "memory-status"):
         child = sub.add_parser(name, allow_abbrev=False)
         _add_common(child)
@@ -124,7 +128,7 @@ def main(argv: list[str] | None = None) -> int:
     known = {
         "status", "doctor", "start", "stop", "restart", "chat", "chat-gpt",
         "host-finalize", "bridge-discovery", "audit-tail", "explain-turn",
-        "replay-turn", "export", "package-smoke", "release-metadata", "self-test", "memory-prepare", "memory-status",
+        "replay-turn", "export", "package-smoke", "release-metadata", "release-build", "self-test", "memory-prepare", "memory-status",
     }
     if args and args[0].startswith("--") and args[0] not in {"--version", "--help", "-h"}:
         return _legacy_main(args)
@@ -197,6 +201,12 @@ def main(argv: list[str] | None = None) -> int:
         from latka_jazn.tools.release_metadata import generate_release_metadata
 
         payload = generate_release_metadata(root, allow_dirty=ns.allow_dirty)
+        _emit(payload, as_json=ns.as_json)
+        return int(payload.get("exit_code", 2))
+    if ns.command == "release-build":
+        from latka_jazn.tools.release_bundle import build_release_bundle
+
+        payload = build_release_bundle(root, ns.output)
         _emit(payload, as_json=ns.as_json)
         return int(payload.get("exit_code", 2))
     if ns.command in {"memory-prepare", "memory-status"}:

@@ -61,15 +61,50 @@ def copy_manifest_files(root: Path, destination: Path, manifest: dict[str, Any])
         shutil.copy2(source, target)
 
 
+def _verified_export_manifest(root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+    verification = verify_package_integrity_manifest(root)
+    if not verification.get("ok"):
+        raise SourceProvenanceError(
+            "package without .git requires a valid PACKAGE_INTEGRITY_MANIFEST.json"
+        )
+    try:
+        manifest = json.loads((root / "PACKAGE_INTEGRITY_MANIFEST.json").read_text(encoding="utf-8-sig"))
+    except Exception as exc:
+        raise SourceProvenanceError(f"cannot read verified package manifest: {exc!r}") from exc
+    if not isinstance(manifest, dict):
+        raise SourceProvenanceError("verified package manifest is not a JSON object")
+    return manifest, verification
+
+
 def create_system_smoke_staging(root: Path | str, destination: Path | str) -> dict[str, Any]:
-    """Create an isolated, truthful snapshot of the current development tree."""
+    """Create an isolated, truthful snapshot of a checkout or verified export.
+
+    A source checkout derives provenance from real Git objects.  A package
+    without ``.git`` is accepted only when its existing manifest verifies and
+    protects a valid release provenance document.  The latter path never
+    invents a commit or dirty state.
+    """
 
     root = Path(root).resolve()
     destination = _fresh_destination(Path(destination))
-    source_manifest = build_package_integrity_manifest(root)
-    copy_manifest_files(root, destination, source_manifest)
-    provenance = build_source_provenance_document(root, allow_dirty=True, write=False)
-    _write_json(destination / "SOURCE_PROVENANCE.json", provenance)
+    if (root / ".git").exists():
+        source_kind = "git_checkout"
+        source_manifest = build_package_integrity_manifest(root)
+        copy_manifest_files(root, destination, source_manifest)
+        provenance = build_source_provenance_document(root, allow_dirty=True, write=False)
+        _write_json(destination / "SOURCE_PROVENANCE.json", provenance)
+        source_verification: dict[str, Any] | None = None
+    else:
+        source_kind = "verified_export_without_git"
+        source_manifest, source_verification = _verified_export_manifest(root)
+        source_status = read_source_provenance(root, profile="system_smoke").to_dict()
+        if source_status.get("status") != "verified_export_without_git_history":
+            raise SourceProvenanceError(
+                "package without .git requires manifest-protected release provenance"
+            )
+        copy_manifest_files(root, destination, source_manifest)
+        provenance = json.loads((root / "SOURCE_PROVENANCE.json").read_text(encoding="utf-8"))
+
     manifest = write_package_integrity_manifest(destination)
     verification = verify_package_integrity_manifest(destination)
     provenance_status = read_source_provenance(destination, profile="system_smoke").to_dict()
@@ -79,8 +114,10 @@ def create_system_smoke_staging(root: Path | str, destination: Path | str) -> di
         "schema_version": schema_version("system_smoke_staging"),
         "ok": True,
         "staging_root": str(destination),
+        "source_kind": source_kind,
         "source_dirty": provenance.get("dirty"),
         "source_commit": provenance.get("base_merge_commit"),
+        "source_manifest_verification": source_verification,
         "manifest_file_count": manifest.get("file_count"),
         "manifest_verification": verification,
         "provenance": provenance_status,

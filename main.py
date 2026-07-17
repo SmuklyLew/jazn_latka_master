@@ -114,64 +114,65 @@ def _render_readonly_status(root: Path | None = None) -> str:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="main.py",
-        description="Runtime JaÄąĹźni ÄąÂatki: rozmowa bezpoÄąâ€şrednia, cognitive-frame, diagnostyka i eksport paczek.",
+        description="Runtime Jaźni Łatki: rozmowa bezpośrednia, cognitive-frame, diagnostyka i eksport paczek.",
         allow_abbrev=False,
     )
     parser.add_argument("--version", action="version", version=PACKAGE_VERSION_FULL)
     parser.add_argument("--doctor", action="store_true", help="Uruchom diagnostykę pakietu i kontraktów bez rozpoczynania rozmowy.")
     parser.add_argument("--package-smoke", action="store_true", dest="package_smoke", help="Uruchom kontrolę gotowości paczki.")
     parser.add_argument("--package-profile", choices=("development", "system", "release", "export-without-git", "memory", "full"), default="system")
-    parser.add_argument("--root", type=Path, default=None, help="Folder gÄąâ€šÄ‚Ĺ‚wny aktywnej paczki JaÄąĹźni.")
-    parser.add_argument("--status", "--status-readonly", "--diagnostics-readonly", action="store_true", dest="status_readonly", help="PokaÄąÄ˝ diagnostykĂ„â„˘ bez zapisu do pamiĂ„â„˘ci. --status jest jawnym aliasem, nie skrÄ‚Ĺ‚tem argparse.")
-    parser.add_argument("--cognitive-frame", "--chatgpt-frame", "--brain-frame", action="store_true", dest="cognitive_frame", help="ZwrÄ‚Ĺ‚Ă„â€ˇ wewnĂ„â„˘trzny pakiet poznawczy JSON dla ChatGPT, nie gotowĂ„â€¦ odpowiedÄąĹź uÄąÄ˝ytkownikowi.")
-    parser.add_argument("--debug-direct", action="store_true", dest="debug_direct", help="PokaÄąÄ˝ technicznĂ„â€¦ Äąâ€şcieÄąÄ˝kĂ„â„˘ bezpoÄąâ€şredniĂ„â€¦ i fallback diagnostyczny zamiast rozmownej odpowiedzi.")
-    parser.add_argument("--chat", "--loop", action="store_true", dest="chat_loop", help="Uruchom staÄąâ€šĂ„â€¦ pĂ„â„˘tlĂ„â„˘ rozmowy: jeden JaznEngine dziaÄąâ€ša przez wiele tur aÄąÄ˝ do /exit lub EOF.")
-    parser.add_argument("--chat-gpt", "--chatgpt", action="store_true", dest="chat_gpt", help="Kanoniczny most ChatGPT. Z wiadomoĹ›ciÄ… po -- wypisuje tylko final_visible_text; ze stdin JSONL dziaĹ‚a jako protokĂłĹ‚ maszynowy. Nie uĹĽywa OPENAI_API_KEY.")
+    parser.add_argument("--release-build", action="store_true", dest="release_build", help="Zbuduj atomowo zweryfikowaną paczkę release z czystego bieżącego commita.")
+    parser.add_argument("--root", type=Path, default=None, help="Folder główny aktywnej paczki Jaźni.")
+    parser.add_argument("--status", "--status-readonly", "--diagnostics-readonly", action="store_true", dest="status_readonly", help="Pokaż diagnostykę bez zapisu do pamięci. --status jest jawnym aliasem, nie skrótem argparse.")
+    parser.add_argument("--cognitive-frame", "--chatgpt-frame", "--brain-frame", action="store_true", dest="cognitive_frame", help="Zwróć wewnętrzny pakiet poznawczy JSON dla ChatGPT, nie gotową odpowiedź użytkownikowi.")
+    parser.add_argument("--debug-direct", action="store_true", dest="debug_direct", help="Pokaż techniczną ścieżkę bezpośrednią i fallback diagnostyczny zamiast rozmownej odpowiedzi.")
+    parser.add_argument("--chat", "--loop", action="store_true", dest="chat_loop", help="Uruchom stałą pętlę rozmowy: jeden JaznEngine działa przez wiele tur aż do /exit lub EOF.")
+    parser.add_argument("--chat-gpt", "--chatgpt", action="store_true", dest="chat_gpt", help="Kanoniczny most ChatGPT. Z wiadomością po -- wypisuje tylko final_visible_text; ze stdin JSONL działa jako protokół maszynowy. Nie używa OPENAI_API_KEY.")
     parser.add_argument("--chat-gpt-final-only", action="store_true", dest="chat_gpt_final_only", help=argparse.SUPPRESS)
     parser.add_argument("--final-only", action="store_true", dest="final_only", help=argparse.SUPPRESS)
-    parser.add_argument("--chat-open-ai", "--openai-api", action="store_true", dest="chat_open_ai", help="Uruchom lokalny runtime JaÄąĹźni z model_adapter przez OpenAI Responses API; wymaga OPENAI_API_KEY i nie udaje poÄąâ€šĂ„â€¦czenia bez klucza.")
-    parser.add_argument("--openai-model", default=None, help="Model dla --chat-open-ai; domyÄąâ€şlnie JAZN_MODEL_NAME albo konfiguracja runtime.")
-    parser.add_argument("--openai-api-base", default=None, help="Bazowy URL API dla --chat-open-ai; domyÄąâ€şlnie https://api.openai.com/v1.")
+    parser.add_argument("--chat-open-ai", "--openai-api", action="store_true", dest="chat_open_ai", help="Uruchom lokalny runtime Jaźni z model_adapter przez OpenAI Responses API; wymaga OPENAI_API_KEY i nie udaje połączenia bez klucza.")
+    parser.add_argument("--openai-model", default=None, help="Model dla --chat-open-ai; domyślnie JAZN_MODEL_NAME albo konfiguracja runtime.")
+    parser.add_argument("--openai-api-base", default=None, help="Bazowy URL API dla --chat-open-ai; domyślnie https://api.openai.com/v1.")
     parser.add_argument("--openai-timeout", type=float, default=None, help="Timeout sekund dla adaptera OpenAI w --chat-open-ai.")
     parser.add_argument("--openai-max-output-tokens", type=int, default=None, help="Limit output tokens dla adaptera OpenAI w --chat-open-ai.")
     parser.add_argument("--chat-openai", action="store_true", dest="chat_open_ai", help=argparse.SUPPRESS)
-    parser.add_argument("--chat-lm-studio", action="store_true", dest="chat_lm_studio", help="Uruchom lokalny runtime JaĹşni z modelem LM Studio przez OpenAI-compatible API; bez OPENAI_API_KEY.")
+    parser.add_argument("--chat-lm-studio", action="store_true", dest="chat_lm_studio", help="Uruchom lokalny runtime Jaźni z modelem LM Studio przez OpenAI-compatible API; bez OPENAI_API_KEY.")
     parser.add_argument("--lm-studio-api-base", default=None, help="Bazowy URL lokalnego LM Studio API dla --chat-lm-studio; domyslnie http://127.0.0.1:1234/v1.")
     parser.add_argument("--lm-studio-model", default=None, help="Model LM Studio dla --chat-lm-studio.")
     parser.add_argument("--lm-studio-timeout", type=float, default=None, help="Timeout sekund dla adaptera LM Studio.")
     parser.add_argument("--lm-studio-max-output-tokens", type=int, default=None, help="Limit output tokens dla adaptera LM Studio.")
-    parser.add_argument("--local-llm", "--ollama", action="store_true", dest="local_llm", help="Uruchom runtime z lokalnym lub zewnÄ™trznym backendem OpenAI-compatible jako generatorem kandydata.")
+    parser.add_argument("--local-llm", "--ollama", action="store_true", dest="local_llm", help="Uruchom runtime z lokalnym lub zewnętrznym backendem OpenAI-compatible jako generatorem kandydata.")
     parser.add_argument("--local-llm-api-base", default=None, help="Bazowy URL OpenAI-compatible dla --local-llm.")
     parser.add_argument("--local-llm-model", default=None, help="Nazwa modelu dla --local-llm.")
-    parser.add_argument("--local-llm-provider", default=None, choices=("openai_compatible", "ollama", "llama_cpp"), help="WskazĂłwka provider-specific dla kolejnoĹ›ci endpointĂłw.")
-    parser.add_argument("--bridge-discovery", action="store_true", dest="bridge_discovery", help="PokaÄąÄ˝ wykryte mosty runtime: --chat, --chat-gpt, --chat-open-ai i daemon.")
-    parser.add_argument("--daemon-run", action="store_true", dest="daemon_run", help="Uruchom foreground daemon staÄąâ€šej aktywnej JaÄąĹźni: lokalny HTTP loopback + PID + heartbeat + marker JAZN_ACTIVE_RUNTIME.json.")
-    parser.add_argument("--daemon-start", action="store_true", dest="daemon_start", help="Uruchom daemon JaÄąĹźni w tle i zwrÄ‚Ĺ‚Ă„â€ˇ status startu.")
-    parser.add_argument("--daemon-status", action="store_true", dest="daemon_status", help="SprawdÄąĹź marker, PID, heartbeat i endpoint /status daemonu JaÄąĹźni.")
+    parser.add_argument("--local-llm-provider", default=None, choices=("openai_compatible", "ollama", "llama_cpp"), help="Wskazówka provider-specific dla kolejności endpointów.")
+    parser.add_argument("--bridge-discovery", action="store_true", dest="bridge_discovery", help="Pokaż wykryte mosty runtime: --chat, --chat-gpt, --chat-open-ai i daemon.")
+    parser.add_argument("--daemon-run", action="store_true", dest="daemon_run", help="Uruchom foreground daemon stałej aktywnej Jaźni: lokalny HTTP loopback + PID + heartbeat + marker JAZN_ACTIVE_RUNTIME.json.")
+    parser.add_argument("--daemon-start", action="store_true", dest="daemon_start", help="Uruchom daemon Jaźni w tle i zwróć status startu.")
+    parser.add_argument("--daemon-status", action="store_true", dest="daemon_status", help="Sprawdź marker, PID, heartbeat i endpoint /status daemonu Jaźni.")
     parser.add_argument("--daemon-snapshot", action="store_true", dest="daemon_snapshot", help="Z --daemon-status nie sonduj endpointu; pokaż marker, PID i heartbeat.")
-    parser.add_argument("--daemon-stop", action="store_true", dest="daemon_stop", help="PoproÄąâ€ş dziaÄąâ€šajĂ„â€¦cy lokalny daemon JaÄąĹźni o zatrzymanie i zamkniĂ„â„˘cie sesji.")
-    parser.add_argument("--daemon-host", default=DEFAULT_DAEMON_HOST, help="Adres bindowania daemonu; domyÄąâ€şlnie tylko loopback 127.0.0.1.")
-    parser.add_argument("--daemon-port", type=int, default=DEFAULT_DAEMON_PORT, help="Port lokalnego daemonu JaÄąĹźni.")
-    parser.add_argument("--daemon-heartbeat-interval", type=float, default=DEFAULT_HEARTBEAT_INTERVAL_SECONDS, help="Co ile sekund daemon odÄąâ€şwieÄąÄ˝a marker aktywnego runtime.")
-    parser.add_argument("--daemon-start-timeout", type=float, default=DEFAULT_START_TIMEOUT_SECONDS, help="Ile sekund --daemon-start czeka na odpowiedÄąĹź /status.")
-    parser.add_argument("--daemon-marker-output", type=Path, default=None, help="Opcjonalna Äąâ€şcieÄąÄ˝ka markera JAZN_ACTIVE_RUNTIME.json dla daemonu.")
-    parser.add_argument("--daemon-refresh-time", action="store_true", dest="daemon_refresh_time", help="PoproĹ› daemon o odĹ›wieĹĽenie trusted/degraded timestamp cache i zwrĂłÄ‡ status.")
-    parser.add_argument("--runtime-write-status", action="store_true", dest="runtime_write_status", help="PokaĹĽ kontrakt dostÄ™pu do memory/sqlite/runtime_write_v1 bez zapisu.")
-    parser.add_argument("--runtime-write-init", action="store_true", dest="runtime_write_init", help="UtwĂłrz czysty memory/sqlite/runtime_write_v1 i shard manifesty, jeĹ›li ich brakuje.")
-    parser.add_argument("--daemon-send", action="store_true", dest="daemon_send", help="WyĹ›lij jednÄ… wiadomoĹ›Ä‡ przez dziaĹ‚ajÄ…cy daemon HTTP; jeĹ›li daemon nie dziaĹ‚a, sprĂłbuj go uruchomiÄ‡.")
-    parser.add_argument("--daemon-submit", action="store_true", dest="daemon_submit", help="Dodaj turÄ™ do kolejki daemonu i natychmiast zwrĂłÄ‡ request_id bez czekania na wynik.")
-    parser.add_argument("--daemon-result", default=None, metavar="REQUEST_ID", help="Pobierz stan lub gotowy wynik wczeĹ›niej zleconej tury daemonu.")
+    parser.add_argument("--daemon-stop", action="store_true", dest="daemon_stop", help="Poproś działający lokalny daemon Jaźni o zatrzymanie i zamknięcie sesji.")
+    parser.add_argument("--daemon-host", default=DEFAULT_DAEMON_HOST, help="Adres bindowania daemonu; domyślnie tylko loopback 127.0.0.1.")
+    parser.add_argument("--daemon-port", type=int, default=DEFAULT_DAEMON_PORT, help="Port lokalnego daemonu Jaźni.")
+    parser.add_argument("--daemon-heartbeat-interval", type=float, default=DEFAULT_HEARTBEAT_INTERVAL_SECONDS, help="Co ile sekund daemon odświeża marker aktywnego runtime.")
+    parser.add_argument("--daemon-start-timeout", type=float, default=DEFAULT_START_TIMEOUT_SECONDS, help="Ile sekund --daemon-start czeka na odpowiedź /status.")
+    parser.add_argument("--daemon-marker-output", type=Path, default=None, help="Opcjonalna ścieżka markera JAZN_ACTIVE_RUNTIME.json dla daemonu.")
+    parser.add_argument("--daemon-refresh-time", action="store_true", dest="daemon_refresh_time", help="Poproś daemon o odświeżenie trusted/degraded timestamp cache i zwróć status.")
+    parser.add_argument("--runtime-write-status", action="store_true", dest="runtime_write_status", help="Pokaż kontrakt dostępu do memory/sqlite/runtime_write_v1 bez zapisu.")
+    parser.add_argument("--runtime-write-init", action="store_true", dest="runtime_write_init", help="Utwórz czysty memory/sqlite/runtime_write_v1 i shard manifesty, jeśli ich brakuje.")
+    parser.add_argument("--daemon-send", action="store_true", dest="daemon_send", help="Wyślij jedną wiadomość przez działający daemon HTTP; jeśli daemon nie działa, spróbuj go uruchomić.")
+    parser.add_argument("--daemon-submit", action="store_true", dest="daemon_submit", help="Dodaj turę do kolejki daemonu i natychmiast zwróć request_id bez czekania na wynik.")
+    parser.add_argument("--daemon-result", default=None, metavar="REQUEST_ID", help="Pobierz stan lub gotowy wynik wcześniej zleconej tury daemonu.")
     parser.add_argument("--daemon-request-id", default=None, help="Jawny idempotentny request_id dla --daemon-send/--daemon-submit/--chat-gpt.")
-    parser.add_argument("--daemon-final-only", action="store_true", dest="daemon_final_only", help="Z --daemon-send wypisz tylko final_visible_text, gdy runtime zwrĂłci finalnÄ… odpowiedĹş.")
+    parser.add_argument("--daemon-final-only", action="store_true", dest="daemon_final_only", help="Z --daemon-send wypisz tylko final_visible_text, gdy runtime zwróci finalną odpowiedź.")
     parser.add_argument("--daemon-chat-timeout", type=float, default=DEFAULT_DAEMON_CHAT_TIMEOUT_SECONDS, help="Timeout sekund dla jednej tury POST /chat przez daemon.")
-    parser.add_argument("--daemon-wait-budget", type=float, default=DEFAULT_DAEMON_CHAT_CLI_WAIT_BUDGET_SECONDS, help="Maksymalny czas jednego procesu CLI na oczekiwanie na wynik asynchronicznej tury; po nim zwracany jest request_id do pĂłĹşniejszego odczytu.")
-    parser.add_argument("--daemon-poll-interval", type=float, default=DEFAULT_DAEMON_CHAT_POLL_INTERVAL_SECONDS, help="OdstÄ™p sekund miÄ™dzy odczytami /chat-result podczas oczekiwania CLI.")
+    parser.add_argument("--daemon-wait-budget", type=float, default=DEFAULT_DAEMON_CHAT_CLI_WAIT_BUDGET_SECONDS, help="Maksymalny czas jednego procesu CLI na oczekiwanie na wynik asynchronicznej tury; po nim zwracany jest request_id do późniejszego odczytu.")
+    parser.add_argument("--daemon-poll-interval", type=float, default=DEFAULT_DAEMON_CHAT_POLL_INTERVAL_SECONDS, help="Odstęp sekund między odczytami /chat-result podczas oczekiwania CLI.")
     parser.add_argument("--ensure-daemon", action="store_true", dest="ensure_daemon", help="Przed trasą rozmowy zapewnij żywy daemon: status -> start -> /ready -> heartbeat.")
     parser.add_argument("--no-ensure-daemon", action="store_true", dest="no_ensure_daemon", help="Wyłącz autostart daemonu tylko dla tej komendy.")
     parser.add_argument("--daemon-autostart-policy", action="store_true", dest="daemon_autostart_policy", help="Pokaż politykę JAZN_DAEMON_AUTOSTART bez uruchamiania daemonu.")
-    parser.add_argument("--trusted-time-iso", default=None, help="Zaufany timestamp ISO wstrzykniÄ™ty przez host/loader ChatGPT; aktywuje trusted time bez sieci w sandboxie.")
-    parser.add_argument("--trusted-time-source", default=None, help="Opis ĹşrĂłdĹ‚a dla --trusted-time-iso / JAZN_TRUSTED_TIME_ISO.")
-    parser.add_argument("--trusted-time-max-age-seconds", type=int, default=None, help="Maksymalny wiek wstrzykniÄ™tego trusted timestampu; domyĹ›lnie polityka czasu runtime.")
+    parser.add_argument("--trusted-time-iso", default=None, help="Zaufany timestamp ISO wstrzyknięty przez host/loader ChatGPT; aktywuje trusted time bez sieci w sandboxie.")
+    parser.add_argument("--trusted-time-source", default=None, help="Opis źródła dla --trusted-time-iso / JAZN_TRUSTED_TIME_ISO.")
+    parser.add_argument("--trusted-time-max-age-seconds", type=int, default=None, help="Maksymalny wiek wstrzykniętego trusted timestampu; domyślnie polityka czasu runtime.")
     parser.add_argument("--runtime-preflight", action="store_true", dest="runtime_preflight", help="Sprawdź folder, manifest i marker przed użyciem runtime; bez automatycznej naprawy.")
     parser.add_argument("--recover-chatgpt-runtime", action="store_true", dest="recover_chatgpt_runtime", help="Odtwórz runtime po resecie ChatGPT z części ZIP, zweryfikuj i aktywuj atomowo.")
     parser.add_argument("--auto-recover-runtime", action="store_true", dest="auto_recover_runtime", help="Dla trasy rozmowy automatycznie uruchom recovery, gdy preflight wykryje brak pełnego runtime.")
@@ -186,89 +187,89 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--recovery-force-reextract", action="store_true", help="Nie używaj istniejącego poprawnego folderu; rozpocznij czyste staging extraction.")
     parser.add_argument("--recovery-no-daemon", action="store_true", help="Po recovery nie uruchamiaj daemonu.")
     parser.add_argument("--session-id", default=None, help="Jawny identyfikator sesji dla kontrolowanego carryover w --chat/--chat-gpt.")
-    parser.add_argument("--no-carryover", action="store_true", dest="no_carryover", help="Zablokuj uÄąÄ˝ycie poprzedniej tury nawet jeÄąâ€şli istnieje runtime_state.json.")
-    parser.add_argument("--github-plan", action="store_true", dest="github_plan", help="Zapisz i pokaÄąÄ˝ plan repozytoriÄ‚Ĺ‚w Latka.Jazn oraz Latka.Jazn.Memory bez wykonywania pushu.")
-    parser.add_argument("--dedup-report", action="store_true", dest="dedup_report", help="Zbuduj raport duplikatÄ‚Ĺ‚w treÄąâ€şci i SHA-256 bez usuwania plikÄ‚Ĺ‚w.")
-    parser.add_argument("--lexical-frame", action="store_true", dest="lexical_frame", help="PokaÄąÄ˝ raport leksykalny aktualnej JaÄąĹźni: polskie rozumienie + rozszerzona semantyka sÄąâ€šÄ‚Ĺ‚w i fraz.")
-    parser.add_argument("--nlp-frame", action="store_true", dest="nlp_frame", help="PokaÄąÄ˝ raport NLP aktualnej JaÄąĹźni: tokeny, lemma_candidates, selected_lemma, confidence i provider.")
-    parser.add_argument("--runtime-preview", action="store_true", dest="runtime_preview", help="PokaĹĽ krĂłtki, czytelny podglÄ…d jednej tury runtime: final_visible_text + kluczowe pola diagnostyczne. Nie wypisuje peĹ‚nej koperty cognitive-frame do terminala.")
-    parser.add_argument("--dev-preview", action="store_true", dest="dev_preview", help="Tryb deweloperski: pokaĹĽ peĹ‚ny payload runtime-preview/cognitive-frame na stdout albo zapisz go przez --runtime-preview-output.")
-    parser.add_argument("--runtime-preview-output", type=Path, default=None, help="Opcjonalna Ĺ›cieĹĽka pliku JSON dla --runtime-preview/--dev-preview; peĹ‚ny payload trafia do pliku, a stdout zwraca tylko krĂłtki, czytelny wynik.")
-    parser.add_argument("--active-cache-status", action="store_true", dest="active_cache_status", help="PokaÄąÄ˝ status aktywnego rozpakowanego folderu i decyzjĂ„â„˘, czy trzeba ponownie rozpakowaĂ„â€ˇ ZIP.")
-    parser.add_argument("--project-startup-index", action="store_true", dest="project_startup_index", help="Zbuduj i pokaÄąÄ˝ mapĂ„â„˘ plikÄ‚Ĺ‚w oraz moduÄąâ€šÄ‚Ĺ‚w/funkcji JaÄąĹźni przy rozruchu.")
-    parser.add_argument("--topic-guard", action="store_true", dest="topic_guard", help="PokaÄąÄ˝ raport TopicMismatchGuard dla wiadomoÄąâ€şci bez generowania peÄąâ€šnej odpowiedzi.")
-    parser.add_argument("--dialogue-intent", action="store_true", dest="dialogue_intent", help="PokaÄąÄ˝ klasyfikacjĂ„â„˘ aktu rozmowy aktywnego runtime bez generowania odpowiedzi.")
-    parser.add_argument("--module-responsibility-map", action="store_true", dest="module_responsibility_map", help="Zbuduj semantycznĂ„â€¦ mapĂ„â„˘ odpowiedzialnoÄąâ€şci moduÄąâ€šÄ‚Ĺ‚w i funkcji.")
+    parser.add_argument("--no-carryover", action="store_true", dest="no_carryover", help="Zablokuj użycie poprzedniej tury nawet jeśli istnieje runtime_state.json.")
+    parser.add_argument("--github-plan", action="store_true", dest="github_plan", help="Zapisz i pokaż plan repozytoriów Latka.Jazn oraz Latka.Jazn.Memory bez wykonywania pushu.")
+    parser.add_argument("--dedup-report", action="store_true", dest="dedup_report", help="Zbuduj raport duplikatów treści i SHA-256 bez usuwania plików.")
+    parser.add_argument("--lexical-frame", action="store_true", dest="lexical_frame", help="Pokaż raport leksykalny aktualnej Jaźni: polskie rozumienie + rozszerzona semantyka słów i fraz.")
+    parser.add_argument("--nlp-frame", action="store_true", dest="nlp_frame", help="Pokaż raport NLP aktualnej Jaźni: tokeny, lemma_candidates, selected_lemma, confidence i provider.")
+    parser.add_argument("--runtime-preview", action="store_true", dest="runtime_preview", help="Pokaż krótki, czytelny podgląd jednej tury runtime: final_visible_text + kluczowe pola diagnostyczne. Nie wypisuje pełnej koperty cognitive-frame do terminala.")
+    parser.add_argument("--dev-preview", action="store_true", dest="dev_preview", help="Tryb deweloperski: pokaż pełny payload runtime-preview/cognitive-frame na stdout albo zapisz go przez --runtime-preview-output.")
+    parser.add_argument("--runtime-preview-output", type=Path, default=None, help="Opcjonalna ścieżka pliku JSON dla --runtime-preview/--dev-preview; pełny payload trafia do pliku, a stdout zwraca tylko krótki, czytelny wynik.")
+    parser.add_argument("--active-cache-status", action="store_true", dest="active_cache_status", help="Pokaż status aktywnego rozpakowanego folderu i decyzję, czy trzeba ponownie rozpakować ZIP.")
+    parser.add_argument("--project-startup-index", action="store_true", dest="project_startup_index", help="Zbuduj i pokaż mapę plików oraz modułów/funkcji Jaźni przy rozruchu.")
+    parser.add_argument("--topic-guard", action="store_true", dest="topic_guard", help="Pokaż raport TopicMismatchGuard dla wiadomości bez generowania pełnej odpowiedzi.")
+    parser.add_argument("--dialogue-intent", action="store_true", dest="dialogue_intent", help="Pokaż klasyfikację aktu rozmowy aktywnego runtime bez generowania odpowiedzi.")
+    parser.add_argument("--module-responsibility-map", action="store_true", dest="module_responsibility_map", help="Zbuduj semantyczną mapę odpowiedzialności modułów i funkcji.")
     parser.add_argument("--seed-requirements-ledger", action="store_true", dest="seed_requirements_ledger", help="Dopisz wymagania aktywnego manifestu do requirements ledger.")
-    parser.add_argument("--last-turn", action="store_true", dest="last_turn", help="PokaÄąÄ˝ ostatni turn checkpoint: exact_runtime_text, visible_text, route, template_origin i source-origin.")
-    parser.add_argument("--compare-runtime-visible", action="store_true", dest="compare_runtime_visible", help="PorÄ‚Ĺ‚wnaj exact runtime text z widocznĂ„â€¦ odpowiedziĂ„â€¦ ChatGPT dla ostatniej tury albo --trace-id.")
-    parser.add_argument("--dictionary-lookup", action="store_true", dest="dictionary_lookup", help="SprawdÄąĹź termin przez cache/mini-leksykon/adaptory sÄąâ€šownikÄ‚Ĺ‚w; nie udawaj lookupu online bez providera.")
-    parser.add_argument("--language-resources", action="store_true", dest="language_resources", help="PokaÄąÄ˝ rejestr dostĂ„â„˘pnych i opcjonalnych zasobÄ‚Ĺ‚w jĂ„â„˘zykowych/sÄąâ€šownikowych.")
-    parser.add_argument("--polish-reasoning-frame", action="store_true", dest="polish_reasoning_frame", help="PokaÄąÄ˝ warstwowy frame Polish Reasoning: normalizacja, morfologia, semantyka, reply policy i status providerÄ‚Ĺ‚w.")
-    parser.add_argument("--polish-reasoning-sources", action="store_true", dest="polish_reasoning_sources", help="PokaÄąÄ˝ rejestr ÄąĹźrÄ‚Ĺ‚deÄąâ€š/licencji/cache dla warstwy Polish Reasoning.")
-    parser.add_argument("--polish-reasoning-bootstrap-plan", action="store_true", dest="polish_reasoning_bootstrap_plan", help="PokaÄąÄ˝ komendy lokalnej instalacji providerÄ‚Ĺ‚w NLP bez ich automatycznego pobierania.")
-    parser.add_argument("--nlp-resource-status", action="store_true", dest="nlp_resource_status", help="PokaÄąÄ˝ status lexical resource registry/cache: ÄąĹźrÄ‚Ĺ‚dÄąâ€ša, licencje, dostĂ„â„˘pnoÄąâ€şĂ„â€ˇ i projektowy leksykon bez pobierania duÄąÄ˝ych danych.")
-    parser.add_argument("--polish-morphology", action="store_true", dest="polish_morphology", help="PokaÄąÄ˝ szczegÄ‚Ĺ‚Äąâ€šowĂ„â€¦ analizĂ„â„˘ morfologicznĂ„â€¦ v14.8.4: Morfeusz/PoliMorf, kandydaci i selected_lemma.")
-    parser.add_argument("--morfeusz-status", action="store_true", dest="morfeusz_status", help="PokaÄąÄ˝ status realnego providera Morfeusz2/SGJP w Polish Reasoning.")
-    parser.add_argument("--polimorf-status", action="store_true", dest="polimorf_status", help="PokaÄąÄ˝ status opcjonalnego lokalnego providera PoliMorf.")
+    parser.add_argument("--last-turn", action="store_true", dest="last_turn", help="Pokaż ostatni turn checkpoint: exact_runtime_text, visible_text, route, template_origin i source-origin.")
+    parser.add_argument("--compare-runtime-visible", action="store_true", dest="compare_runtime_visible", help="Porównaj exact runtime text z widoczną odpowiedzią ChatGPT dla ostatniej tury albo --trace-id.")
+    parser.add_argument("--dictionary-lookup", action="store_true", dest="dictionary_lookup", help="Sprawdź termin przez cache/mini-leksykon/adaptory słowników; nie udawaj lookupu online bez providera.")
+    parser.add_argument("--language-resources", action="store_true", dest="language_resources", help="Pokaż rejestr dostępnych i opcjonalnych zasobów językowych/słownikowych.")
+    parser.add_argument("--polish-reasoning-frame", action="store_true", dest="polish_reasoning_frame", help="Pokaż warstwowy frame Polish Reasoning: normalizacja, morfologia, semantyka, reply policy i status providerów.")
+    parser.add_argument("--polish-reasoning-sources", action="store_true", dest="polish_reasoning_sources", help="Pokaż rejestr źródeł/licencji/cache dla warstwy Polish Reasoning.")
+    parser.add_argument("--polish-reasoning-bootstrap-plan", action="store_true", dest="polish_reasoning_bootstrap_plan", help="Pokaż komendy lokalnej instalacji providerów NLP bez ich automatycznego pobierania.")
+    parser.add_argument("--nlp-resource-status", action="store_true", dest="nlp_resource_status", help="Pokaż status lexical resource registry/cache: źródła, licencje, dostępność i projektowy leksykon bez pobierania dużych danych.")
+    parser.add_argument("--polish-morphology", action="store_true", dest="polish_morphology", help="Pokaż szczegółową analizę morfologiczną v14.8.4: Morfeusz/PoliMorf, kandydaci i selected_lemma.")
+    parser.add_argument("--morfeusz-status", action="store_true", dest="morfeusz_status", help="Pokaż status realnego providera Morfeusz2/SGJP w Polish Reasoning.")
+    parser.add_argument("--polimorf-status", action="store_true", dest="polimorf_status", help="Pokaż status opcjonalnego lokalnego providera PoliMorf.")
     parser.add_argument("--wsjp-lookup-plan", action="store_true", dest="wsjp_lookup_plan", help="Zbuduj bezpieczny plan lookupu WSJP dla terminu; nie scrapuje masowo strony.")
-    parser.add_argument("--nkjp-lookup-plan", action="store_true", dest="nkjp_lookup_plan", help="Zbuduj bezpieczny plan lookupu NKJP/concordance dla terminu; nie pobiera peÄąâ€šnego korpusu.")
-    parser.add_argument("--voice-source-contract", action="store_true", dest="voice_source_contract", help="PokaÄąÄ˝ kontrakt: JaÄąĹźÄąâ€ž jako ÄąĹźrÄ‚Ĺ‚dÄąâ€šo, ChatGPT/model jako kanaÄąâ€š gÄąâ€šosu.")
-    parser.add_argument("--rendering-mode", action="store_true", dest="rendering_mode", help="PokaÄąÄ˝ decyzjĂ„â„˘ naturalna odpowiedÄąĹź vs exact runtime/diagnostyka.")
-    parser.add_argument("--raw-chat-status", action="store_true", dest="raw_chat_status", help="PokaÄąÄ˝ status memory/raw/chat.html i chat.html.7z bez rozpakowywania.")
-    parser.add_argument("--raw-chat-status-json", action="store_true", dest="raw_chat_status_json", help="PokaÄąÄ˝ uczciwy status raw memory/indexu jako JSON aktywnego runtime.")
-    parser.add_argument("--conversation-archive-status", action="store_true", dest="conversation_archive_status", help="PokaÄąÄ˝ status conversation_archive/FTS/staging zbudowanych z raw_chats/*.html.")
-    parser.add_argument("--conversation-archive-search", action="store_true", dest="conversation_archive_search", help="Szukaj w osobnym conversation_fts i zwrÄ‚Ĺ‚Ă„â€ˇ UID/provenance do archive/staging.")
-    parser.add_argument("--conversation-archive-limit", type=int, default=8, help="Limit trafieÄąâ€ž dla --conversation-archive-search.")
-    parser.add_argument("--conversation-archive-show-snippets", action="store_true", dest="conversation_archive_show_snippets", help="DoÄąâ€šĂ„â€¦cz krÄ‚Ĺ‚tkie excerpt z prywatnego archive do wynikÄ‚Ĺ‚w wyszukiwania.")
-    parser.add_argument("--status-json", action="store_true", dest="status_json", help="PokaÄąÄ˝ startup/runtime status jako JSON bez parsowania prozy.")
-    parser.add_argument("--model-adapter-status", action="store_true", dest="model_adapter_status", help="PokaÄąÄ˝ status adapterÄ‚Ĺ‚w modeli: skonfigurowane/nieudawane.")
+    parser.add_argument("--nkjp-lookup-plan", action="store_true", dest="nkjp_lookup_plan", help="Zbuduj bezpieczny plan lookupu NKJP/concordance dla terminu; nie pobiera pełnego korpusu.")
+    parser.add_argument("--voice-source-contract", action="store_true", dest="voice_source_contract", help="Pokaż kontrakt: Jaźń jako źródło, ChatGPT/model jako kanał głosu.")
+    parser.add_argument("--rendering-mode", action="store_true", dest="rendering_mode", help="Pokaż decyzję naturalna odpowiedź vs exact runtime/diagnostyka.")
+    parser.add_argument("--raw-chat-status", action="store_true", dest="raw_chat_status", help="Pokaż status memory/raw/chat.html i chat.html.7z bez rozpakowywania.")
+    parser.add_argument("--raw-chat-status-json", action="store_true", dest="raw_chat_status_json", help="Pokaż uczciwy status raw memory/indexu jako JSON aktywnego runtime.")
+    parser.add_argument("--conversation-archive-status", action="store_true", dest="conversation_archive_status", help="Pokaż status conversation_archive/FTS/staging zbudowanych z raw_chats/*.html.")
+    parser.add_argument("--conversation-archive-search", action="store_true", dest="conversation_archive_search", help="Szukaj w osobnym conversation_fts i zwróć UID/provenance do archive/staging.")
+    parser.add_argument("--conversation-archive-limit", type=int, default=8, help="Limit trafień dla --conversation-archive-search.")
+    parser.add_argument("--conversation-archive-show-snippets", action="store_true", dest="conversation_archive_show_snippets", help="Dołącz krótkie excerpt z prywatnego archive do wyników wyszukiwania.")
+    parser.add_argument("--status-json", action="store_true", dest="status_json", help="Pokaż startup/runtime status jako JSON bez parsowania prozy.")
+    parser.add_argument("--model-adapter-status", action="store_true", dest="model_adapter_status", help="Pokaż status adapterów modeli: skonfigurowane/nieudawane.")
     parser.add_argument("--model-guided-speech-status", action="store_true", dest="model_guided_speech_status", help="Pokaż status adaptera mowy model-guided: trasa LLM, adapter, host bridge, blokada kosztów i zdolność generacji.")
     parser.add_argument("--llm-route-status", action="store_true", dest="llm_route_status", help="Pokaż decyzję routingu LLM: local -> ChatGPT bridge -> płatne OpenAI API -> null fallback.")
-    parser.add_argument("--startup-status", action="store_true", dest="startup_status", help="PokaÄąÄ˝ wÄąâ€šasny kontrakt startowy runtime: lekki loader ChatGPT + obowiĂ„â€¦zki przejĂ„â„˘te przez JaÄąĹźÄąâ€ž.")
-    parser.add_argument("--startup-status-fast", action="store_true", dest="startup_status_fast", help="PokaÄąÄ˝ szybki startup status bez deep SQLite i bez sieci.")
-    parser.add_argument("--startup-status-deep", action="store_true", dest="startup_status_deep", help="PokaÄąÄ˝ peÄąâ€šny deep startup audit; moÄąÄ˝e trwaĂ„â€ˇ dÄąâ€šugo.")
-    parser.add_argument("--turn-trace", action="store_true", dest="turn_trace", help="PokaÄąÄ˝ lekki Äąâ€şlad trasy tury: classifier -> guard -> route -> handler -> validator.")
-    parser.add_argument("--network-time-check", action="store_true", dest="network_time_check", help="Jawna diagnostyka czasu sieciowego; zwykÄąâ€ša rozmowa wymaga trusted network time albo blokuje normalnĂ„â€¦ odpowiedÄąĹź.")
+    parser.add_argument("--startup-status", action="store_true", dest="startup_status", help="Pokaż własny kontrakt startowy runtime: lekki loader ChatGPT + obowiązki przejęte przez Jaźń.")
+    parser.add_argument("--startup-status-fast", action="store_true", dest="startup_status_fast", help="Pokaż szybki startup status bez deep SQLite i bez sieci.")
+    parser.add_argument("--startup-status-deep", action="store_true", dest="startup_status_deep", help="Pokaż pełny deep startup audit; może trwać długo.")
+    parser.add_argument("--turn-trace", action="store_true", dest="turn_trace", help="Pokaż lekki ślad trasy tury: classifier -> guard -> route -> handler -> validator.")
+    parser.add_argument("--network-time-check", action="store_true", dest="network_time_check", help="Jawna diagnostyka czasu sieciowego; zwykła rozmowa wymaga trusted network time albo blokuje normalną odpowiedź.")
     parser.add_argument("--sqlite-integrity-audit", action="store_true", dest="sqlite_integrity_audit", help="Jawny deep audit SQLite z integrity_check/foreign_key_check.")
-    parser.add_argument("--self-check", action="store_true", dest="self_check", help="PokaÄąÄ˝ skrÄ‚Ĺ‚cony self-check runtime i potwierdzenie, ÄąÄ˝e procedura startowa jest wÄąâ€šasnoÄąâ€şciĂ„â€¦ systemu JaÄąĹźni.")
-    parser.add_argument("--self-knowledge-status", action="store_true", dest="self_knowledge_status", help="PokaĹĽ operacyjny kontrakt: kim jest Ĺatka, co moĹĽe pamiÄ™taÄ‡, czego siÄ™ uczy, co umie i jak mĂłwi o emocjach bez zmyĹ›lania.")
-    parser.add_argument("--self-knowledge-deep", action="store_true", dest="self_knowledge_deep", help="Z --self-knowledge-status wykonaj gĹ‚Ä™bszÄ… diagnostykÄ™ SQLite warstw pamiÄ™ci.")
-    parser.add_argument("--truth-boundary-check", action="store_true", dest="truth_boundary_check", help="PokaÄąÄ˝ granicĂ„â„˘ prawdy runtime/ChatGPT/pliki/pamiĂ„â„˘Ă„â€ˇ/ZIP.")
-    parser.add_argument("--fallback-audit", action="store_true", dest="fallback_audit", help="Zbadaj tekst jako moÄąÄ˝liwy fallback, stale route albo kontrakt zamiast odpowiedzi.")
-    parser.add_argument("--memory-plan", action="store_true", dest="memory_plan", help="PokaÄąÄ˝ plan wyszukiwania pamiĂ„â„˘ci i trafienia plikÄ‚Ĺ‚w kanonicznych bez generowania zwykÄąâ€šej odpowiedzi.")
-    parser.add_argument("--canon-extraction-preview", action="store_true", dest="canon_extraction_preview", help="Przeskanuj prywatne ÄąĹźrÄ‚Ĺ‚dÄąâ€ša kanonu i zapisz raport/progress bez modyfikowania kanonu runtime.")
-    parser.add_argument("--canon-extraction-write-private", action="store_true", dest="canon_extraction_write_private", help="Przeskanuj ÄąĹźrÄ‚Ĺ‚dÄąâ€ša i zapisz lokalny prywatny moduÄąâ€š .py canon extension; nie commitowaĂ„â€ˇ bez recenzji.")
-    parser.add_argument("--canon-extraction-progress", type=Path, default=None, help="Opcjonalna Äąâ€şcieÄąÄ˝ka JSONL postĂ„â„˘pu dla ekstrakcji kanonu.")
-    parser.add_argument("--canon-extraction-verbose-progress", action="store_true", dest="canon_extraction_verbose_progress", help="Wypisuj zdarzenia progress JSONL na stdout oprÄ‚Ĺ‚cz zapisu do pliku.")
-    parser.add_argument("--canon-extra-source", action="append", default=[], help="Dodatkowe ÄąĹźrÄ‚Ĺ‚dÄąâ€šo kanonu wzglĂ„â„˘dne wobec root; moÄąÄ˝na powtÄ‚Ĺ‚rzyĂ„â€ˇ.")
-    parser.add_argument("--memory-normalization-status", action="store_true", dest="memory_normalization_status", help="PokaÄąÄ˝ status niedestrukcyjnego sidecara normalizacji pamiĂ„â„˘ci.")
-    parser.add_argument("--normalize-memory-sidecar", action="store_true", dest="normalize_memory_sidecar", help="Zbuduj lub zaktualizuj sidecar normalizacji pamiĂ„â„˘ci bez modyfikowania aktywnej bazy rozmÄ‚Ĺ‚w.")
-    parser.add_argument("--wake-state-status", action="store_true", dest="wake_state_status", help="PokaÄąÄ˝ status aktywnego wake_state z sidecara pamiĂ„â„˘ci.")
-    parser.add_argument("--build-wake-state", action="store_true", dest="build_wake_state", help="Zbuduj wake_state z istniejĂ„â€¦cych rekordÄ‚Ĺ‚w sidecara normalizacji.")
-    parser.add_argument("--dedupe-memory-sidecar", action="store_true", dest="dedupe_memory_sidecar", help="Zbuduj warstwowe grupy duplikatÄ‚Ĺ‚w w sidecarze bez kasowania rekordÄ‚Ĺ‚w ÄąĹźrÄ‚Ĺ‚dÄąâ€šowych.")
+    parser.add_argument("--self-check", action="store_true", dest="self_check", help="Pokaż skrócony self-check runtime i potwierdzenie, że procedura startowa jest własnością systemu Jaźni.")
+    parser.add_argument("--self-knowledge-status", action="store_true", dest="self_knowledge_status", help="Pokaż operacyjny kontrakt: kim jest Łatka, co może pamiętać, czego się uczy, co umie i jak mówi o emocjach bez zmyślania.")
+    parser.add_argument("--self-knowledge-deep", action="store_true", dest="self_knowledge_deep", help="Z --self-knowledge-status wykonaj głębszą diagnostykę SQLite warstw pamięci.")
+    parser.add_argument("--truth-boundary-check", action="store_true", dest="truth_boundary_check", help="Pokaż granicę prawdy runtime/ChatGPT/pliki/pamięć/ZIP.")
+    parser.add_argument("--fallback-audit", action="store_true", dest="fallback_audit", help="Zbadaj tekst jako możliwy fallback, stale route albo kontrakt zamiast odpowiedzi.")
+    parser.add_argument("--memory-plan", action="store_true", dest="memory_plan", help="Pokaż plan wyszukiwania pamięci i trafienia plików kanonicznych bez generowania zwykłej odpowiedzi.")
+    parser.add_argument("--canon-extraction-preview", action="store_true", dest="canon_extraction_preview", help="Przeskanuj prywatne źródła kanonu i zapisz raport/progress bez modyfikowania kanonu runtime.")
+    parser.add_argument("--canon-extraction-write-private", action="store_true", dest="canon_extraction_write_private", help="Przeskanuj źródła i zapisz lokalny prywatny moduł .py canon extension; nie commitować bez recenzji.")
+    parser.add_argument("--canon-extraction-progress", type=Path, default=None, help="Opcjonalna ścieżka JSONL postępu dla ekstrakcji kanonu.")
+    parser.add_argument("--canon-extraction-verbose-progress", action="store_true", dest="canon_extraction_verbose_progress", help="Wypisuj zdarzenia progress JSONL na stdout oprócz zapisu do pliku.")
+    parser.add_argument("--canon-extra-source", action="append", default=[], help="Dodatkowe źródło kanonu względne wobec root; można powtórzyć.")
+    parser.add_argument("--memory-normalization-status", action="store_true", dest="memory_normalization_status", help="Pokaż status niedestrukcyjnego sidecara normalizacji pamięci.")
+    parser.add_argument("--normalize-memory-sidecar", action="store_true", dest="normalize_memory_sidecar", help="Zbuduj lub zaktualizuj sidecar normalizacji pamięci bez modyfikowania aktywnej bazy rozmów.")
+    parser.add_argument("--wake-state-status", action="store_true", dest="wake_state_status", help="Pokaż status aktywnego wake_state z sidecara pamięci.")
+    parser.add_argument("--build-wake-state", action="store_true", dest="build_wake_state", help="Zbuduj wake_state z istniejących rekordów sidecara normalizacji.")
+    parser.add_argument("--dedupe-memory-sidecar", action="store_true", dest="dedupe_memory_sidecar", help="Zbuduj warstwowe grupy duplikatów w sidecarze bez kasowania rekordów źródłowych.")
     parser.add_argument("--dry-run", action="store_true", dest="dry_run", help="Tryb kontrolny dla operacji normalizacji/wake_state bez zapisu.")
-    parser.add_argument("--normalization-limit", type=int, default=None, help="Opcjonalny limit rekordÄ‚Ĺ‚w dla sidecara normalizacji, uÄąÄ˝ywany gÄąâ€šÄ‚Ĺ‚wnie w testach i audytach.")
+    parser.add_argument("--normalization-limit", type=int, default=None, help="Opcjonalny limit rekordów dla sidecara normalizacji, używany głównie w testach i audytach.")
     parser.add_argument("--dedupe-min-group-size", type=int, default=2, help="Minimalny rozmiar grupy dla warstwowej deduplikacji sidecara.")
     parser.add_argument("--write-active-runtime-marker", action="store_true", dest="write_active_runtime_marker", help="Zapisz JAZN_ACTIVE_RUNTIME.json dla aktywnego folderu i cache rozpakowania.")
-    parser.add_argument("--source-zip", type=Path, default=None, help="Opcjonalna Äąâ€şcieÄąÄ˝ka ZIP-a ÄąĹźrÄ‚Ĺ‚dÄąâ€šowego do porÄ‚Ĺ‚wnania checksum w aktywnym cache.")
-    parser.add_argument("--marker-output", type=Path, default=None, help="Opcjonalna Äąâ€şcieÄąÄ˝ka pliku JAZN_ACTIVE_RUNTIME.json.")
-    parser.add_argument("--record-final-reply", action="store_true", dest="record_final_reply", help="Dopisz do ledgera finalnĂ„â€¦ widocznĂ„â€¦ odpowiedÄąĹź ChatGPT dla podanego turn_id/trace_id/timestamp_header.")
+    parser.add_argument("--source-zip", type=Path, default=None, help="Opcjonalna ścieżka ZIP-a źródłowego do porównania checksum w aktywnym cache.")
+    parser.add_argument("--marker-output", type=Path, default=None, help="Opcjonalna ścieżka pliku JAZN_ACTIVE_RUNTIME.json.")
+    parser.add_argument("--record-final-reply", action="store_true", dest="record_final_reply", help="Dopisz do ledgera finalną widoczną odpowiedź ChatGPT dla podanego turn_id/trace_id/timestamp_header.")
     parser.add_argument("--turn-id", default=None, help="turn_id z cognitive_turn_envelope dla --record-final-reply.")
     parser.add_argument("--trace-id", default=None, help="trace_id z cognitive_turn_envelope dla --record-final-reply.")
     parser.add_argument("--timestamp-header", default=None, help="timestamp_header z cognitive_turn_envelope dla --record-final-reply.")
-    parser.add_argument("--state-emoticon", default="Ä‘ĹşĹšĹĽ", help="Emotikon stanu uÄąÄ˝ywany, jeÄąâ€şli finalny tekst wymaga dopiĂ„â„˘cia timestampu.")
-    parser.add_argument("--final-text-file", type=Path, default=None, help="Opcjonalny plik z finalnĂ„â€¦ widocznĂ„â€¦ odpowiedziĂ„â€¦ do zapisania w ledgerze.")
+    parser.add_argument("--state-emoticon", default="🌿", help="Emotikon stanu używany, jeśli finalny tekst wymaga dopięcia timestampu.")
+    parser.add_argument("--final-text-file", type=Path, default=None, help="Opcjonalny plik z finalną widoczną odpowiedzią do zapisania w ledgerze.")
     export_group = parser.add_mutually_exclusive_group()
-    export_group.add_argument("--export-system", action="store_true", help="UtwÄ‚Ĺ‚rz paczkĂ„â„˘ system-only bez memory/ i workspace_runtime/.")
-    export_group.add_argument("--export-memory", action="store_true", help="UtwÄ‚Ĺ‚rz paczkĂ„â„˘ memory-only z memory/ i workspace_runtime/.")
-    export_group.add_argument("--export-full", action="store_true", help="UtwÄ‚Ĺ‚rz peÄąâ€šnĂ„â€¦ paczkĂ„â„˘ systemu wraz z pamiĂ„â„˘ciĂ„â€¦.")
-    export_group.add_argument("--export-nlp", action="store_true", help="UtwÄ‚Ĺ‚rz paczkĂ„â„˘ NLP-resources-only bez pamiĂ„â„˘ci i bez ciĂ„â„˘ÄąÄ˝kich modeli.")
-    export_group.add_argument("--export-github-source-safe", action="store_true", help="UtwÄ‚Ĺ‚rz paczkĂ„â„˘ ÄąĹźrÄ‚Ĺ‚dÄąâ€šowĂ„â€¦ bez surowej pamiĂ„â„˘ci i aktywnych baz SQLite.")
+    export_group.add_argument("--export-system", action="store_true", help="Utwórz paczkę system-only bez memory/ i workspace_runtime/.")
+    export_group.add_argument("--export-memory", action="store_true", help="Utwórz paczkę memory-only z memory/ i workspace_runtime/.")
+    export_group.add_argument("--export-full", action="store_true", help="Utwórz pełną paczkę systemu wraz z pamięcią.")
+    export_group.add_argument("--export-nlp", action="store_true", help="Utwórz paczkę NLP-resources-only bez pamięci i bez ciężkich modeli.")
+    export_group.add_argument("--export-github-source-safe", action="store_true", help="Utwórz paczkę źródłową bez surowej pamięci i aktywnych baz SQLite.")
     parser.add_argument("--export-preview", action="store_true", help="Pokaż plan prywatnego eksportu bez tworzenia ZIP.")
     parser.add_argument("--confirm-private-data", default=None, help="Jednorazowy token potwierdzenia dla eksportu memory/full.")
-    parser.add_argument("--output", type=Path, default=None, help="Opcjonalna Äąâ€şcieÄąÄ˝ka ZIP dla eksportu.")
-    parser.add_argument("message", nargs=argparse.REMAINDER, help="TreÄąâ€şĂ„â€ˇ wiadomoÄąâ€şci dla runtime.")
+    parser.add_argument("--output", type=Path, default=None, help="Opcjonalna ścieżka ZIP dla eksportu.")
+    parser.add_argument("message", nargs=argparse.REMAINDER, help="Treść wiadomości dla runtime.")
     return parser
 
 
@@ -436,7 +437,7 @@ def _try_chat_gpt_one_shot_via_daemon(
             "daemon_session_id": daemon_session_id,
             "fallback_if_unavailable": "local_jsonl_runtime_session",
             "trusted_time_sync": trusted_time_sync,
-            "truth_boundary": "--chat-gpt uĹĽywa daemon fast path tylko gdy marker i lokalny endpoint potwierdzajÄ… ĹĽywy runtime; jawnie dostarczony czas hosta jest najpierw synchronizowany do procesu daemonu, a przy odrzuceniu most wraca do lokalnego JSONL bridge.",
+            "truth_boundary": "--chat-gpt używa daemon fast path tylko gdy marker i lokalny endpoint potwierdzają żywy runtime; jawnie dostarczony czas hosta jest najpierw synchronizowany do procesu daemonu, a przy odrzuceniu most wraca do lokalnego JSONL bridge.",
         })
     result["chatgpt_bridge"] = result.get("chat_bridge")
     if result.get("error_code") == "daemon_chat_pending":
@@ -447,7 +448,7 @@ def _try_chat_gpt_one_shot_via_daemon(
             "host_must_generate_visible_reply": False,
             "daemon_request_id": pending_request_id,
             "poll_command": f"python -X utf8 main.py --daemon-result {pending_request_id}",
-            "truth_boundary": "Tura zostaĹ‚a przyjÄ™ta przez ĹĽywy daemon i dziaĹ‚a niezaleĹĽnie od poĹ‚Ä…czenia CLI. Host nie moĹĽe uruchamiaÄ‡ tej samej wiadomoĹ›ci ponownie; powinien pobraÄ‡ wynik po request_id.",
+            "truth_boundary": "Tura została przyjęta przez żywy daemon i działa niezależnie od połączenia CLI. Host nie może uruchamiać tej samej wiadomości ponownie; powinien pobrać wynik po request_id.",
         }
         result["chat_bridge_output"] = {
             "requested_mode": output_mode,
@@ -581,7 +582,7 @@ def _run_chat_command_one_shot(
                 "command": command,
                 "canonical_command": command,
                 "one_shot_shared_runtime_pipeline": True,
-                "truth_boundary": "Ta komenda czatowa uĹĽywa tego samego JaznRuntimeSession.process_turn co pozostaĹ‚e flagi; adapter zmienia kanaĹ‚ modelu/widocznoĹ›ci, nie neurologiÄ™ runtime.",
+                "truth_boundary": "Ta komenda czatowa używa tego samego JaznRuntimeSession.process_turn co pozostałe flagi; adapter zmienia kanał modelu/widoczności, nie neurologię runtime.",
             })
         write_chat_bridge_payload(sys.stdout, result, output_mode=output_mode)
         return 0
@@ -595,7 +596,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     argv = normalize_cli_argv(argv, parser)
     if "--chat-jsonl" in argv:
-        sys.stderr.write("Flaga --chat-jsonl zostaÄąâ€ša usuniĂ„â„˘ta z aktywnego CLI. UÄąÄ˝yj: python main.py --chat-gpt --session-id <id>\n")
+        sys.stderr.write("Flaga --chat-jsonl została usunięta z aktywnego CLI. Użyj: python main.py --chat-gpt --session-id <id>\n")
         return 2
     ns = parser.parse_args(argv)
     if ns.runtime_preview_output is None and "--runtime-preview-output" in ns.message:
@@ -635,6 +636,13 @@ def main(argv: list[str] | None = None) -> int:
         from latka_jazn.tools.release_readiness import build_release_readiness_report
 
         payload = build_release_readiness_report(runtime_root, profile=ns.package_profile)
+        print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+        return int(payload.get("exit_code", 2))
+
+    if ns.release_build:
+        from latka_jazn.tools.release_bundle import build_release_bundle
+
+        payload = build_release_bundle(runtime_root, ns.output)
         print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
         return int(payload.get("exit_code", 2))
 
@@ -1036,7 +1044,7 @@ def main(argv: list[str] | None = None) -> int:
             "source_file_hits": [hit.to_dict() for hit in planner.search_source_files(plan, limit=8)],
             "conversation_archive_status": archive_store.status(check_integrity=False).to_dict(),
             "conversation_archive_hits": archive_store.search(archive_query, limit=8, include_snippets=False).to_dict(),
-            "truth_boundary": "To jest plan, kanoniczne trafienia plikÄ‚Ĺ‚w i metadane trafieÄąâ€ž conversation_archive/FTS, nie peÄąâ€šna rozmowna odpowiedÄąĹź ani dowÄ‚Ĺ‚d peÄąâ€šnego odczytu caÄąâ€šej pamiĂ„â„˘ci.",
+            "truth_boundary": "To jest plan, kanoniczne trafienia plików i metadane trafień conversation_archive/FTS, nie pełna rozmowna odpowiedź ani dowód pełnego odczytu całej pamięci.",
         }
         print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
         return 0
@@ -1053,7 +1061,7 @@ def main(argv: list[str] | None = None) -> int:
                 verbose_progress=ns.canon_extraction_verbose_progress,
                 extra_sources=ns.canon_extra_source or [],
             ),
-            "truth_boundary": "Raport i progress sĂ„â€¦ artefaktem patcha. WÄąâ€šaÄąâ€şciwy runtime canon jest w plikach .py; lokalny prywatny extension .py wymaga recenzji przed commitem.",
+            "truth_boundary": "Raport i progress są artefaktem patcha. Właściwy runtime canon jest w plikach .py; lokalny prywatny extension .py wymaga recenzji przed commitem.",
         }
         print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
         return 0
@@ -1230,7 +1238,7 @@ def main(argv: list[str] | None = None) -> int:
                 "runtime_version": cfg.version,
                 "schema_version": "polish_provider_status/v14.8.4",
                 "provider_status": next((item for item in statuses if item.get("provider") == wanted), None),
-                "truth_boundary": "Status providera mÄ‚Ĺ‚wi tylko, czy lokalny adapter jest dostĂ„â„˘pny. Nie oznacza pobrania peÄąâ€šnego sÄąâ€šownika ani peÄąâ€šnej dezambiguacji jĂ„â„˘zyka.",
+                "truth_boundary": "Status providera mówi tylko, czy lokalny adapter jest dostępny. Nie oznacza pobrania pełnego słownika ani pełnej dezambiguacji języka.",
             }
         else:
             payload = {"runtime_version": cfg.version, **payload}
@@ -1247,7 +1255,7 @@ def main(argv: list[str] | None = None) -> int:
                 "schema_version": "polish_reasoning_bootstrap_plan/v14.8.4",
                 "bootstrap_commands": payload["bootstrap_commands"],
                 "source_registry": payload["source_registry"],
-                "truth_boundary": "Bootstrap instaluje providery i modele z Internetu lokalnie; patch nie vendoruje duÄąÄ˝ych sÄąâ€šownikÄ‚Ĺ‚w ani modeli.",
+                "truth_boundary": "Bootstrap instaluje providery i modele z Internetu lokalnie; patch nie vendoruje dużych słowników ani modeli.",
             }
         else:
             payload = {"runtime_version": cfg.version, **payload}
@@ -1263,7 +1271,7 @@ def main(argv: list[str] | None = None) -> int:
             "runtime_version": cfg.version,
             "schema_version": "polish_reasoning_lookup_plan/v14.8.3",
             "lookup_plan": lookup,
-            "truth_boundary": "To jest plan/link lookupu. Runtime nie twierdzi, ÄąÄ˝e pobraÄąâ€š definicjĂ„â„˘ lub przykÄąâ€šady bez realnego ÄąÄ˝Ă„â€¦dania HTTP i zapisu ÄąĹźrÄ‚Ĺ‚dÄąâ€ša.",
+            "truth_boundary": "To jest plan/link lookupu. Runtime nie twierdzi, że pobrał definicję lub przykłady bez realnego żądania HTTP i zapisu źródła.",
         }
         print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
         return 0
@@ -1457,8 +1465,8 @@ def main(argv: list[str] | None = None) -> int:
                 "fallback_detected": any(
                     signature in runtime_text
                     for signature in (
-                        "Nie znalazĹ‚am osobnej trasy odpowiedzi",
-                        "runtime odebraĹ‚ wiadomoĹ›Ä‡",
+                        "Nie znalazłam osobnej trasy odpowiedzi",
+                        "runtime odebrał wiadomość",
                         "debugowy fallback",
                         "pusty fallback",
                     )
@@ -1485,12 +1493,12 @@ def main(argv: list[str] | None = None) -> int:
                     "response_source": "runtime.process_turn + final_response_contract",
                     "required_visible_fields": ["timestamp_header", "active_root", "start_file", "runtime_answer_quality", "fallback_classification", "response_source", "one_shot_or_chat_loop_limit"],
                     "must_show_when_user_asks_about_runtime_files_timestamp_preview_or_fallback": True,
-                    "one_shot_or_chat_loop_limit": "--runtime-preview i --dev-preview sÄ… jednorazowymi wywoĹ‚aniami; staĹ‚Ä… pÄ™tlÄ™ daje dopiero python main.py --chat.",
+                    "one_shot_or_chat_loop_limit": "--runtime-preview i --dev-preview są jednorazowymi wywołaniami; stałą pętlę daje dopiero python main.py --chat.",
                 },
                 "active_extraction_cache_status": build_active_runtime_status(engine.config.root),
                 "startup_summary": build_startup_summary(engine.config),
                 "free_dialogue_memory_nlp_bridge": build_startup_summary(engine.config),
-                "truth_boundary": "--dev-preview wykonuje jedno zintegrowane wywoĹ‚anie process_turn i pokazuje peĹ‚nÄ… kopertÄ™ technicznÄ…. To nie jest widoczna odpowiedĹş Ĺatki dla uĹĽytkownika ani dowĂłd procesu w tle.",
+                "truth_boundary": "--dev-preview wykonuje jedno zintegrowane wywołanie process_turn i pokazuje pełną kopertę techniczną. To nie jest widoczna odpowiedź Łatki dla użytkownika ani dowód procesu w tle.",
             }
             compact = {
                 "schema_version": schema_version("runtime_preview_compact", version=PACKAGE_VERSION_FULL),
@@ -1509,7 +1517,7 @@ def main(argv: list[str] | None = None) -> int:
                 "runtime_response_status": envelope_dict.get("runtime_response_status"),
                 "full_payload_written_to": str(ns.runtime_preview_output) if ns.runtime_preview_output else None,
                 "dev_preview_command": "python main.py --dev-preview <tekst>",
-                "truth_boundary": "To jest krĂłtki podglÄ…d diagnostyczny jednej tury runtime. Nie traktuj samego --runtime-preview jako rozmowy z ĹatkÄ…; do staĹ‚ej rozmowy sĹ‚uĹĽy --chat, a peĹ‚ny JSON techniczny jest w --dev-preview albo --runtime-preview-output.",
+                "truth_boundary": "To jest krótki podgląd diagnostyczny jednej tury runtime. Nie traktuj samego --runtime-preview jako rozmowy z Łatką; do stałej rozmowy służy --chat, a pełny JSON techniczny jest w --dev-preview albo --runtime-preview-output.",
             }
             payload_json = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
             if ns.runtime_preview_output:
@@ -1564,8 +1572,8 @@ def main(argv: list[str] | None = None) -> int:
         bridge_stdin = io.StringIO(bridge_text + "\n") if bridge_text else None
         if bridge_stdin is None and ns.final_only and not ns.chat_gpt_final_only and sys.stdin.isatty():
             print(
-                "--chat-gpt przy trybie final_visible_text wymaga wiadomoĹ›ci po -- albo danych na stdin, np. "
-                "python -X utf8 main.py --chat-gpt -- \"CzeĹ›Ä‡ Ĺatko\"",
+                "--chat-gpt przy trybie final_visible_text wymaga wiadomości po -- albo danych na stdin, np. "
+                "python -X utf8 main.py --chat-gpt -- \"Cześć Łatko\"",
                 file=sys.stderr,
             )
             return 2
@@ -1739,8 +1747,8 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except BrokenPipeError:
-        # Pozwala bezpiecznie ucinaĂ„â€ˇ dÄąâ€šugie podglĂ„â€¦dy JSON przez `head`/pipe
-        # bez faÄąâ€šszywego wraÄąÄ˝enia awarii runtime.
+        # Pozwala bezpiecznie ucinać długie podglądy JSON przez `head`/pipe
+        # bez fałszywego wrażenia awarii runtime.
         try:
             sys.stdout.close()
         except Exception:

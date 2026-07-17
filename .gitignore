@@ -28,6 +28,7 @@ __pycache__/
 *.db-shm
 
 # Archives / split packages / raw exports
+/exports/
 *.zip
 *.zip.*
 *.7z

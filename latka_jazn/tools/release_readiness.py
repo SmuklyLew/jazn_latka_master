@@ -175,8 +175,14 @@ def build_release_readiness_report(root: Path | str, *, profile: str = "system")
     source_manifest = verify_package_integrity_manifest(root)
     checks.append(_check(
         "source_checkout_manifest_current",
-        bool(source_manifest.get("ok")), required=profile in {"release", "export-without-git"},
+        bool(source_manifest.get("ok")),
+        required=profile == "export-without-git",
         report=source_manifest,
+        policy=(
+            "A source checkout may contain historical release metadata. The release profile "
+            "materializes the clean current Git commit and generates fresh provenance and manifest "
+            "inside staging; an input export without .git must already verify its own manifest."
+        ),
     ))
 
     with tempfile.TemporaryDirectory(prefix="jazn-readiness-") as temp_name:
@@ -265,6 +271,7 @@ def build_release_readiness_report(root: Path | str, *, profile: str = "system")
         "summary": {
             "passed": sum(1 for item in checks if item.get("ok")),
             "failed": len(failures),
+            "optional_failed": sum(1 for item in checks if not item.get("required") and not item.get("ok")),
             "total": len(checks),
         },
         "checks": checks,

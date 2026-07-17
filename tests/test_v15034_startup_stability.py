@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from io import StringIO
 import json
 from pathlib import Path
 
@@ -26,8 +27,9 @@ from latka_jazn.model_adapters.base import ModelAdapterRequest
 from latka_jazn.model_adapters.local_llm_adapter import LocalLlmAdapter
 
 
-class _FakeStream:
+class _FakeStream(StringIO):
     def __init__(self, is_tty: bool) -> None:
+        super().__init__()
         self._is_tty = is_tty
 
     def isatty(self) -> bool:

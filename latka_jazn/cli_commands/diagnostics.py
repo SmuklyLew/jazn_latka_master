@@ -10,6 +10,8 @@ from latka_jazn.core.bridge_discovery import discover_runtime_bridges
 from latka_jazn.core.runtime_daemon import DEFAULT_DAEMON_HOST, DEFAULT_DAEMON_PORT, status_daemon
 from latka_jazn.core.startup_contract import build_startup_status
 from latka_jazn.core.package_integrity_manifest import package_integrity_manifest_status
+from latka_jazn.core.source_provenance import read_source_provenance
+from latka_jazn.tools.package_integrity import verify_package_integrity_manifest
 from latka_jazn.core.tool_execution_controller import ToolExecutionController
 from latka_jazn.version import PACKAGE_VERSION_FULL, schema_version
 
@@ -118,6 +120,8 @@ def doctor_payload(
         "privacy_gate_available": (root / "latka_jazn/core/private_data_export_gate.py").is_file(),
         "finalization_gate_available": (root / "latka_jazn/core/host_visible_finalization.py").is_file(),
     }
+    manifest_verification = verify_package_integrity_manifest(root)
+    provenance = read_source_provenance(root, profile="system_smoke").to_dict()
     package_integrity_checks = {
         "present": package_integrity.present,
         "parse_ok": manifest_error is None,
@@ -126,8 +130,33 @@ def doctor_payload(
         "primary_present": package_integrity.primary_present,
         "legacy_alias_absent": not package_integrity.legacy_present,
         "canonical_source_name": package_integrity.source_name == "PACKAGE_INTEGRITY_MANIFEST.json",
+        "verification_ok": bool(manifest_verification.get("ok")),
+        "verification_errors": list(manifest_verification.get("errors") or []),
         "runtime_start_blocking": True,
     }
+    installation_ok = all(required_checks.values())
+    activation_ready = bool(
+        installation_ok
+        and package_integrity_checks["present"]
+        and package_integrity_checks["parse_ok"]
+        and package_integrity_checks["version_matches"]
+        and package_integrity_checks["primary_present"]
+        and package_integrity_checks["legacy_alias_absent"]
+        and package_integrity_checks["canonical_source_name"]
+        and package_integrity_checks["verification_ok"]
+    )
+    live_runtime_ready = bool(
+        (daemon.get("active_state") or daemon.get("runtime_active_state")) == "active_trusted"
+        and daemon.get("pid_alive")
+        and daemon.get("endpoint_reachable")
+        and daemon.get("heartbeat_fresh")
+    )
+    release_metadata_current = bool(
+        package_integrity_checks["verification_ok"]
+        and provenance.get("version_matches_runtime")
+        and provenance.get("status") in {"clean_checkout_verified", "verified_export_without_git_history"}
+    )
+    release_ready = bool(activation_ready and release_metadata_current)
 
     live_evidence = {
         "marker_found": bool(marker.get("existing_marker_found") or daemon.get("marker_found")),
@@ -144,12 +173,14 @@ def doctor_payload(
     subsystem_status = {
         "package_integrity_manifest": {
             **package_integrity.to_dict(),
-            "ok": manifest_error is None,
+            "ok": bool(manifest_verification.get("ok")),
             "error": manifest_error,
             "version": manifest.get("version") or manifest.get("runtime_version"),
             "start_file": manifest.get("start_file"),
+            "verification": manifest_verification,
             "runtime_start_blocking": True,
         },
+        "source_provenance": provenance,
         "model": {
             "available": bool(model),
             "adapter_id": model.get("adapter_id") or model.get("selected_adapter"),
@@ -179,7 +210,21 @@ def doctor_payload(
     }
     return {
         "schema_version": schema_version("runpy_doctor"),
-        "ok": all(required_checks.values()),
+        # Backward compatibility: ``ok`` continues to mean structural installation health.
+        # Read activation/release/live readiness from the explicit fields below.
+        "ok": installation_ok,
+        "installation_ok": installation_ok,
+        "activation_ready": activation_ready,
+        "release_metadata_current": release_metadata_current,
+        "release_ready": release_ready,
+        "live_runtime_ready": live_runtime_ready,
+        "readiness": {
+            "installation_ok": installation_ok,
+            "activation_ready": activation_ready,
+            "release_metadata_current": release_metadata_current,
+            "release_ready": release_ready,
+            "live_runtime_ready": live_runtime_ready,
+        },
         "checks": required_checks,
         "package_integrity_checks": package_integrity_checks,
         "live_evidence": live_evidence,
@@ -187,8 +232,9 @@ def doctor_payload(
         "status": status,
         "read_only": True,
         "truth_boundary": (
-            "Doctor reports installation and subsystem evidence without starting or mutating the runtime. "
-            "A green doctor is not proof of a live daemon; live_evidence must separately show marker, PID, endpoint and heartbeat."
+            "Doctor reports structural installation health separately from activation, release metadata and live runtime readiness. "
+            "A green legacy ok/installation_ok is not proof of an activatable package or live daemon; read activation_ready, "
+            "release_ready and live_runtime_ready explicitly."
         ),
     }
 

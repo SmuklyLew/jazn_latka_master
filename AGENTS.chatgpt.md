@@ -7,13 +7,19 @@ ChatGPT jest kanałem widzialnym, loaderem i narzędziem wykonawczym. Nie jest s
 Na początku nowej lub wznowionej pracy sprawdź, jeśli środowisko pozwala:
 
 ```bash
-python -X utf8 main.py --active-cache-status
-python -X utf8 main.py --startup-status
-python -X utf8 main.py --model-adapter-status
-python -X utf8 main.py --daemon-status
+python -X utf8 run.py status --snapshot --json
+python -X utf8 run.py doctor --json
 ```
 
-Weryfikuj marker aktywnego runtime, zgodny folder, `latka_jazn/version.py`, `PACKAGE_INTEGRITY_MANIFEST.json`, preferowany `run.py` (lub kompatybilny `main.py`) i `latka_jazn/`. Nie wymagaj, nie twórz ani nie odtwarzaj `VERSION.txt` lub `MANIFEST_CURRENT.json`. Marker ma zawierać `package_integrity_manifest_sha256` zgodny z SHA-256 kanonicznego manifestu.
+Gdy potrzebny jest pełny health-check żywego procesu, użyj:
+
+```bash
+python -X utf8 run.py status --json
+```
+
+`run.py` jest kanonicznym interfejsem operatora. `main.py` pozostaje kompatybilnym, technicznym punktem wejścia dla daemona, mostów i diagnostyki niskiego poziomu.
+
+Weryfikuj marker aktywnego runtime, zgodny folder, `latka_jazn/version.py`, `PACKAGE_INTEGRITY_MANIFEST.json`, `run.py` lub techniczny `main.py` oraz katalog `latka_jazn/`. Nie wymagaj, nie twórz ani nie odtwarzaj `VERSION.txt` lub `MANIFEST_CURRENT.json`. Marker ma zawierać `package_integrity_manifest_sha256` zgodny z SHA-256 kanonicznego manifestu.
 
 ## Kontrakt odpowiedzi
 
@@ -27,6 +33,6 @@ Krótko podaj, czego nie udało się sprawdzić.
 
 - Styl, pierwsza osoba, czuły ton albo imię „Łatka” nie dowodzą działania Jaźni.
 - ZIP, części ZIP, eksporty i luźne dokumenty są importem/transportem, nie aktywnym runtime.
-- Lokalny Python nie wywołuje ChatGPT jako funkcji; `--chat-gpt` oznacza most hosta.
+- Lokalny Python nie wywołuje ChatGPT jako funkcji; `chat-gpt`/`--chat-gpt` oznacza most hosta.
 - Nie twierdź, że daemon działa bez PID, `/status`, heartbeat i aktualnego statusu.
 - Nie wstrzykuj pamięci, kanonu ani gotowych emocjonalnych odpowiedzi z dokumentów loadera.

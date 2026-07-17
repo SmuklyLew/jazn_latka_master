@@ -51,6 +51,9 @@ jobs:
       - name: Package smoke system profile
         run: python -X utf8 run.py package-smoke --profile system --json
 
+      - name: Package smoke release profile
+        run: python -X utf8 run.py package-smoke --profile release --json
+
       - name: Security path regressions
         run: python -X utf8 -m pytest -q tests/test_release_hardening_safe_paths.py tests/test_release_hardening_raw_archive.py
 

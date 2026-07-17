@@ -48,12 +48,12 @@ Każda warstwa jest osobno audytowana. Aktywacja runtime rozdziela folder, manif
 ## Aktualna linia rozwoju
 
 ```text
-v15.0.3.2 + release-hardening in progress
+v15.0.3.4
 ```
 
 Plan `v14.8.8.100` został przeniesiony do kodu, testów i CI. Obejmuje klasyfikację źródeł, ochronę przed prompt injection, bramki działań zapisu, provenance narzędzi, `RuntimeActivationCascade`, walidację SQLite, audyt dokumentów oraz kompletne paczkowanie ZIP z `package_manifest.json`, `PACKING_AUDIT.json`, CRC i świeżym rozpakowaniem.
 
-Linia `v15.0.3.2 + release-hardening in progress` wzmacnia integralność odpowiedzi, bezpieczeństwo ścieżek, rozpakowanie archiwów, provenance wydania i CI bez deklarowania jeszcze wersji v15.0.3.3 ani zmiany wag modelu.
+Linia `v15.0.3.4` domyka stabilny start, integralność odpowiedzi, bezpieczeństwo ścieżek, provenance wydania i CI bez deklarowania zmiany wag modelu.
 
 ## Pamięć
 
@@ -70,13 +70,26 @@ Model językowy może pomagać wygenerować wypowiedź, ale nie jest samą Jaźn
 ## Start i diagnostyka
 
 ```powershell
-python -X utf8 run.py status --json
+python -X utf8 run.py status --snapshot --json
 python -X utf8 run.py doctor --json
-python -X utf8 main.py --active-cache-status
-python -X utf8 main.py --startup-status
-python -X utf8 main.py --model-adapter-status
-python -X utf8 main.py --daemon-status
+python -X utf8 run.py status --json
+python -X utf8 run.py start
+python -X utf8 run.py stop
+python -X utf8 run.py chat-gpt -- "wiadomość"
 ```
+
+`run.py` jest kanonicznym interfejsem operatora. `main.py` pozostaje technicznym punktem wejścia dla kompatybilnych flag, daemona i mostów niskiego poziomu.
+
+## Domknięcie wydania
+
+Na czystym, zatwierdzonym commicie uruchom:
+
+```powershell
+python -X utf8 run.py package-smoke --profile release --json
+python -X utf8 run.py release-build --json
+```
+
+`release-build` tworzy staging z bieżącego commita, generuje w nim świeże `SOURCE_PROVENANCE.json` i `PACKAGE_INTEGRITY_MANIFEST.json`, uruchamia kontrolę profilu eksportowego, buduje ZIP atomowo oraz zapisuje SHA-256 i raporty pakowania. Metadane historyczne w checkoutcie źródłowym nie są promowane jako aktualny release.
 
 Główna zasada:
 
