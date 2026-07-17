@@ -115,3 +115,6 @@ docs/.root/
 /v14_*_PATCH_FIXED_BUNDLE.zip
 /v14_*_FULL_PATCH_AND_RECOVERY_BUNDLE.zip
 /LATKA_*_COMMANDS.ps1
+
+# Python packaging metadata
+*.egg-info/
