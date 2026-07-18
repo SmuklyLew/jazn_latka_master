@@ -72,12 +72,13 @@ Granica: GitHub-hosted runner nie jest ręczną sesją w aplikacji Microsoft Win
 Stały workflow `v151-release-finalization`:
 
 1. generuje kandydat `PACKAGE_INTEGRITY_MANIFEST.json` z kanonicznego planu Git;
-2. weryfikuje zapisany manifest;
-3. tworzy czysty release staging z aktualną proweniencją;
-4. uruchamia `doctor` i wymaga `installation_ok`, `activation_ready`, `release_metadata_current` oraz `release_ready`;
-5. uruchamia package smoke profilu systemowego i release;
-6. uruchamia targetowaną pełną turę runtime;
-7. sprawdza `git diff --check` oraz brak wygenerowanych zmian w checkoutcie.
+2. porównuje semantykę manifestu bez niestabilnych pól czasu i zapisuje go tylko przy rzeczywistej zmianie wersji, listy plików, rozmiaru lub SHA-256;
+3. weryfikuje zapisany manifest;
+4. tworzy czysty release staging z aktualną proweniencją;
+5. uruchamia `doctor` i wymaga `installation_ok`, `activation_ready`, `release_metadata_current` oraz `release_ready`;
+6. uruchamia package smoke profilu systemowego i release;
+7. uruchamia targetowaną pełną turę runtime;
+8. sprawdza `git diff --check` oraz brak wygenerowanych zmian w checkoutcie.
 
 ## Granice prawdy
 
