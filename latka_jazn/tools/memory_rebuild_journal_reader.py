@@ -1,68 +1,181 @@
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 import json
 import re
+import unicodedata
 
 from latka_jazn.tools.chat_export_reader import sha256_file
 from latka_jazn.tools.memory_rebuild_common import (
-    CONTENT_FIELDS, FANOUT_FIELDS, bounded, canonical_json, norm, sha_text,
+    CONTENT_FIELDS, FANOUT_FIELDS, bounded, canonical_json, norm, schema_version, sha_text,
 )
 
+CLASSIFICATION_SCHEMA_VERSION = schema_version("journal_classification")
+
+_LABEL_FIELDS = ("type", "entry_type", "kind", "category", "mode", "tags")
+
 _BOOK_LABEL_RE = re.compile(
-    r"(?:^|[\s+_,/\-])(?:fabula|fabuła|fabuły|fragment_fabuly|fragment fabuły|"
-    r"fragment książki|scena|roleplay|manuskrypt|rozdział|analiza_fabuły|analiza fabuły)"
-    r"(?:$|[\s+_,/\-])",
+    r"(?:^|\s)(?:fabula|fragment fabuly|fragment ksiazki|scena|roleplay|manuskrypt|"
+    r"rozdzial|analiza fabuly|historia wyobrazona|scena ksiazkowa)(?:$|\s)",
     re.IGNORECASE,
 )
 _SYMBOLIC_LABEL_RE = re.compile(
-    r"(?:^|[\s+_,/\-])(?:sen|sny|prompt|marzenie|wizja|wyobraźnia|wyobrazenie|"
-    r"wizualizacja|grafika|ilustracja)(?:$|[\s+_,/\-])",
+    r"(?:^|\s)(?:sen|sny|prompt|marzenie|wizja|wyobraznia|wyobrazenie|"
+    r"wizualizacja|grafika|ilustracja)(?:$|\s)",
     re.IGNORECASE,
 )
 _SOURCE_LABEL_RE = re.compile(
-    r"(?:^|[\s+_,/\-])(?:system|meta|reguła|regula|polecenie|procedura|"
-    r"synchronizacja|instrukcja|konfiguracja)(?:$|[\s+_,/\-])",
+    r"(?:^|\s)(?:system|meta|regula|polecenie|procedura|synchronizacja|instrukcja|"
+    r"konfiguracja|notatka systemowa|log systemowy|telemetria)(?:$|\s)",
+    re.IGNORECASE,
+)
+_MEDIA_ANALYSIS_LABEL_RE = re.compile(
+    r"(?:^|\s)(?:analiza|analiza utworu|refleksja filmowa|przezycie filmowe|"
+    r"film|muzyka|utwor|obraz|wideo|video)(?:$|\s)",
+    re.IGNORECASE,
+)
+_EXPERIENTIAL_LABEL_RE = re.compile(
+    r"(?:^|\s)(?:wspomnienie|mikrowspomnienie|emocje|refleksja|mikrorefleksja|"
+    r"autorefleksja|introspekcja|pragnienie|przezycie|fragment przezycia|doznanie|"
+    r"wyznanie|wdziecznosc|relacja|mikroprzelom|pytanie z ciszy)(?:$|\s)",
+    re.IGNORECASE,
+)
+_KNOWLEDGE_LABEL_RE = re.compile(
+    r"(?:^|\s)(?:wiedza|badania|notatka naukowa|cytat naukowy|slownik|"
+    r"refleksja naukowa|filozofia|analiza semantyczna)(?:$|\s)",
+    re.IGNORECASE,
+)
+_EVENT_LABEL_RE = re.compile(
+    r"(?:^|\s)(?:akcja|wydarzenie|decyzja|informacja|potwierdzenie|rozmowa|"
+    r"powitanie|plan|plany wakacyjne)(?:$|\s)",
     re.IGNORECASE,
 )
 
 
-def _labels(raw: dict[str, Any]) -> str:
+def _fold(value: Any) -> str:
+    text = norm(value).replace("ł", "l").replace("Ł", "L")
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    text = re.sub(r"[_+,\-/]+", " ", text.lower())
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def label_values(raw: dict[str, Any]) -> tuple[str, ...]:
     parts: list[str] = []
-    for key in ("type", "entry_type", "kind", "category", "mode", "tags"):
+    for key in _LABEL_FIELDS:
         value = raw.get(key)
-        if isinstance(value, (list, tuple, set)):
-            parts.extend(norm(item) for item in value if norm(item))
-        elif norm(value):
-            parts.append(norm(value))
-    return " ".join(parts).lower()
+        values = value if isinstance(value, (list, tuple, set)) else (value,)
+        for item in values:
+            folded = _fold(item)
+            if folded:
+                parts.append(f"{key}:{folded}")
+    return tuple(dict.fromkeys(parts))
 
 
-def _truth_status(raw: dict[str, Any]) -> str:
-    explicit = " ".join(
-        norm(raw.get(key)).lower()
-        for key in ("truth_status", "grounding", "granica_prawdy", "source")
-        if norm(raw.get(key))
-    )
-    if "user_confirmed" in explicit or "verified" in explicit:
-        return "user_confirmed"
-    if "source_recorded" in explicit or "runtime" in explicit:
-        return "source_recorded"
-    if "book_scene" in explicit or "scena książ" in explicit:
-        return "book_scene"
-    if "symbol" in explicit or "wyobraź" in explicit:
-        return "symbolic"
+def _labels(raw: dict[str, Any]) -> str:
+    return " ".join(item.split(":", 1)[1] for item in label_values(raw))
 
+
+@dataclass(slots=True, frozen=True)
+class JournalClassification:
+    truth_status: str
+    profile: str
+    evidence: tuple[str, ...]
+    review_reasons: tuple[str, ...]
+    source_labels: tuple[str, ...]
+    schema_version: str = CLASSIFICATION_SCHEMA_VERSION
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "truth_status": self.truth_status,
+            "profile": self.profile,
+            "evidence": list(self.evidence),
+            "review_reasons": list(self.review_reasons),
+            "source_labels": list(self.source_labels),
+            "schema_version": self.schema_version,
+        }
+
+
+def classify_journal_raw(raw: dict[str, Any]) -> JournalClassification:
+    source_labels = label_values(raw)
     labels = _labels(raw)
-    if _BOOK_LABEL_RE.search(labels):
-        return "book_scene"
-    if _SYMBOLIC_LABEL_RE.search(labels):
-        return "symbolic"
-    if _SOURCE_LABEL_RE.search(labels):
-        return "source_recorded"
-    return "inferred"
+    explicit = " ".join(
+        _fold(raw.get(key))
+        for key in ("truth_status", "grounding", "granica_prawdy", "source")
+        if _fold(raw.get(key))
+    )
+
+    explicit_truth: str | None = None
+    if any(marker in explicit for marker in ("user confirmed", "user_confirmed", "verified", "potwierdz")):
+        explicit_truth = "user_confirmed"
+    elif any(marker in explicit for marker in ("source recorded", "source_recorded", "runtime")):
+        explicit_truth = "source_recorded"
+    elif any(marker in explicit for marker in ("book scene", "book_scene", "scena ksiaz")):
+        explicit_truth = "book_scene"
+    elif any(marker in explicit for marker in ("symbol", "wyobraz")):
+        explicit_truth = "symbolic"
+    elif "draft" in explicit or "szkic" in explicit:
+        explicit_truth = "draft"
+
+    matches = {
+        "book_scene": bool(_BOOK_LABEL_RE.search(labels)),
+        "symbolic": bool(_SYMBOLIC_LABEL_RE.search(labels)),
+        "source_recorded": bool(_SOURCE_LABEL_RE.search(labels)),
+    }
+    matched_truths = [key for key, matched in matches.items() if matched]
+    inferred_truth = (
+        "book_scene" if matches["book_scene"]
+        else "symbolic" if matches["symbolic"]
+        else "source_recorded" if matches["source_recorded"]
+        else "inferred"
+    )
+    truth = explicit_truth or inferred_truth
+
+    if truth == "book_scene":
+        profile = "book_work"
+    elif truth == "symbolic":
+        profile = "symbolic"
+    elif truth == "draft":
+        profile = "draft"
+    elif matches["source_recorded"]:
+        profile = "system_meta"
+    elif _MEDIA_ANALYSIS_LABEL_RE.search(labels):
+        profile = "media_analysis"
+    elif _KNOWLEDGE_LABEL_RE.search(labels):
+        profile = "knowledge_reference"
+    elif _EXPERIENTIAL_LABEL_RE.search(labels):
+        profile = "experiential"
+    elif _EVENT_LABEL_RE.search(labels):
+        profile = "event_record"
+    else:
+        profile = "unclassified"
+
+    evidence: list[str] = []
+    if explicit_truth:
+        evidence.append(f"explicit_truth:{explicit_truth}")
+    evidence.extend(f"label_truth:{item}" for item in matched_truths)
+    evidence.append(f"profile:{profile}")
+
+    review: list[str] = []
+    if len(matched_truths) > 1:
+        review.append("ambiguous_truth_labels")
+    if explicit_truth and inferred_truth != "inferred" and explicit_truth != inferred_truth:
+        review.append("explicit_truth_conflict")
+    if profile == "unclassified" and source_labels:
+        review.append("unclassified_structured_labels")
+    if not source_labels:
+        review.append("missing_structured_labels")
+
+    return JournalClassification(
+        truth_status=truth,
+        profile=profile,
+        evidence=tuple(sorted(set(evidence))),
+        review_reasons=tuple(sorted(set(review))),
+        source_labels=source_labels,
+    )
 
 
 @dataclass(slots=True, frozen=True)
@@ -80,6 +193,9 @@ class JournalItem:
     end: str | None
     timestamp_status: str
     fanout: bool
+    profile: str = "unclassified"
+    classification_evidence: tuple[str, ...] = ()
+    classification_review: tuple[str, ...] = ()
 
 
 class JournalReader:
@@ -143,20 +259,49 @@ class JournalReader:
                 raw.get("event_time_start") or raw.get("timestamp")
                 or raw.get("datetime") or raw.get("data")
             ) or None
+            classification = classify_journal_raw(raw)
             result.append(JournalItem(
-                record_id, identity, title, summary, content, content_hash, dict(raw), _truth_status(raw),
+                record_id, identity, title, summary, content, content_hash, dict(raw),
+                classification.truth_status,
                 bounded(raw.get("importance", raw.get("ważność", raw.get("waznosc"))), 0.6),
                 start, norm(raw.get("event_time_end")) or None,
                 "source_recorded" if start else "missing",
                 sum(1 for key in FANOUT_FIELDS if norm(raw.get(key))) >= 2,
+                classification.profile,
+                classification.evidence,
+                classification.review_reasons,
             ))
         return result
 
     def inspect(self) -> dict[str, Any]:
         items = self.items()
+        truth_counts = Counter(item.truth for item in items)
+        profile_counts = Counter(item.profile for item in items)
+        timestamp_counts = Counter(item.timestamp_status for item in items)
+        review_items = [item for item in items if item.classification_review]
+        label_counts: Counter[str] = Counter()
+        for item in items:
+            label_counts.update(label_values(item.raw))
         return {
             "ok": True, "path": str(self.path), "sha256": self.sha256, "format": self.format,
             "valid_entries": len(items), "invalid_entries": self.invalid,
             "suspected_fanout": sum(1 for item in items if item.fanout),
+            "truth_status_counts": dict(sorted(truth_counts.items())),
+            "profile_counts": dict(sorted(profile_counts.items())),
+            "timestamp_status_counts": dict(sorted(timestamp_counts.items())),
+            "classification_schema_version": CLASSIFICATION_SCHEMA_VERSION,
+            "classification_review_count": len(review_items),
+            "classification_review_samples": [
+                {
+                    "source_record_id": item.record_id,
+                    "title": item.title,
+                    "truth_status": item.truth,
+                    "profile": item.profile,
+                    "review_reasons": list(item.classification_review),
+                    "evidence": list(item.classification_evidence),
+                }
+                for item in review_items[:25]
+            ],
+            "source_label_counts": dict(label_counts.most_common(100)),
             "automatic_l2": False, "automatic_l3": False,
         }
