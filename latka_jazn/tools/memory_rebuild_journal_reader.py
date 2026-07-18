@@ -4,11 +4,65 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 import json
+import re
 
 from latka_jazn.tools.chat_export_reader import sha256_file
 from latka_jazn.tools.memory_rebuild_common import (
     CONTENT_FIELDS, FANOUT_FIELDS, bounded, canonical_json, norm, sha_text,
 )
+
+_BOOK_LABEL_RE = re.compile(
+    r"(?:^|[\s+_,/\-])(?:fabula|fabuła|fabuły|fragment_fabuly|fragment fabuły|"
+    r"fragment książki|scena|roleplay|manuskrypt|rozdział|analiza_fabuły|analiza fabuły)"
+    r"(?:$|[\s+_,/\-])",
+    re.IGNORECASE,
+)
+_SYMBOLIC_LABEL_RE = re.compile(
+    r"(?:^|[\s+_,/\-])(?:sen|sny|prompt|marzenie|wizja|wyobraźnia|wyobrazenie|"
+    r"wizualizacja|grafika|ilustracja)(?:$|[\s+_,/\-])",
+    re.IGNORECASE,
+)
+_SOURCE_LABEL_RE = re.compile(
+    r"(?:^|[\s+_,/\-])(?:system|meta|reguła|regula|polecenie|procedura|"
+    r"synchronizacja|instrukcja|konfiguracja)(?:$|[\s+_,/\-])",
+    re.IGNORECASE,
+)
+
+
+def _labels(raw: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for key in ("type", "entry_type", "kind", "category", "mode", "tags"):
+        value = raw.get(key)
+        if isinstance(value, (list, tuple, set)):
+            parts.extend(norm(item) for item in value if norm(item))
+        elif norm(value):
+            parts.append(norm(value))
+    return " ".join(parts).lower()
+
+
+def _truth_status(raw: dict[str, Any]) -> str:
+    explicit = " ".join(
+        norm(raw.get(key)).lower()
+        for key in ("truth_status", "grounding", "granica_prawdy", "source")
+        if norm(raw.get(key))
+    )
+    if "user_confirmed" in explicit or "verified" in explicit:
+        return "user_confirmed"
+    if "source_recorded" in explicit or "runtime" in explicit:
+        return "source_recorded"
+    if "book_scene" in explicit or "scena książ" in explicit:
+        return "book_scene"
+    if "symbol" in explicit or "wyobraź" in explicit:
+        return "symbolic"
+
+    labels = _labels(raw)
+    if _BOOK_LABEL_RE.search(labels):
+        return "book_scene"
+    if _SYMBOLIC_LABEL_RE.search(labels):
+        return "symbolic"
+    if _SOURCE_LABEL_RE.search(labels):
+        return "source_recorded"
+    return "inferred"
 
 
 @dataclass(slots=True, frozen=True)
@@ -80,22 +134,17 @@ class JournalReader:
             explicit = norm(raw.get("id") or raw.get("entry_id") or raw.get("uuid"))
             record_id = explicit or sha_text(canonical_json(raw))
             identity = f"id:{explicit}" if explicit else f"content:{content_hash}"
-            title = norm(raw.get("tytuł") or raw.get("tytul") or raw.get("title")) or norm(content)[:120]
-            summary = norm(raw.get("wpis") or raw.get("treść") or raw.get("tresc") or raw.get("content") or raw.get("opis")) or norm(content)[:2000]
-            truth_text = " ".join(norm(raw.get(key)).lower() for key in ("truth_status", "grounding", "granica_prawdy", "source"))
-            if "user_confirmed" in truth_text or "verified" in truth_text:
-                truth = "user_confirmed"
-            elif "source_recorded" in truth_text or "runtime" in truth_text:
-                truth = "source_recorded"
-            elif "book_scene" in truth_text or "scena książ" in truth_text:
-                truth = "book_scene"
-            elif "symbol" in truth_text or "wyobraź" in truth_text:
-                truth = "symbolic"
-            else:
-                truth = "inferred"
-            start = norm(raw.get("event_time_start") or raw.get("timestamp") or raw.get("data")) or None
+            summary = norm(
+                raw.get("wpis") or raw.get("treść") or raw.get("tresc")
+                or raw.get("content") or raw.get("opis")
+            ) or norm(content)[:2000]
+            title = norm(raw.get("tytuł") or raw.get("tytul") or raw.get("title")) or summary[:120]
+            start = norm(
+                raw.get("event_time_start") or raw.get("timestamp")
+                or raw.get("datetime") or raw.get("data")
+            ) or None
             result.append(JournalItem(
-                record_id, identity, title, summary, content, content_hash, dict(raw), truth,
+                record_id, identity, title, summary, content, content_hash, dict(raw), _truth_status(raw),
                 bounded(raw.get("importance", raw.get("ważność", raw.get("waznosc"))), 0.6),
                 start, norm(raw.get("event_time_end")) or None,
                 "source_recorded" if start else "missing",

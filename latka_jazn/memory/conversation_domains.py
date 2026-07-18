@@ -48,6 +48,26 @@ def _fold(text: str) -> str:
     return re.sub(r"\s+", " ", text.lower()).strip()
 
 
+_TERM_PATTERNS: dict[str, re.Pattern[str]] = {
+    # These short words must not use generic stem matching. In particular,
+    # ``lek`` must not classify ``lekkość`` or ``lepiej`` as health.
+    "lek": re.compile(r"\blek(?:i|u|iem|owi|ow|om|ami|ach)?\b"),
+    "sen": re.compile(r"\bsen(?:u|em|owi|ow|om|ami|ach|y)?\b"),
+    "ai": re.compile(r"\bai\b"),
+    "api": re.compile(r"\bapi\b"),
+    "log": re.compile(r"\blog(?:i|u|iem|ow|ami|ach)?\b"),
+}
+
+
+def _term_matches(folded: str, term: str) -> bool:
+    pattern = _TERM_PATTERNS.get(term)
+    if pattern is not None:
+        return bool(pattern.search(folded))
+    if " " in term:
+        return term in folded
+    return bool(re.search(rf"(?<!\w){re.escape(term)}\w*", folded))
+
+
 @dataclass(slots=True, frozen=True)
 class ConversationDomainReport:
     primary_domain: str
@@ -182,7 +202,7 @@ class ConversationDomainClassifier:
             evidence.append(f"content_type:{metadata.get('content_type')}")
 
         for domain, terms in self.DOMAIN_TERMS.items():
-            hits = [term for term in terms if term in folded]
+            hits = [term for term in terms if _term_matches(folded, term)]
             if hits:
                 scores[domain] += min(1.0, 0.18 + 0.16 * len(hits))
                 evidence.extend(f"{domain}:{term}" for term in hits[:4])
@@ -209,7 +229,7 @@ class ConversationDomainClassifier:
         if role_folded in {"system", "tool"}:
             mode_scores["system_event"] = 1.0
         for mode, terms in self.MODE_TERMS.items():
-            hits = [term for term in terms if term in folded]
+            hits = [term for term in terms if _term_matches(folded, term)]
             if hits:
                 mode_scores[mode] += min(1.0, 0.20 + 0.18 * len(hits))
                 evidence.extend(f"mode:{mode}:{term}" for term in hits[:3])

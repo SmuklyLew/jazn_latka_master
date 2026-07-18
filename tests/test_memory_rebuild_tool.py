@@ -8,12 +8,14 @@ import zipfile
 
 import pytest
 
+from latka_jazn.memory.conversation_domains import ConversationDomainClassifier
 from latka_jazn.tools.memory_rebuild import (
     DATABASE_FILENAMES,
     ExperienceStore,
     JournalStore,
     MemoryRebuildCoordinator,
 )
+from latka_jazn.tools.memory_rebuild_journal import JournalReader, infer_domains
 
 
 def _message(mid: str, role: str, text: str, timestamp: float | None) -> dict:
@@ -164,6 +166,7 @@ def test_experience_candidates_filter_noise_and_require_approval(tmp_path: Path)
         candidates = store.list_candidates()
         assert len(candidates) == 1
         assert store.counts()["experiences"] == 0
+        assert store.search("jezioro") == []
         candidate_id = candidates[0]["candidate_id"]
 
     approved = coordinator.approve_experience(
@@ -176,6 +179,7 @@ def test_experience_candidates_filter_noise_and_require_approval(tmp_path: Path)
     assert approved["automatic_l3"] is False
     with ExperienceStore(coordinator.paths.experience) as store:
         assert store.counts()["experiences"] == 1
+        assert store.search("jezioro")[0]["record_type"] == "experience"
         domains = {
             row[0]
             for row in store.con.execute(
@@ -194,7 +198,7 @@ def test_full_verify_and_cross_layer_search(tmp_path: Path) -> None:
     coordinator = MemoryRebuildCoordinator(tmp_path / "runtime")
     coordinator.import_chats([chat_source])
     coordinator.import_journal(journal_source)
-    coordinator.build_experience_candidates("all")
+    coordinator.build_experience_candidates("journal")
 
     verification = coordinator.verify(full=True)
     assert verification["ok"]
@@ -205,7 +209,7 @@ def test_full_verify_and_cross_layer_search(tmp_path: Path) -> None:
     assert result["import_catalog_used_for_recall"] is False
     assert result["results"]["archive_chats"]
     assert result["results"]["journal"]
-    assert result["results"]["experience"]
+    assert result["results"]["experience"] == []
 
 
 def test_html_only_is_inspectable_but_not_lossless_import(tmp_path: Path) -> None:
@@ -220,3 +224,99 @@ def test_html_only_is_inspectable_but_not_lossless_import(tmp_path: Path) -> Non
 
     with pytest.raises(ValueError, match="conversations.json"):
         coordinator.import_chats([html])
+
+
+def test_journal_reader_accepts_datetime_and_preserves_truth_boundaries(tmp_path: Path) -> None:
+    source = tmp_path / "dziennik.json"
+    source.write_text(json.dumps([
+        {"id": "memory", "datetime": "2025-07-01T10:00:00Z", "type": "wspomnienie", "content": "Ważna rozmowa z Krzysztofem o wspólnej podróży."},
+        {"id": "scene", "datetime": "2025-07-01T11:00:00Z", "type": "fragment_fabuly", "content": "Scena przy stole."},
+        {"id": "dream", "datetime": "2025-07-01T12:00:00Z", "type": "sen", "content": "Sen o muzyce."},
+        {"id": "rule", "datetime": "2025-07-01T13:00:00Z", "type": "reguła", "content": "Codziennie zapisuj wpis."},
+    ], ensure_ascii=False), encoding="utf-8")
+
+    items = JournalReader(source).items()
+    assert [item.start for item in items] == [
+        "2025-07-01T10:00:00Z", "2025-07-01T11:00:00Z",
+        "2025-07-01T12:00:00Z", "2025-07-01T13:00:00Z",
+    ]
+    assert [item.truth for item in items] == ["inferred", "book_scene", "symbolic", "source_recorded"]
+    assert items[0].title == "Ważna rozmowa z Krzysztofem o wspólnej podróży."
+
+
+def test_journal_candidate_filter_reports_reasons_and_rejects_bad_existing(tmp_path: Path) -> None:
+    source = tmp_path / "dziennik.json"
+    source.write_text(json.dumps([
+        {"id": "memory", "datetime": "2025-07-01T10:00:00Z", "type": "wspomnienie", "content": "Ważna rozmowa z Krzysztofem nad jeziorem, którą chcę zachować."},
+        {"id": "scene", "datetime": "2025-07-01T11:00:00Z", "type": "scena", "content": "Kasia budzi się w domu bohaterów i zaczyna scenę książki."},
+        {"id": "dream", "datetime": "2025-07-01T12:00:00Z", "type": "sen", "content": "Śniło mi się, że gram na fortepianie w pustym pokoju."},
+        {"id": "rule", "datetime": "2025-07-01T13:00:00Z", "type": "reguła", "content": "Codziennie wieczorem zapisuj emocje i wrażenia z dnia."},
+        {"id": "analysis", "datetime": "2025-07-01T14:00:00Z", "type": "analiza", "content": "Analiza struktury rozdziałów i dynamiki fabuły książki."},
+        {"id": "book-reflection", "datetime": "2025-07-01T14:30:00Z", "type": "refleksja", "content": "W kolejnych rozdziałach książki trzeba rozbudować sceny i bohaterów."},
+        {"id": "technical", "datetime": "2025-07-01T14:45:00Z", "type": "refleksja", "content": "Analizuję kod Python, testy SQLite i poprawki runtime."},
+        {"id": "missing", "datetime": None, "type": "wspomnienie", "content": "Wspomnienie bez daty nie może trafić automatycznie do kolejki."},
+    ], ensure_ascii=False), encoding="utf-8")
+    coordinator = MemoryRebuildCoordinator(tmp_path / "runtime")
+    coordinator.import_journal(source)
+
+    report = coordinator.build_experience_candidates("journal")["reports"][0]
+    assert report["inserted_candidates"] == 1
+    assert report["skipped_book_scene"] == 1
+    assert report["skipped_symbolic"] == 1
+    assert report["skipped_system_meta"] == 1
+    assert report["skipped_media_analysis"] == 1
+    assert report["skipped_book_related"] == 1
+    assert report["skipped_technical_only"] == 1
+    assert report["skipped_missing_timestamp"] == 1
+
+    with ExperienceStore(coordinator.paths.experience) as store:
+        rows = store.list_candidates()
+        assert len(rows) == 1
+        assert rows[0]["title"].startswith("Ważna rozmowa")
+
+
+def test_candidate_generation_is_idempotent(tmp_path: Path) -> None:
+    journal_source = tmp_path / "journal.json"
+    _write_journal(journal_source)
+    coordinator = MemoryRebuildCoordinator(tmp_path / "runtime")
+    coordinator.import_journal(journal_source)
+
+    first = coordinator.build_experience_candidates("journal")["reports"][0]
+    second = coordinator.build_experience_candidates("journal")["reports"][0]
+    assert first["inserted_candidates"] == 1
+    assert second["inserted_candidates"] == 0
+    assert second["updated_candidates"] == 0
+    assert second["duplicates"] == 1
+    with ExperienceStore(coordinator.paths.experience) as store:
+        assert store.counts()["candidates"] == 1
+
+
+def test_chat_candidate_filter_excludes_book_roleplay(tmp_path: Path) -> None:
+    source = tmp_path / "book-chat.zip"
+    payload = _conversation()
+    payload["title"] = "Witaj w podróży Jaźni — scena"
+    payload["mapping"]["user"]["message"]["content"]["parts"] = [
+        "Odegrajmy scenę do rozdziału książki. Wciel się w Łatkę."
+    ]
+    payload["mapping"]["assistant"]["message"]["content"]["parts"] = [
+        "Kasia wchodzi do kuchni, a Łatka opisuje światło poranka."
+    ]
+    with zipfile.ZipFile(source, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("conversations.json", json.dumps([payload], ensure_ascii=False))
+        archive.writestr("chat.html", "<html></html>")
+    coordinator = MemoryRebuildCoordinator(tmp_path / "runtime")
+    coordinator.import_chats([source])
+    report = coordinator.build_experience_candidates("chats")["reports"][0]
+    assert report["inserted_candidates"] == 0
+    assert report["skipped_book_scene"] + report["skipped_chat_mode"] + report["skipped_chat_domain"] >= 1
+
+
+def test_health_domain_does_not_match_lekkość() -> None:
+    assert "health" not in infer_domains("Poczułam lekkość i spokojny promień słońca.")
+    assert "health" in infer_domains("Biorę leki na migrenę i konsultuję się z lekarzem.")
+
+    classifier = ConversationDomainClassifier()
+    light = classifier.classify("Czuję lekkość i radość po spokojnym poranku.")
+    medication = classifier.classify("Lek na migrenę pomógł, ale aura nadal wraca.")
+    assert light.primary_domain != "health"
+    assert medication.primary_domain == "health"

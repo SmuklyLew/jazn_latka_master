@@ -1,6 +1,7 @@
 ﻿# Normalize text files in the repository.
 * text=auto
 .gitattributes text eol=lf
+.gitignore text eol=lf
 
 # Source/config/docs should stay LF.
 *.py     text eol=lf
