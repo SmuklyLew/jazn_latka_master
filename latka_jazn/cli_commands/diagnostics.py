@@ -11,9 +11,33 @@ from latka_jazn.core.runtime_daemon import DEFAULT_DAEMON_HOST, DEFAULT_DAEMON_P
 from latka_jazn.core.startup_contract import build_startup_status
 from latka_jazn.core.package_integrity_manifest import package_integrity_manifest_status
 from latka_jazn.core.source_provenance import read_source_provenance
+from latka_jazn.memory.memory_tier_status import inspect_memory_tier_store
+from latka_jazn.memory.runtime_memory_v151_install import resolve_memory_tier_database_path
 from latka_jazn.tools.package_integrity import verify_package_integrity_manifest
 from latka_jazn.core.tool_execution_controller import ToolExecutionController
 from latka_jazn.version import PACKAGE_VERSION_FULL, schema_version
+
+
+def _memory_v151_status(cfg: JaznConfig) -> dict[str, Any]:
+    try:
+        path = resolve_memory_tier_database_path(
+            cfg.root,
+            configured=getattr(cfg, "memory_tier_db_path", None),
+        )
+    except Exception as exc:
+        return {
+            "path": None,
+            "exists": False,
+            "ready": False,
+            "read_only": True,
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+            "truth_boundary": (
+                "Nie udało się rozwiązać kanonicznej ścieżki L1/L2/L3. "
+                "Nie jest to dowód pustej ani uszkodzonej pamięci."
+            ),
+        }
+    return inspect_memory_tier_store(path, full=False).to_dict()
 
 
 def status_payload(
@@ -31,6 +55,7 @@ def status_payload(
         "runtime_version": PACKAGE_VERSION_FULL,
         "root": str(root),
         "startup": startup,
+        "memory_v151": _memory_v151_status(cfg),
         "daemon": status_daemon(
             cfg, host=daemon_host, port=daemon_port,
             marker_output=marker_output, probe_endpoint=probe_endpoint,
@@ -67,6 +92,7 @@ def doctor_payload(
     )
     startup = status.get("startup") or {}
     daemon = status.get("daemon") or {}
+    memory_v151 = status.get("memory_v151") or {}
     manifest, manifest_error = _read_manifest(root)
     marker = startup.get("active_cache_status") or {}
     model = startup.get("model_adapter_status") or {}
@@ -113,7 +139,8 @@ def doctor_payload(
         "startup_status_available": bool(startup),
         "daemon_status_available": bool(daemon),
         "model_status_available": bool(model),
-        "memory_status_available": bool(conversation_memory or runtime_memory),
+        "memory_status_available": bool(conversation_memory or runtime_memory or memory_v151),
+        "memory_v151_status_available": bool(memory_v151) or "memory_v151" not in status,
         "tool_read_allowed": read_plan.allowed,
         "tool_unconfirmed_write_denied": not denied_write_plan.allowed,
         "mcp_loopback_policy_valid": mcp_policy_error is None,
@@ -169,6 +196,7 @@ def doctor_payload(
         "timestamp_status_available": bool(timestamp),
         "timestamp_trusted": timestamp.get("trusted"),
         "time_trust_state": timestamp.get("time_trust_state") or daemon.get("time_trust_state") or "unknown",
+        "memory_v151_ready": bool(memory_v151.get("ready")),
     }
     subsystem_status = {
         "package_integrity_manifest": {
@@ -189,7 +217,12 @@ def doctor_payload(
         },
         "memory": {
             "conversation_archive": conversation_memory,
-            "runtime_write": runtime_memory,
+            "runtime_write_legacy": runtime_memory,
+            "tier_v151": memory_v151,
+            "truth_boundary": (
+                "Legacy runtime_write i tier_v151 są raportowane osobno. "
+                "Gotowa baza L1/L2/L3 nie dowodzi poprawnego recall ani uruchomionej Jaźni."
+            ),
         },
         "tool_gates": {
             "read_plan": read_plan.to_dict(),
@@ -224,6 +257,7 @@ def doctor_payload(
             "release_metadata_current": release_metadata_current,
             "release_ready": release_ready,
             "live_runtime_ready": live_runtime_ready,
+            "memory_v151_ready": bool(memory_v151.get("ready")),
         },
         "checks": required_checks,
         "package_integrity_checks": package_integrity_checks,
@@ -232,9 +266,9 @@ def doctor_payload(
         "status": status,
         "read_only": True,
         "truth_boundary": (
-            "Doctor reports structural installation health separately from activation, release metadata and live runtime readiness. "
-            "A green legacy ok/installation_ok is not proof of an activatable package or live daemon; read activation_ready, "
-            "release_ready and live_runtime_ready explicitly."
+            "Doctor reports structural installation health separately from activation, release metadata, live runtime readiness "
+            "and memory_v151 readiness. A green legacy ok/installation_ok is not proof of an activatable package, live daemon "
+            "or correct memory recall; read the explicit readiness fields."
         ),
     }
 

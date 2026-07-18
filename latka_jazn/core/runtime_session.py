@@ -9,6 +9,9 @@ from latka_jazn.core.runtime_truth_gate import apply_runtime_truth_gate
 from latka_jazn.core.visible_integrity import enforce_integrity_consensus
 from latka_jazn.core.turn_execution import TurnExecutionContext
 from latka_jazn.core.turn_timeout import runtime_turn_timeout_seconds
+from latka_jazn.memory.memory_tier_status import inspect_memory_tier_store
+from latka_jazn.memory.runtime_memory_v151 import RuntimeMemoryWriteContext
+from latka_jazn.memory.runtime_memory_v151_install import install_runtime_memory_v151
 
 from latka_jazn.version import schema_version
 
@@ -30,10 +33,37 @@ class JaznRuntimeSession:
     ) -> None:
         self.config = config or JaznConfig()
         self.engine = JaznEngine(self.config)
+        self.memory_v151_install_status = install_runtime_memory_v151(self.engine)
         self.state_store = RuntimeSessionStateStore(self.config.root)
         self.state = self.state_store.load_or_create(session_id=session_id, source_client=source_client, no_carryover=no_carryover)
         self.no_carryover = no_carryover
         self._turn_count = 0
+
+    def _memory_v151_status_payload(self) -> dict[str, Any]:
+        install_status = getattr(self, "memory_v151_install_status", None)
+        if install_status is None:
+            return {
+                "available": False,
+                "reason": "installer_not_initialized",
+                "install": None,
+                "store": None,
+                "truth_boundary": (
+                    "Minimalna lub testowa sesja nie uruchomiła instalatora pamięci v15.1. "
+                    "Brak statusu nie jest dowodem pustej ani uszkodzonej pamięci."
+                ),
+            }
+        return {
+            "available": True,
+            "install": install_status.to_dict(),
+            "store": inspect_memory_tier_store(
+                install_status.database_path,
+                full=False,
+            ).to_dict(),
+            "truth_boundary": (
+                "Status L1/L2/L3 jest diagnostyką po zatwierdzeniu tury. "
+                "Nie dowodzi poprawnego recall ani aktywnej tożsamości."
+            ),
+        }
 
     def process_user_text(
         self,
@@ -55,6 +85,17 @@ class JaznRuntimeSession:
             audit_db_path=audit_db_path,
         )
         persistence_available = config is not None
+        memory_context_token = None
+        bind_memory_context = getattr(getattr(self.engine, "runtime_memory", None), "bind_context", None)
+        if callable(bind_memory_context):
+            memory_context_token = bind_memory_context(
+                RuntimeMemoryWriteContext(
+                    session_id=self.state.session_id,
+                    turn_id=turn_context.turn_id,
+                    actor="user",
+                    active_goal="validated_runtime_turn",
+                )
+            )
         if not persistence_available:
             turn_context.record_technical_event(
                 "runtime_session_config_unavailable",
@@ -146,6 +187,8 @@ class JaznRuntimeSession:
             if not commit_status.get("committed"):
                 result["ok"] = False
 
+            result["memory_v151"] = self._memory_v151_status_payload()
+
             if result["ok"]:
                 self.state.update(
                     user_text=user_text,
@@ -171,6 +214,9 @@ class JaznRuntimeSession:
                     save_status=save_status,
                 )
                 session_provenance["final_visible_integrity_valid"] = bool(integrity.get("valid"))
+                session_provenance["memory_v151_ready"] = bool(
+                    ((result.get("memory_v151") or {}).get("store") or {}).get("ready")
+                )
                 result["session_provenance"] = session_provenance
 
             turn_context.finalize_total(status="completed" if result["ok"] else "rejected")
@@ -186,6 +232,11 @@ class JaznRuntimeSession:
             turn_context.finalize_total(status="failed", error_code=type(exc).__name__)
             turn_context.persist_audit(event_type="runtime_turn_failed")
             raise
+        finally:
+            if memory_context_token is not None:
+                reset_memory_context = getattr(getattr(self.engine, "runtime_memory", None), "reset_context", None)
+                if callable(reset_memory_context):
+                    reset_memory_context(memory_context_token)
 
     def close(self) -> None:
         self.state_store.save(self.state)

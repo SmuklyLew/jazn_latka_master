@@ -5,14 +5,91 @@ on:
   pull_request:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: release-hardening-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  manifest_sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      head_sha: ${{ steps.head.outputs.sha }}
+    env:
+      PYTHONUTF8: "1"
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.14"
+
+      - name: Build canonical manifest candidate
+        run: |
+          python -X utf8 - <<'PY'
+          import os
+          from pathlib import Path
+          from latka_jazn.tools.package_integrity import (
+              build_package_integrity_manifest,
+              serialize_package_integrity_manifest,
+          )
+
+          output = Path(os.environ["RUNNER_TEMP"]) / "PACKAGE_INTEGRITY_MANIFEST.json"
+          payload = build_package_integrity_manifest(Path.cwd())
+          output.write_bytes(serialize_package_integrity_manifest(payload))
+          print({"runtime_version": payload["runtime_version"], "file_count": payload["file_count"]})
+          PY
+
+      - name: Synchronize canonical manifest when semantics change
+        run: |
+          python -X utf8 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          volatile = {"generated_at_utc", "updated_at_utc"}
+
+          def normalized(source: Path, target: Path) -> None:
+              payload = json.loads(source.read_text(encoding="utf-8-sig"))
+              if not isinstance(payload, dict):
+                  raise TypeError(f"manifest is not an object: {source}")
+              for key in volatile:
+                  payload.pop(key, None)
+              target.write_text(
+                  json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+                  encoding="utf-8",
+              )
+
+          temp = Path(os.environ["RUNNER_TEMP"])
+          normalized(Path("PACKAGE_INTEGRITY_MANIFEST.json"), temp / "manifest-current.normalized.json")
+          normalized(temp / "PACKAGE_INTEGRITY_MANIFEST.json", temp / "manifest-candidate.normalized.json")
+          PY
+          if cmp -s "$RUNNER_TEMP/manifest-current.normalized.json" "$RUNNER_TEMP/manifest-candidate.normalized.json"; then
+            echo "Canonical manifest semantics are already synchronized."
+          elif [ "$GITHUB_HEAD_REF" = "update/v15.1.0.1" ] || [ "$GITHUB_REF" = "refs/heads/update/v15.1.0.1" ]; then
+            cp "$RUNNER_TEMP/PACKAGE_INTEGRITY_MANIFEST.json" PACKAGE_INTEGRITY_MANIFEST.json
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add PACKAGE_INTEGRITY_MANIFEST.json
+            git commit -m "release: rebuild PACKAGE_INTEGRITY_MANIFEST for v15.1.0.1"
+            git push origin HEAD:update/v15.1.0.1
+          else
+            echo "Manifest drift detected outside update/v15.1.0.1." >&2
+            exit 2
+          fi
+
+      - name: Resolve synchronized HEAD
+        id: head
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
   verify:
+    needs: manifest_sync
     strategy:
       fail-fast: false
       matrix:
@@ -22,11 +99,13 @@ jobs:
     env:
       PYTHONUTF8: "1"
       PYTHONUNBUFFERED: "1"
-
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.manifest_sync.outputs.head_sha }}
 
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: "3.12"
           cache: pip
@@ -74,3 +153,124 @@ jobs:
         run: |
           git diff --check
           git diff --exit-code
+
+  finalization:
+    needs: [manifest_sync, verify]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PYTHONUTF8: "1"
+      PYTHONUNBUFFERED: "1"
+      JAZN_NETWORK_TIME_FIRST: "0"
+      JAZN_NETWORK_TIME_IN_TURN: "0"
+      JAZN_ALLOW_NETWORK: "0"
+      JAZN_DICTIONARY_ALLOW_NETWORK: "0"
+      JAZN_MODEL_ADAPTER: "null"
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.manifest_sync.outputs.head_sha }}
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            pyproject.toml
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . pytest
+          mkdir -p "$RUNNER_TEMP/v151-release-finalization"
+
+      - name: Verify committed package manifest
+        run: |
+          python -X utf8 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from latka_jazn.tools.package_integrity import verify_package_integrity_manifest
+
+          report = verify_package_integrity_manifest(Path.cwd())
+          (Path(os.environ["RUNNER_TEMP"]) / "v151-release-finalization" / "manifest-verification.json").write_text(
+              json.dumps(report, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          raise SystemExit(0 if report.get("ok") else 2)
+          PY
+
+      - name: Create clean release staging
+        run: |
+          python -X utf8 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from latka_jazn.tools.release_staging import create_release_staging
+
+          destination = Path(os.environ["RUNNER_TEMP"]) / "jazn-v15.1.0.1-release"
+          report = create_release_staging(Path.cwd(), destination)
+          (Path(os.environ["RUNNER_TEMP"]) / "v151-release-finalization" / "release-staging.json").write_text(
+              json.dumps(report, ensure_ascii=False, indent=2, default=str) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(report, ensure_ascii=False, indent=2, default=str))
+          raise SystemExit(0 if report.get("ok") else 2)
+          PY
+
+      - name: Run doctor on verified release staging
+        shell: bash
+        run: |
+          staging="$RUNNER_TEMP/jazn-v15.1.0.1-release"
+          (
+            cd "$staging"
+            python -X utf8 run.py doctor --json
+          ) > "$RUNNER_TEMP/v151-release-finalization/doctor.json"
+          cat "$RUNNER_TEMP/v151-release-finalization/doctor.json"
+          python -X utf8 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          payload = json.loads(
+              (Path(os.environ["RUNNER_TEMP"]) / "v151-release-finalization" / "doctor.json").read_text(encoding="utf-8")
+          )
+          required = {
+              "installation_ok": payload.get("installation_ok"),
+              "activation_ready": payload.get("activation_ready"),
+              "release_metadata_current": payload.get("release_metadata_current"),
+              "release_ready": payload.get("release_ready"),
+          }
+          print(required)
+          if not all(required.values()):
+              raise SystemExit(f"release doctor failed: {required}")
+          PY
+
+      - name: Package smoke system profile
+        run: python -X utf8 run.py package-smoke --profile system --json | tee "$RUNNER_TEMP/v151-release-finalization/package-smoke-system.json"
+
+      - name: Package smoke release profile
+        run: python -X utf8 run.py package-smoke --profile release --json | tee "$RUNNER_TEMP/v151-release-finalization/package-smoke-release.json"
+
+      - name: Targeted full runtime turn
+        run: python -X utf8 -m pytest -q tests/test_v15101_runtime_full_turn.py | tee "$RUNNER_TEMP/v151-release-finalization/full-turn.txt"
+
+      - name: Version and manifest contract
+        run: python -X utf8 -m pytest -q tests/test_single_source_version_manifest_contract.py | tee "$RUNNER_TEMP/v151-release-finalization/version-manifest-contract.txt"
+
+      - name: Clean checkout guard
+        run: |
+          git diff --check
+          git diff --exit-code
+          test -z "$(git status --porcelain --untracked-files=all)"
+
+      - name: Upload finalization reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v151-release-finalization-reports
+          path: ${{ runner.temp }}/v151-release-finalization/
+          retention-days: 14
