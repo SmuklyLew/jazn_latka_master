@@ -10,7 +10,7 @@ on:
       - master
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: v151-release-finalization-${{ github.ref }}
@@ -28,6 +28,7 @@ jobs:
       JAZN_ALLOW_NETWORK: "0"
       JAZN_DICTIONARY_ALLOW_NETWORK: "0"
       JAZN_MODEL_ADAPTER: "null"
+      FINALIZATION_DIR: ${{ runner.temp }}/v151-release-finalization
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
@@ -49,8 +50,9 @@ jobs:
 
       - name: Generate canonical manifest candidate
         run: |
-          mkdir -p release-finalization
+          mkdir -p "$FINALIZATION_DIR"
           python -X utf8 - <<'PY'
+          import os
           from pathlib import Path
           from latka_jazn.tools.package_integrity import (
               build_package_integrity_manifest,
@@ -59,7 +61,7 @@ jobs:
 
           root = Path.cwd()
           payload = build_package_integrity_manifest(root)
-          output = root / "release-finalization" / "PACKAGE_INTEGRITY_MANIFEST.json"
+          output = Path(os.environ["FINALIZATION_DIR"]) / "PACKAGE_INTEGRITY_MANIFEST.json"
           output.write_bytes(serialize_package_integrity_manifest(payload))
           print({
               "runtime_version": payload["runtime_version"],
@@ -72,18 +74,55 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: v151-package-integrity-manifest-candidate
-          path: release-finalization/PACKAGE_INTEGRITY_MANIFEST.json
+          path: ${{ env.FINALIZATION_DIR }}/PACKAGE_INTEGRITY_MANIFEST.json
           retention-days: 7
+
+      - name: Compare manifest semantics
+        id: manifest_delta
+        run: |
+          python -X utf8 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          import os
+          from pathlib import Path
+
+          volatile = {"generated_at_utc", "updated_at_utc"}
+
+          def normalized(path: Path):
+              if not path.is_file():
+                  return None
+              payload = json.loads(path.read_text(encoding="utf-8-sig"))
+              if not isinstance(payload, dict):
+                  return None
+              return {key: value for key, value in payload.items() if key not in volatile}
+
+          current = normalized(Path("PACKAGE_INTEGRITY_MANIFEST.json"))
+          candidate = normalized(Path(os.environ["FINALIZATION_DIR"]) / "PACKAGE_INTEGRITY_MANIFEST.json")
+          print(f"needs_update={'true' if current != candidate else 'false'}")
+          PY
+
+      - name: Commit canonical manifest on release branch
+        if: >-
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/update/v15.1.0.1' &&
+          steps.manifest_delta.outputs.needs_update == 'true'
+        run: |
+          cp "$FINALIZATION_DIR/PACKAGE_INTEGRITY_MANIFEST.json" PACKAGE_INTEGRITY_MANIFEST.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add PACKAGE_INTEGRITY_MANIFEST.json
+          git commit -m "release: rebuild PACKAGE_INTEGRITY_MANIFEST for v15.1.0.1"
+          git push origin HEAD:update/v15.1.0.1
 
       - name: Verify committed package manifest
         run: |
           python -X utf8 - <<'PY'
           import json
+          import os
           from pathlib import Path
           from latka_jazn.tools.package_integrity import verify_package_integrity_manifest
 
           report = verify_package_integrity_manifest(Path.cwd())
-          Path("release-finalization/manifest-verification.json").write_text(
+          (Path(os.environ["FINALIZATION_DIR"]) / "manifest-verification.json").write_text(
               json.dumps(report, ensure_ascii=False, indent=2) + "\n",
               encoding="utf-8",
           )
@@ -101,7 +140,7 @@ jobs:
 
           destination = Path(os.environ["RUNNER_TEMP"]) / "jazn-v15.1.0.1-release"
           report = create_release_staging(Path.cwd(), destination)
-          Path("release-finalization/release-staging.json").write_text(
+          (Path(os.environ["FINALIZATION_DIR"]) / "release-staging.json").write_text(
               json.dumps(report, ensure_ascii=False, indent=2, default=str) + "\n",
               encoding="utf-8",
           )
@@ -116,13 +155,14 @@ jobs:
           (
             cd "$staging"
             python -X utf8 run.py doctor --json
-          ) > release-finalization/doctor.json
-          cat release-finalization/doctor.json
+          ) > "$FINALIZATION_DIR/doctor.json"
+          cat "$FINALIZATION_DIR/doctor.json"
           python -X utf8 - <<'PY'
           import json
+          import os
           from pathlib import Path
 
-          payload = json.loads(Path("release-finalization/doctor.json").read_text(encoding="utf-8"))
+          payload = json.loads((Path(os.environ["FINALIZATION_DIR"]) / "doctor.json").read_text(encoding="utf-8"))
           required = {
               "installation_ok": payload.get("installation_ok"),
               "activation_ready": payload.get("activation_ready"),
@@ -135,26 +175,27 @@ jobs:
           PY
 
       - name: Package smoke system profile
-        run: python -X utf8 run.py package-smoke --profile system --json | tee release-finalization/package-smoke-system.json
+        run: python -X utf8 run.py package-smoke --profile system --json | tee "$FINALIZATION_DIR/package-smoke-system.json"
 
       - name: Package smoke release profile
-        run: python -X utf8 run.py package-smoke --profile release --json | tee release-finalization/package-smoke-release.json
+        run: python -X utf8 run.py package-smoke --profile release --json | tee "$FINALIZATION_DIR/package-smoke-release.json"
 
       - name: Targeted full runtime turn
-        run: python -X utf8 -m pytest -q tests/test_v15101_runtime_full_turn.py | tee release-finalization/full-turn.txt
+        run: python -X utf8 -m pytest -q tests/test_v15101_runtime_full_turn.py | tee "$FINALIZATION_DIR/full-turn.txt"
 
       - name: Version and manifest contract
-        run: python -X utf8 -m pytest -q tests/test_single_source_version_manifest_contract.py | tee release-finalization/version-manifest-contract.txt
+        run: python -X utf8 -m pytest -q tests/test_single_source_version_manifest_contract.py | tee "$FINALIZATION_DIR/version-manifest-contract.txt"
 
       - name: Clean checkout guard
         run: |
           git diff --check
           git diff --exit-code
+          test -z "$(git status --porcelain --untracked-files=all)"
 
       - name: Upload finalization reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: v151-release-finalization-reports
-          path: release-finalization/
+          path: ${{ env.FINALIZATION_DIR }}/
           retention-days: 14
