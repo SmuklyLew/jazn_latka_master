@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+import re
 
 from latka_jazn.tools.memory_rebuild_common import canonical_json, fts_queries, norm, now_utc, schema_version, uid
 from latka_jazn.tools.memory_rebuild_journal_reader import JournalReader
@@ -115,6 +116,15 @@ class JournalStore(Store):
         return []
 
 
+_LEK_PATTERN = re.compile(r"\blek(?:i|u|iem|owi|ów|om|ami|ach)?\b")
+
+
+def _domain_term_matches(value: str, term: str) -> bool:
+    if term == "lek":
+        return bool(_LEK_PATTERN.search(value))
+    return term in value
+
+
 def infer_domains(text: str) -> list[str]:
     value = norm(text).lower()
     patterns = {
@@ -125,12 +135,16 @@ def infer_domains(text: str) -> list[str]:
         "emotional": ("emoc", "uczuc", "smut", "rado", "lęk", "wzrus"),
         "creative": ("twórc", "piosenk", "tekst", "wyobraź"),
         "technical": ("python", "kod", "runtime", "github", "sqlite", "test"),
-        "health": ("zdrow", "lek", "migren", "padacz", "aura"),
+        "health": ("zdrow", "lek", "lekarz", "migren", "padacz", "aura"),
         "music": ("muzyk", "piosenk", "utwór", "melodi"),
         "book": ("rozdział", "książk", "manuskrypt", "scena", "kanon"),
         "travel": ("wyjazd", "podróż", "görlitz", "gliwic", "jezior"),
         "nature": ("las", "łąk", "jezior", "ogród", "ptak"),
         "work": ("praca", "pracodawc", "stanowisk"),
     }
-    domains = [name for name, terms in patterns.items() if any(term in value for term in terms)]
+    domains = [
+        name
+        for name, terms in patterns.items()
+        if any(_domain_term_matches(value, term) for term in terms)
+    ]
     return sorted(set(domains or ["daily_life"]))
