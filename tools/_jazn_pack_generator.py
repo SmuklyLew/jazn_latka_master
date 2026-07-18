@@ -1,1827 +1,1376 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-r"""
-_jazn_pack_generator.py
+"""
+Jaźń / Łatka — generator paczek v24.0.0
 
-Interaktywna wersja skryptu pakującego Jaźń / Łatkę.
+Najważniejsza zasada: podgląd, manifest i ZIP korzystają z jednego,
+zamrożonego planu plików. Edytowalne reguły podstawowe domyślnie pomijają
+archiwa, cache, runtime i bazy systemowe; sekrety oraz WAL/SHM pozostają
+zawsze chronione. W repozytorium plan respektuje pliki ignorowane przez Git.
 
-Najważniejsze zasady działania:
-- uruchomienie bez argumentów otwiera menu interaktywne,
-- dostępne są dwa tryby interfejsu: tekstowy oraz kursorowy,
-- automatyczny start oznacza użycie zapisanego trybu TXT/Kursorowy z ustawień bez pytania,
-- opcje wymagające folderu źródłowego prowadzą krok po kroku do brakujących ustawień zamiast kończyć się błędem,
-- tryb kursorowy można wymusić argumentem --ui kursorowy albo zapamiętać w ustawieniach,
-- tryb kursorowy używa zwartego menu terminalowego z wyborem ↑/↓, Enter i ESC jako powrotem,
-- Ctrl+X zamyka aplikację bez zapisu przez obsłużony wyjątek, Ctrl+C nie jest skrótem aplikacji, a ESC nigdy nie zamyka całej aplikacji,
-- można ustawić folder źródłowy, folder zapisu, nazwę ZIP, profil, ustawienia paczki i wykluczenia,
-- w trybie tekstowym i kursorowym edycja folderu źródłowego i folderu zapisu otwiera pole edycji z tekstem startowym,
-- jeśli prompt_toolkit jest dostępny, pola ścieżek mają Tab/autouzupełnianie także w trybie tekstowym,
-- folder źródłowy bez ustawień startuje od folderu generatora, a folder zapisu od folderu generatora\pakiet\,
-- folder źródłowy musi być rootem projektu/runtime Jaźni i zawierać latka_jazn/version.py,
-- ręcznie wpisana nazwa ZIP jest używana dokładnie jako nazwa użytkownika: spacje są zamieniane na podkreślenia, a .zip jest dodawane tylko gdy go brakuje,
-- skrypt pokazuje podgląd listy pakowania; ta sama lista jest później używana do pakowania,
-- można włączać/wyłączać listy wykluczeń oraz dodawać, edytować i usuwać manualne wzorce,
-- tabela domyślnych wykluczeń w trybie kursorowym ma własny przewijany widok,
-- w trybie kursorowym folder źródłowy, folder zapisu, nazwa ZIP oraz ustawienia paczki edytują się bezpośrednio w nawiasach [] menu,
-- menu Ustawienia ma grupy i separatory zgodne z kolejnością użytkownika,
-- zmiana interfejsu pozostaje w podmenu interfejsu aż do ręcznego powrotu,
-- końcowe potwierdzenia pakowania wymagają jawnego T/Tak albo N/Nie; sam Enter nic nie zatwierdza,
-- domyślny profil zapisuje system i pamięć jako dwa niezależne zestawy zwykłych archiwów ZIP,
-- gdy paczka mieści się w ustawionym limicie, powstaje wyłącznie `<nazwa>.zip`, bez sztucznej części `.001`,
-- gdy paczka przekracza limit, pliki są dzielone na niezależne, kompletne woluminy ZIP: `<nazwa>.zip`, `<nazwa>.part002.zip`, `<nazwa>.part003.zip`, ...,
-- każdy wolumin jest samodzielnym poprawnym ZIP-em i można go otworzyć w Eksploratorze plików Windows, 7-Zipie lub innym programie ZIP,
-- podział odbywa się na granicach plików; pojedynczy plik większy od limitu tworzy jeden większy wolumin zamiast uszkodzonego fragmentu,
-- profile „sam system” i „sama pamięć” zapisują po jednym zestawie ZIP-ów,
-- domyślnie w folderze wyjściowym pozostają tylko właściwe pliki `.zip`; pliki diagnostyczne są opcjonalne,
-- po pakowaniu generator sprawdza SHA-256, bezpieczne ścieżki, central directory oraz pełny CRC każdego woluminu,
-- stary tryb CLI nadal działa; testowanie dawnych binarnych części `.zip.001` pozostaje obsługiwane jako kompatybilność legacy.
+Interfejs:
+  kursorowy — edycja wierszy, kompaktowe modalne wybory i błędy,
+               klikanie LPM, przewijanie i PPM=wstecz, strzałki, Enter, Esc i Ctrl+X
+  tekstowy  — pełne menu numerowane, działające bez bibliotek dodatkowych
+  ustawienia obu trybów są zapisywane obok skryptu i migrowane ze starszego formatu
+  wykluczenia — osobna lista podstawowa i ręczna z przełącznikiem używania
 
-Nowy format NIE jest wielodyskowym ZIP-em `.z01/.z02/.zip` ani binarnym cięciem jednego ZIP-a.
-To zestaw niezależnych archiwów ZIP, dzięki czemu każdy plik wyjściowy można otworzyć bez wcześniejszego sklejania.
-Opcjonalne pliki diagnostyczne (`--diagnostic-files`) zawierają manifesty, SHA-256 i helper rozpakowania całego zestawu.
+Tryby:
+  system    — kod i pliki statyczne, bez memory/ i workspace_runtime/
+  memory    — wyłącznie memory/, z bazami SQLite, bez WAL/SHM i archiwów
+  combined  — system i memory/ w jednej paczce
+  dual      — osobna paczka systemowa i osobna paczka pamięci
+
+Formaty:
+  independent — każdy wolumin jest samodzielnym ZIP-em
+  binary      — jeden logiczny ZIP dzielony na .zip.001, .002... (jak 1.2_FINAL)
+  auto        — independent, chyba że pojedynczy plik przekracza limit
+
+Przykłady:
+  py _jazn_pack_generator.py
+  py _jazn_pack_generator.py pack D:\\.AI\\jazn_latka_master --out D:\\.AI\\packages --profile dual
+  py _jazn_pack_generator.py verify D:\\.AI\\packages\\jazn_latka_vX_system.zip.package.json
+  py _jazn_pack_generator.py extract D:\\.AI\\packages\\jazn_latka_vX_system.zip.package.json D:\\.AI\\runtime_test
+  py _jazn_pack_generator.py self-test
 """
 
 from __future__ import annotations
 
-VERSION = "1.6.1.RELEASE-VERSION-FIX"
-
 import argparse
 import ast
 import bisect
-import atexit
-import datetime as _dt
+import datetime as dt
 import fnmatch
 import hashlib
+import inspect
 import json
 import os
-import shutil
-from pathlib import Path, PurePosixPath
 import re
-import signal
+import shutil
+import stat
 import subprocess
 import sys
-import time
+import tempfile
 import textwrap
+import time
+import uuid
 import zipfile
 from dataclasses import dataclass, field
-from typing import Any, BinaryIO, Iterable, cast
+from pathlib import Path, PurePosixPath
+from typing import Any, BinaryIO, Iterable, Iterator, Sequence
 
-# =============================================================================
-# OPCJONALNE BIBLIOTEKI UI
-# =============================================================================
-# Skrypt ma dwa tryby interfejsu: tekstowy oraz kursorowy.
-# Tryb tekstowy działa bez dodatkowych bibliotek. Tryb kursorowy wymaga prompt_toolkit.
-# Osobna flaga ustawień może automatycznie używać zapisanego trybu przy starcie.
-try:  # pragma: no cover - zależne od środowiska użytkownika
+# prompt_toolkit jest opcjonalny. Tryb tekstowy zawsze działa bez zależności.
+try:  # pragma: no cover - zależne od terminala użytkownika
     from prompt_toolkit import prompt as _pt_prompt
     from prompt_toolkit.application import Application as _pt_Application
+    from prompt_toolkit.application.current import get_app as _pt_get_app
     from prompt_toolkit.completion import PathCompleter as _pt_PathCompleter
     from prompt_toolkit.key_binding import KeyBindings as _pt_KeyBindings
+    from prompt_toolkit.filters import Condition as _pt_Condition
+    from prompt_toolkit.layout import Dimension as _pt_Dimension
     from prompt_toolkit.layout import Layout as _pt_Layout
+    from prompt_toolkit.layout.containers import HSplit as _pt_HSplit
+    from prompt_toolkit.layout.containers import Float as _pt_Float
+    from prompt_toolkit.layout.containers import FloatContainer as _pt_FloatContainer
+    from prompt_toolkit.layout.containers import ConditionalContainer as _pt_ConditionalContainer
+    from prompt_toolkit.layout.containers import DynamicContainer as _pt_DynamicContainer
+    from prompt_toolkit.layout.scrollable_pane import ScrollablePane as _pt_ScrollablePane
+    from prompt_toolkit.layout.containers import VSplit as _pt_VSplit
     from prompt_toolkit.layout.containers import Window as _pt_Window
     from prompt_toolkit.layout.controls import FormattedTextControl as _pt_FormattedTextControl
-    from prompt_toolkit.shortcuts import CompleteStyle as _pt_CompleteStyle
     from prompt_toolkit.styles import Style as _pt_Style
+    from prompt_toolkit.widgets import TextArea as _pt_TextArea
+    from prompt_toolkit.shortcuts import message_dialog as _pt_message_dialog
+    from prompt_toolkit.mouse_events import MouseButton as _pt_MouseButton
+    from prompt_toolkit.mouse_events import MouseEventType as _pt_MouseEventType
     HAS_PROMPT_TOOLKIT = True
 except Exception:  # pragma: no cover
     _pt_prompt = None
     _pt_Application = None
+    _pt_get_app = None
     _pt_PathCompleter = None
     _pt_KeyBindings = None
+    _pt_Condition = None
+    _pt_Dimension = None
     _pt_Layout = None
+    _pt_HSplit = None
+    _pt_Float = None
+    _pt_FloatContainer = None
+    _pt_ConditionalContainer = None
+    _pt_DynamicContainer = None
+    _pt_ScrollablePane = None
+    _pt_VSplit = None
     _pt_Window = None
     _pt_FormattedTextControl = None
-    _pt_CompleteStyle = None
     _pt_Style = None
+    _pt_TextArea = None
+    _pt_message_dialog = None
+    _pt_MouseButton = None
+    _pt_MouseEventType = None
     HAS_PROMPT_TOOLKIT = False
 
-# Aktywny tryb UI dla helperów promptów.
-# Ważne: zwykły tryb tekstowy NIE udaje obsługi ESC/Tab/Ctrl+X, bo input()
-# nie potrafi niezawodnie łapać tych klawiszy w każdym terminalu.
-ACTIVE_UI_MODE = "plain"
-_PROCESS_LOCK_PATH: Path | None = None
-
-# =============================================================================
-# USTAWIENIA DOMYŚLNE
-# =============================================================================
-
-SOURCE_FOLDER = r""
-OUTPUT_DIR = r""
-ARCHIVE_BASENAME = r"jazn_latka"
-PART_SIZE_MB = 480
-COMPRESSION_LEVEL = 6
-FORCE_OVERWRITE = False
-INCLUDE_EMPTY_DIRS = True
-APPEND_VERSION_TO_NAME = True
-VERSION_FILE = r""
-VERSION_VARIABLES = ("PACKAGE_VERSION", "__version__", "VERSION")
-RELEASE_NAME_VARIABLES = ("PACKAGE_RELEASE_NAME",)
-PACKAGE_RELEASE_NAME = r""
+GENERATOR_VERSION = "24.0.0"
 CHUNK_SIZE = 1024 * 1024
+DEFAULT_PART_SIZE_MB = 400
+DEFAULT_COMPRESSION_LEVEL = 6
+DEFAULT_PROFILE = "dual"
+DEFAULT_FORMAT = "auto"
 
-# Domyślnie generator zapisuje wyłącznie właściwe archiwa ZIP.
-# Jedna paczka mieści się w `<nazwa>.zip`; większa tworzy kolejne niezależne
-# woluminy `<nazwa>.part002.zip`, `.part003.zip`, ... . Dodatkowe manifesty, sumy i helpery
-# można włączyć jawnie w CLI przez `--diagnostic-files`.
-DEFAULT_ARTIFACT_MODE = "parts_only"
-ARTIFACT_MODES = ("parts_only", "diagnostic")
-VERIFY_AFTER_PACK = True
-VERIFY_CRC_AFTER_PACK = True
-
-# Plik z ustawieniami jest zapisywany obok tego skryptu.
 SETTINGS_FILE_NAME = "__jazn_pack_generator_settings.json"
-LEGACY_SETTINGS_FILE_NAME = ""
-PROCESS_LOCK_FILE_NAME = "__jazn_pack_generator.lock.json"
-PACKAGE_INTEGRITY_MANIFEST_NAME = "PACKAGE_INTEGRITY_MANIFEST.json"
-LEGACY_PROCESS_LOCK_FILE_NAMES = ("_jazn_pack_generate.lock.json",)
+SETTINGS_SCHEMA = "jazn_pack_generator_settings/v5"
+UI_MODE_CHOICES = ("tekstowy", "kursorowy")
+UI_EXIT_MARKER = "__JAZN_UI_EXIT__"
+UI_CANCEL_MARKER = "__JAZN_UI_CANCEL__"
 
-# Bazowe bezpieczne wykluczenia. Profil "pełny" celowo NIE usuwa pamięci.
-BASE_SAFE_EXCLUDE_PATTERNS: list[str] = [
-    # Git / edytory / lokalny stan narzędzi
-    ".git/",
-    ".vscode/",
-    ".codex/",
-    ".venv/",
-    ".archives/",
+PACKAGE_INTEGRITY_MANIFEST = "PACKAGE_INTEGRITY_MANIFEST.json"
+MEMORY_PACKAGE_MANIFEST = "memory/MEMORY_PACKAGE_MANIFEST.json"
+PACKAGE_SET_SCHEMA = "jazn_package_set/v2"
+MEMORY_MANIFEST_SCHEMA = "jazn_memory_package_manifest/v1"
+
+REQUIRED_SYSTEM_PATHS = {
+    "SOURCE_PROVENANCE.json",
+    "run.py",
+    "main.py",
+    "latka_jazn/version.py",
+}
+
+PROFILE_CHOICES = ("system", "memory", "combined", "dual")
+FORMAT_CHOICES = ("auto", "independent", "binary")
+COMPRESSION_CHOICES = tuple(range(10))
+COMPRESSION_UI_LABELS = (
+    "0 — bez kompresji",
+    "1 — najszybsza kompresja",
+    "2 — bardzo szybka",
+    "3 — szybka",
+    "4 — umiarkowanie szybka",
+    "5 — umiarkowana",
+    "6 — zrównoważona (zalecana)",
+    "7 — wysoka",
+    "8 — bardzo wysoka",
+    "9 — maksymalna kompresja",
+)
+COMPRESSION_UI_DETAILS = (
+    "ZIP_DEFLATED zapisuje dane bez kompresowania. Najszybsze, ale zwykle tworzy największy plik.",
+    "Najniższy poziom kompresji z priorytetem szybkości.",
+    "Bardzo szybkie pakowanie przy niewielkiej redukcji rozmiaru.",
+    "Szybkie pakowanie z umiarkowaną redukcją rozmiaru.",
+    "Poziom pośredni z przewagą szybkości.",
+    "Poziom pośredni między szybkością i rozmiarem.",
+    "Domyślny kompromis między czasem pakowania i rozmiarem paczki.",
+    "Wyższa kompresja kosztem dłuższego pakowania.",
+    "Bardzo wysoka kompresja, zwykle wolniejsza od poziomu 7.",
+    "Najwyższy poziom DEFLATE. Może działać najdłużej.",
+)
+
+MENU_PACK = 0
+MENU_PLAN = 1
+MENU_NAME = 2
+MENU_PROFILE = 3
+MENU_SOURCE = 4
+MENU_OUTPUT = 5
+MENU_SIDECARS = 6
+MENU_FORMAT = 7
+MENU_LIMIT = 8
+MENU_COMPRESSION = 9
+MENU_FORCE = 10
+MENU_INTERFACE = 11
+MENU_EXCLUDES = 12
+MENU_SAVE = 13
+MENU_VERIFY = 14
+MENU_EXTRACT = 15
+MENU_SELF_TEST = 16
+MENU_EXIT = 17
+
+MAIN_MENU_GROUPS = {
+    MENU_PACK: "GŁÓWNE",
+    MENU_NAME: "KONFIGURACJA",
+    MENU_FORMAT: "USTAWIENIA",
+    MENU_VERIFY: "NARZĘDZIA",
+    MENU_EXIT: "WYJŚCIE",
+}
+
+# Wykluczenia nie są listą historycznych nazw paczek. Są zasadami klas plików.
+COMMON_FORBIDDEN_DIR_NAMES = {
+    ".git",
+    ".hg",
+    ".svn",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".pytest_cache",
+    ".pytest-tmp",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".tox",
+    ".nox",
+    ".archives",
+    "backups",
+    "backups_git",
+    "exports",
+}
+
+SYSTEM_FORBIDDEN_ROOTS = {
+    "memory",
+    "workspace_runtime",
+    "processed",
+    "requests",
+    "responses",
+    "status",
+    "checkpoints",
+}
+
+SYSTEM_FORBIDDEN_FILE_NAMES = {
+    PACKAGE_INTEGRITY_MANIFEST.lower(),
+    "manifest_current.json",
+    "version.txt",
+    "runtime_state.json",
+    "jazn_active_runtime.json",
+    "bootstrap_jazn_current.json",
+    "active_runtime_cache_contract.json",
     "__jazn_pack_generator.lock.json",
     "__jazn_pack_generator_settings.json",
-    "*.before.py",
-
-    # Python / test / cache
-    "__pycache__/",
-    ".pytest_cache/",
-    ".pytest-tmp/",
-    ".mypy_cache/",
-    ".ruff_cache/",
-    "*.pyc",
-    "*.pyo",
-
-    # Tymczasowe i odrzucone pliki
-    "*.tmp",
-    "*.partial",
-    "*.tmp_extract_part",
-    "*.bak",
-    "*.bad",
-    "*.corrupt",
-    "*.log",
-
-    # Paczki, backupy, raporty i artefakty patchowania
-    "exports/",
-    "reports/",
-    "backups/",
-    "backups_git/",
-    "patchs/",
-    "*.patch",
-    "*.rej",
-    "*.orig",
-    "*_PATCH_REPORT.md",
-    "LATKA_*_COMMANDS.ps1",
-    "v14_*_patch_bundle.zip",
-    "v14_*_PATCH_FIXED_BUNDLE.zip",
-    "v14_*_FULL_PATCH_AND_RECOVERY_BUNDLE.zip",
-
-    # Runtime testowy / podglądy, ale nie główna pamięć
-    "workspace_runtime/",
-    "workspace_runtime/test_*.sqlite3",
-    "runtime-preview-*.json",
-    "memory/sql/runtime_write_v1/",
-
-    "*.sqlite3-wal",
-    "*.sqlite3-shm",
-    "*.db-wal",
-    "*.db-shm",
-
-    #workspace_ephemeral
-
-    "workspace_runtime/pytest_*/",
-    "workspace_runtime/turn_checkpoints/",
-    "workspace_runtime/runtime_sessions/",
-    "workspace_runtime/local_untracked_backup/",
-    "workspace_runtime/patch_direct_apply_backups/",
-    "workspace_runtime/patch_sequence_reports/",
-    "workspace_runtime/stash_recovered/",
-    "workspace_runtime/codex_session_bridge*/requests/",
-    "workspace_runtime/codex_session_bridge*/responses/",
-    "workspace_runtime/codex_session_bridge*/processed/",
-    "workspace_runtime/codex_session_bridge*/status/",
-    "workspace_runtime/codex_session_bridge*/logs/",
-
-    #Archiwa, manifesty i pliki diagnostyczne, które nie są wymagane do poprawności ZIP-a
-    "/docs/_archive_mixed_files",
-    "/docs/_archive_patch",
-    "/docs/_archive_plans",
-    "/docs/_archive_scripts",
-    "/docs/_archive_tests",
-
-    # Ręcznie bez segregacji
-    "_archive_gen_pack/",
-    "RUNTIME_STATE.json",
-    "ACTIVE_RUNTIME_CACHE_CONTRACT.json",
-    "BOOTSTRAP_JAZN_CURRENT.json",
-    "processed/",
-    "requests/",
-    "responses/",
-    "status/",
-    "daemon-status.txt",
-    "RUNTIME_STATE.json",
-]
-
-# Zostawiamy starą nazwę zmiennej dla kompatybilności funkcji/CLI.
-EXCLUDE_PATTERNS: list[str] = list(BASE_SAFE_EXCLUDE_PATTERNS)
-
-PACK_PROFILES: dict[str, dict[str, object]] = {
-    "pelna": {
-        "label": "System + pamięć — dwie oddzielne paczki ZIP",
-        "short": "system + pamięć osobno",
-        "description": "Tworzy dwa niezależne zestawy części: *_system.zip.001... z kodem/systemem oraz *_memory.zip.001... wyłącznie z głównego memory/. Domyślnie pozostają tylko zwykłe pliki ZIP; manifesty i SHA256 są opcjonalne.",
-        "exclude_patterns": BASE_SAFE_EXCLUDE_PATTERNS,
-        "include_prefixes": [],
-    },
-    "system": {
-        "label": "Sam system — bez pamięci i workspace_runtime",
-        "short": "tylko system",
-        "description": "Kod, dokumentacja, testy i narzędzia bez katalogów memory/ oraz workspace_runtime/.",
-        "exclude_patterns": BASE_SAFE_EXCLUDE_PATTERNS + [
-            "/memory/",
-            "/workspace_runtime/",
-            "RUNTIME_STATE.json",
-            "ACTIVE_RUNTIME_CACHE_CONTRACT.json",
-            "BOOTSTRAP_JAZN_CURRENT.json",
-        ],
-        "include_prefixes": [],
-    },
-    "memory": {
-        "label": "Sama pamięć — tylko memory/",
-        "short": "tylko pamięć",
-        "description": "Pakuje wyłącznie gałąź memory/. Przydatne do osobnej kopii pamięci i baz SQLite.",
-        "exclude_patterns": BASE_SAFE_EXCLUDE_PATTERNS,
-        "include_prefixes": ["memory/"],
-    },
 }
-DEFAULT_PACK_PROFILE = "pelna"
 
-# =============================================================================
-# MODELE DANYCH
-# =============================================================================
+COMMON_FORBIDDEN_SUFFIXES = (
+    ".zip",
+    ".7z",
+    ".rar",
+    ".tar",
+    ".tar.gz",
+    ".tgz",
+    ".bz2",
+    ".xz",
+    ".patch",
+    ".rej",
+    ".orig",
+    ".bak",
+    ".bad",
+    ".corrupt",
+    ".tmp",
+    ".temp",
+    ".partial",
+    ".log",
+    ".pyc",
+    ".pyo",
+)
+
+SYSTEM_DATABASE_SUFFIXES = (
+    ".sqlite",
+    ".sqlite3",
+    ".db",
+)
+
+TRANSIENT_DATABASE_SUFFIXES = (
+    ".sqlite-wal",
+    ".sqlite-shm",
+    ".sqlite3-wal",
+    ".sqlite3-shm",
+    ".db-wal",
+    ".db-shm",
+    "-wal",
+    "-shm",
+)
+
+SECRET_EXACT_NAMES = {
+    ".env",
+    "credentials.json",
+    "client_secret.json",
+    "service_account.json",
+    "id_rsa",
+    "id_ed25519",
+}
+
+SECRET_NAME_TOKENS = (
+    "private_key",
+    "client_secret",
+    "service_account_key",
+)
+
+
+class PackError(RuntimeError):
+    """Błąd kontrolowany generatora."""
+
+
+@dataclass(slots=True)
+class ExclusionRule:
+    """Edytowalna reguła podstawowa używana przed budowaniem planu."""
+
+    scope: str
+    pattern: str
+    enabled: bool = True
+
+    def normalized(self) -> "ExclusionRule":
+        scope = str(self.scope or "common").strip().lower()
+        if scope not in {"common", "system", "memory"}:
+            scope = "common"
+        pattern = str(self.pattern or "").strip().replace("\\", "/")
+        return ExclusionRule(scope=scope, pattern=pattern, enabled=bool(self.enabled))
+
+
+def default_exclusion_rules() -> list[ExclusionRule]:
+    rules: list[ExclusionRule] = []
+    for name in sorted(COMMON_FORBIDDEN_DIR_NAMES):
+        rules.append(ExclusionRule("common", f"**/{name}/"))
+    for suffix in COMMON_FORBIDDEN_SUFFIXES:
+        rules.append(ExclusionRule("common", f"*{suffix}"))
+    rules.extend([
+        ExclusionRule("common", "*.zip.*"),
+        ExclusionRule("common", "*.before.py"),
+    ])
+    for root_name in sorted(SYSTEM_FORBIDDEN_ROOTS):
+        rules.append(ExclusionRule("system", f"{root_name}/"))
+    for name in sorted(SYSTEM_FORBIDDEN_FILE_NAMES):
+        rules.append(ExclusionRule("system", name))
+    for suffix in SYSTEM_DATABASE_SUFFIXES:
+        rules.append(ExclusionRule("system", f"*{suffix}"))
+    return rules
+
+
+@dataclass(frozen=True, slots=True)
+class VersionInfo:
+    version_file: Path
+    package_version: str
+    release_name: str
+    full_version: str
+    filename_version: str
+
+
+@dataclass(frozen=True, slots=True)
+class PlanEntry:
+    relative: str
+    source: Path | None
+    size_bytes: int
+    sha256: str
+    classification: str
+    mtime_ns: int | None = None
+    virtual_bytes: bytes | None = None
+
+    @property
+    def is_virtual(self) -> bool:
+        return self.virtual_bytes is not None
 
 
 @dataclass(slots=True)
 class PackPlan:
-    files: list[Path]
-    dirs: list[Path]
-    source_total_size: int
-    excluded: list[tuple[str, str]] = field(default_factory=list)  # (rel, pattern)
-    generated_at: str = field(default_factory=lambda: now_iso())
+    root: Path
+    profile: str
+    version: VersionInfo
+    entries: list[PlanEntry]
+    excluded: list[tuple[str, str]] = field(default_factory=list)
+    scan_method: str = "filesystem"
+    manifest_builder: str = "internal"
+    generated_at_utc: str = field(default_factory=lambda: utc_now())
 
     @property
     def file_count(self) -> int:
-        return len(self.files)
+        return len(self.entries)
 
     @property
-    def dir_count(self) -> int:
-        return len(self.dirs)
+    def total_size(self) -> int:
+        return sum(item.size_bytes for item in self.entries)
+
+    @property
+    def paths(self) -> list[str]:
+        return [item.relative for item in self.entries]
+
+    def plan_sha256(self) -> str:
+        canonical = [
+            {
+                "path": item.relative,
+                "size_bytes": item.size_bytes,
+                "sha256": item.sha256,
+                "classification": item.classification,
+            }
+            for item in sorted(self.entries, key=lambda x: x.relative)
+        ]
+        raw = json.dumps(canonical, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        return hashlib.sha256(raw).hexdigest()
+
+
+@dataclass(frozen=True, slots=True)
+class OutputPart:
+    filename: str
+    size_bytes: int
+    sha256: str
+    part_no: int
+    is_complete_zip: bool
 
 
 @dataclass(slots=True)
-class WizardState:
-    source_folder: Path | None = None
-    out_dir: Path | None = None
-    archive_name: str = ""
-    archive_name_manual: bool = False
-    archive_basename_requested: str = ARCHIVE_BASENAME
-    part_size_mb: int = PART_SIZE_MB
-    compression_level: int = COMPRESSION_LEVEL
-    force: bool = FORCE_OVERWRITE
-    include_empty_dirs: bool = INCLUDE_EMPTY_DIRS
-    pack_profile: str = DEFAULT_PACK_PROFILE
-    use_default_excludes: bool = True
-    use_custom_excludes: bool = True
+class PackageResult:
+    package_name: str
+    profile: str
+    archive_format: str
+    plan: PackPlan
+    outputs: list[OutputPart]
+    logical_zip_sha256: str | None
+    package_set_sha256: str
+    sidecar_path: Path
+    committed_paths: list[Path]
+
+
+@dataclass(slots=True)
+class PackOptions:
+    source: Path
+    out_dir: Path
+    profile: str = DEFAULT_PROFILE
+    archive_format: str = DEFAULT_FORMAT
+    archive_basename: str = "jazn_latka"
+    part_size_mb: int = DEFAULT_PART_SIZE_MB
+    compression_level: int = DEFAULT_COMPRESSION_LEVEL
+    force: bool = False
+    base_excludes: list[ExclusionRule] = field(default_factory=default_exclusion_rules)
     custom_excludes: list[str] = field(default_factory=list)
-    disabled_default_excludes: list[str] = field(default_factory=list)
-    append_version_to_name: bool = APPEND_VERSION_TO_NAME
-    version_file: str | Path | None = VERSION_FILE or None
-    package_version: str = ""
-    package_release_name: str = ""
-    resolved_version_file: Path | None = None
-    plan: PackPlan | None = None
-    component_plans: dict[str, PackPlan] = field(default_factory=dict)
-    settings_loaded_from: Path | None = None
-    settings_last_saved_to: Path | None = None
-    settings_needs_cleanup: bool = False
-    startup_warnings: list[str] = field(default_factory=list)
-    ui_mode: str = ""
+    custom_excludes_enabled: bool = False
+    sidecars: bool = True
+
+
+@dataclass(slots=True)
+class InteractiveState:
+    source: Path
+    out_dir: Path
+    profile: str = DEFAULT_PROFILE
+    archive_format: str = DEFAULT_FORMAT
+    archive_basename: str = "jazn_latka"
+    part_size_mb: int = DEFAULT_PART_SIZE_MB
+    compression_level: int = DEFAULT_COMPRESSION_LEVEL
+    force: bool = False
+    base_excludes: list[ExclusionRule] = field(default_factory=default_exclusion_rules)
+    custom_excludes: list[str] = field(default_factory=list)
+    custom_excludes_enabled: bool = False
+    sidecars: bool = True
+    ui_mode: str = "tekstowy"
     ui_auto_start: bool = False
+    dirty: bool = False
 
-    def profile(self) -> dict[str, object]:
-        return PACK_PROFILES.get(self.pack_profile, PACK_PROFILES[DEFAULT_PACK_PROFILE])
-
-    def profile_label(self) -> str:
-        return str(self.profile().get("label") or self.pack_profile)
-
-    def profile_default_excludes(self) -> list[str]:
-        return as_str_list(self.profile().get("exclude_patterns"))
-
-    def include_prefixes(self) -> list[str]:
-        return as_str_list(self.profile().get("include_prefixes"))
-
-    def effective_excludes(self) -> list[str]:
-        patterns: list[str] = []
-        if self.use_default_excludes:
-            disabled = set(self.disabled_default_excludes)
-            patterns.extend(p for p in self.profile_default_excludes() if p not in disabled)
-        if self.use_custom_excludes:
-            patterns.extend(self.custom_excludes)
-        return patterns
-
-    def active_default_excludes(self) -> list[str]:
-        if not self.use_default_excludes:
-            return []
-        disabled = set(self.disabled_default_excludes)
-        return [p for p in self.profile_default_excludes() if p not in disabled]
-
-# =============================================================================
-# POMOCNICZE
-# =============================================================================
-
-
-def human_size(num: int) -> str:
-    units = ["B", "KiB", "MiB", "GiB", "TiB"]
-    value = float(num)
-    for unit in units:
-        if value < 1024.0 or unit == units[-1]:
-            return f"{value:.2f} {unit}"
-        value /= 1024.0
-    return f"{num} B"
-
-
-def now_iso() -> str:
-    return _dt.datetime.now().astimezone().isoformat(timespec="seconds")
-
-
-def rel_posix(path: Path, root: Path) -> str:
-    return PurePosixPath(path.relative_to(root).as_posix()).as_posix()
-
-
-def is_relative_to(child: Path, parent: Path) -> bool:
-    try:
-        child.resolve().relative_to(parent.resolve())
-        return True
-    except ValueError:
-        return False
-
-
-def safe_zip_datetime(path: Path) -> tuple[int, int, int, int, int, int]:
-    try:
-        tm = time.localtime(path.stat().st_mtime)
-        year = min(max(tm.tm_year, 1980), 2107)
-        return (year, tm.tm_mon, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec)
-    except Exception:
-        return (1980, 1, 1, 0, 0, 0)
-
-
-def sanitize_zip_name(name: str) -> str:
-    raw = str(name or "").strip().strip('"')
-    raw = re.sub(r"\s+", "_", raw)
-    if not raw:
-        raise ValueError("Nazwa ZIP nie może być pusta")
-    if any(ch in raw for ch in '\\/:*?"<>|'):
-        raise ValueError(f"Nazwa ZIP zawiera niedozwolone znaki: {raw!r}")
-    if not raw.lower().endswith(".zip"):
-        raw += ".zip"
-    return raw
-
-
-def print_bar(done: int, total: int, *, label: str = "Postęp", width: int = 30, end: str = "\r") -> None:
-    total = max(total, 1)
-    done = min(max(done, 0), total)
-    ratio = done / total
-    filled = int(round(width * ratio))
-    bar = "█" * filled + "░" * (width - filled)
-    percent = int(round(ratio * 100))
-    sys.stdout.write(f"\r{label}: {bar} {percent:3d}% / 100%")
-    sys.stdout.flush()
-    if done >= total:
-        sys.stdout.write("\n")
-        sys.stdout.flush()
-
-
-def pause() -> None:
-    try:
-        input("\nEnter = dalej...")
-    except EOFError:
-        # Wejście może być zamknięte przy uruchomieniu z potoku/testu.
-        return
-
-
-PLAIN_CANCEL_WORDS = {"esc", "escape", "w", "wroc", "wróć", "anuluj", "cancel"}
-PLAIN_EXIT_WORDS = {"^x", "ctrl+x", "ctrlx", "exit", "quit", "zamknij"}
-
-
-def _plain_control_word(value: str) -> str:
-    raw = str(value or "").strip().strip("\x00").lower()
-    # Bezpiecznik po v4.19: markery prompt_toolkit nie mogą nigdy stać się
-    # ścieżką ani zwykłym tekstem menu. Nawet jeśli terminal/wersja biblioteki
-    # zwróci sam środek markera bez bajtów NUL, traktujemy to jako sterowanie.
-    if "latka_exit_app" in raw:
-        return "exit"
-    if "latka_cancel_input" in raw:
-        return "cancel"
-    if raw in PLAIN_EXIT_WORDS or raw.startswith("^x") or raw.startswith("ctrl+x"):
-        return "exit"
-    if raw in PLAIN_CANCEL_WORDS:
-        return "cancel"
-    return ""
-
-
-def ask_text(prompt: str, default: str | None = None) -> str:
-    if default:
-        value = input(f"{prompt} [{default}]: ").strip()
-        return value if value else default
-    return input(f"{prompt}: ").strip()
-
-
-CANCEL_INPUT_MARKER = "\x00LATKA_CANCEL_INPUT\x00"
-APP_EXIT_MARKER = "\x00LATKA_EXIT_APP\x00"
+    def to_options(self) -> PackOptions:
+        return PackOptions(
+            source=self.source,
+            out_dir=self.out_dir,
+            profile=self.profile,
+            archive_format=self.archive_format,
+            archive_basename=self.archive_basename,
+            part_size_mb=self.part_size_mb,
+            compression_level=self.compression_level,
+            force=self.force,
+            base_excludes=[ExclusionRule(item.scope, item.pattern, item.enabled) for item in self.base_excludes],
+            custom_excludes=list(self.custom_excludes),
+            custom_excludes_enabled=bool(self.custom_excludes and self.custom_excludes_enabled),
+            sidecars=self.sidecars,
+        )
 
 
 class UserCancelledInput(Exception):
-    """Użytkownik nacisnął ESC w prompt_toolkit i chce wrócić do menu."""
+    """Powrót z bieżącego pola lub podmenu bez zmiany."""
 
 
-class UserRequestedAppExit(Exception):
-    """Użytkownik nacisnął Ctrl+X w trybie kursorowym i chce zamknąć aplikację."""
+class UserRequestedExit(Exception):
+    """Ctrl+X: zamknij interfejs bez automatycznego zapisu ustawień."""
 
 
-def cancel_key_bindings():
-    """Key bindings dla prompt_toolkit: ESC wraca, Ctrl+X zamyka aplikację.
+# -----------------------------------------------------------------------------
+# Podstawowe narzędzia
+# -----------------------------------------------------------------------------
 
-    Od v4.22 zamknięcie aplikacji jest tylko przez Ctrl+X. Ctrl+C nie jest
-    skrótem aplikacji, więc w prompt_toolkit przechwytujemy go jako no-op,
-    żeby nie zamykał przypadkowo kreatora w trybie kursorowym.
-    """
-    if not HAS_PROMPT_TOOLKIT or _pt_KeyBindings is None:
-        return None
-    KeyBindings = cast(Any, _pt_KeyBindings)
-    kb = KeyBindings()
 
-    @kb.add("escape", eager=True)
-    def _escape(event: Any) -> None:
-        event.app.exit(exception=UserCancelledInput())
+def utc_now() -> str:
+    return dt.datetime.now(dt.timezone.utc).isoformat()
 
-    @kb.add("c-x", eager=True)
-    def _ctrl_x_exit(event: Any) -> None:
-        event.app.exit(exception=UserRequestedAppExit())
 
-    @kb.add("c-c", eager=True)
-    def _ctrl_c_noop(event: Any) -> None:
-        event.app.invalidate()
+def human_size(value: int) -> str:
+    units = ("B", "KiB", "MiB", "GiB", "TiB")
+    size = float(value)
+    for unit in units:
+        if size < 1024.0 or unit == units[-1]:
+            return f"{size:.2f} {unit}"
+        size /= 1024.0
+    return f"{value} B"
 
+
+def sha256_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(CHUNK_SIZE), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def normalize_rel(value: str) -> str:
+    raw = str(value).replace("\\", "/")
+    path = PurePosixPath(raw)
+    if not raw or raw.startswith(("/", "\\")):
+        raise PackError(f"Niebezpieczna ścieżka bezwzględna: {value!r}")
+    if len(raw) >= 2 and raw[1] == ":":
+        raise PackError(f"Niebezpieczna ścieżka dyskowa: {value!r}")
+    if "\x00" in raw or any(part in {"", ".", ".."} for part in path.parts):
+        raise PackError(f"Niebezpieczna ścieżka względna: {value!r}")
+    return path.as_posix()
+
+
+def safe_destination_path(destination: Path, relative: str) -> Path:
+    relative = normalize_rel(relative)
+    target = (destination / Path(*PurePosixPath(relative).parts)).resolve()
+    destination = destination.resolve()
     try:
-        @kb.add("<sigint>", eager=True)
-        def _sigint_noop(event: Any) -> None:
-            event.app.invalidate()
-    except Exception:
-        pass
-
-    return kb
+        target.relative_to(destination)
+    except ValueError as exc:
+        raise PackError(f"Ścieżka wychodzi poza katalog docelowy: {relative}") from exc
+    return target
 
 
-def startup_ui_key_bindings():
-    """Key bindings tylko dla ekranu wyboru interfejsu.
-
-    Ctrl+X kończy start aplikacji bez tracebacka. Ctrl+C jest celowo
-    ignorowane w trybie prompt_toolkit, bo od v4.22 skrótem aplikacji
-    ma być wyłącznie Ctrl+X.
-    """
-    if not HAS_PROMPT_TOOLKIT or _pt_KeyBindings is None:
-        return None
-    KeyBindings = cast(Any, _pt_KeyBindings)
-    kb = KeyBindings()
-
-    @kb.add("c-x", eager=True)
-    def _ctrl_x_exit(event: Any) -> None:
-        event.app.exit(exception=UserRequestedAppExit())
-
-    @kb.add("c-c", eager=True)
-    def _ctrl_c_noop(event: Any) -> None:
-        event.app.invalidate()
-
+def ensure_output_outside_source(source: Path, out_dir: Path) -> None:
+    source = source.resolve()
+    out_dir = out_dir.resolve()
     try:
-        @kb.add("<sigint>", eager=True)
-        def _sigint_noop(event: Any) -> None:
-            event.app.invalidate()
-    except Exception:
-        pass
+        out_dir.relative_to(source)
+    except ValueError:
+        return
+    raise PackError("Folder wyjściowy nie może znajdować się wewnątrz folderu źródłowego.")
 
-    return kb
 
-def ask_edit_text(prompt: str, default: str | None = None, *, bottom_toolbar: str | None = None) -> str:
-    """Edycja pojedynczej linii z ESC = powrót, jeżeli prompt_toolkit jest dostępny."""
-    if ACTIVE_UI_MODE == "cursor" and HAS_PROMPT_TOOLKIT and _pt_prompt is not None and sys.stdin.isatty():
+def sanitize_archive_stem(value: str) -> str:
+    raw = str(value or "jazn_latka").strip().strip('"\'')
+    raw = re.sub(r"\s+", "_", raw)
+    raw = raw[:-4] if raw.lower().endswith(".zip") else raw
+    if not raw:
+        raise PackError("Nazwa paczki jest pusta.")
+    if any(ch in raw for ch in '\\/:*?"<>|'):
+        raise PackError(f"Nazwa paczki zawiera niedozwolone znaki: {raw!r}")
+    return raw
+
+
+def safe_zip_datetime(path: Path | None = None) -> tuple[int, int, int, int, int, int]:
+    if path is not None:
         try:
-            value = _pt_prompt(
-                f"{prompt}: ",
-                default=default or "",
-                key_bindings=cancel_key_bindings(),
-                rprompt=bottom_toolbar or "Esc wróć | Ctrl+X zamknij bez zapisu | Enter OK",
-                wrap_lines=False,
-            ).strip()
-            if value == CANCEL_INPUT_MARKER:
-                raise UserCancelledInput()
-            if value == APP_EXIT_MARKER:
-                raise UserRequestedAppExit()
-            return value if value else (default or "")
-        except UserCancelledInput:
-            raise
-        except UserRequestedAppExit:
-            raise
-        except Exception as exc:
-            print(f"UWAGA: edycja terminalowa niedostępna ({exc}). Używam zwykłego wpisywania.")
-    value = ask_text(prompt, default)
-    control = _plain_control_word(value)
-    if control == "exit":
-        raise UserRequestedAppExit()
-    if control == "cancel":
-        raise UserCancelledInput()
-    return value
-
-
-def path_completion_roots() -> list[str]:
-    """Katalogi bazowe dla podpowiedzi ścieżek względnych."""
-    roots: list[str] = []
-    for candidate in (Path.cwd(), Path.home()):
-        try:
-            if candidate.exists() and candidate.is_dir():
-                roots.append(str(candidate))
+            tm = time.localtime(path.stat().st_mtime)
+            return (min(max(tm.tm_year, 1980), 2107), tm.tm_mon, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec)
         except OSError:
             pass
-
-    if os.name == "nt":
-        # PowerShell/Windows: dodaj istniejące dyski, żeby Tab podpowiadał także
-        # po wpisaniu C:\, D:\ itd., a nie tylko względem bieżącego katalogu.
-        for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
-            root = f"{letter}:\\"
-            if os.path.isdir(root):
-                roots.append(root)
-    else:
-        roots.append("/")
-
-    seen: set[str] = set()
-    unique: list[str] = []
-    for root in roots:
-        norm = os.path.normcase(os.path.abspath(os.path.expanduser(root)))
-        if norm not in seen:
-            seen.add(norm)
-            unique.append(root)
-    return unique
+    now = time.localtime()
+    return (min(max(now.tm_year, 1980), 2107), now.tm_mon, now.tm_mday, now.tm_hour, now.tm_min, now.tm_sec)
 
 
-def path_prompt_hint(only_directories: bool = True) -> str:
-    kind = "foldery" if only_directories else "pliki/foldery"
-    if HAS_PROMPT_TOOLKIT and _pt_prompt is not None and _pt_PathCompleter is not None and sys.stdin.isatty():
-        return f"Tab {kind} | Esc wróć | Ctrl+X zamknij bez zapisu | Enter OK"
-    return "Enter zatwierdź | puste = propozycja | Ctrl+X zakończ"
+def make_zipinfo(entry: PlanEntry, compression_level: int) -> zipfile.ZipInfo:
+    zi = zipfile.ZipInfo(entry.relative, date_time=safe_zip_datetime(entry.source))
+    zi.compress_type = zipfile.ZIP_DEFLATED
+    if hasattr(zi, "compress_level"):
+        try:
+            zi.compress_level = compression_level  # type: ignore[attr-defined]
+        except Exception:
+            pass
+    try:
+        zi._compresslevel = compression_level  # type: ignore[attr-defined]
+    except Exception:
+        pass
+    zi.file_size = entry.size_bytes
+    zi.external_attr = (0o100644 & 0xFFFF) << 16
+    return zi
 
-def normalize_path_text(raw: str) -> str:
-    """Czyści tekst ścieżki i blokuje niejednoznaczne ścieżki Windows typu D:folder."""
-    text = str(raw or "").strip().strip('"').strip("'")
-    if not text:
-        return ""
-    text = os.path.expandvars(os.path.expanduser(text))
-    if os.name == "nt" and re.match(r"^[A-Za-z]:(?![\\/])", text):
-        raise ValueError(
-            "Ścieżka z literą dysku musi mieć ukośnik po dwukropku, np. "
-            "D:\\.AI\\jazn_latka_local. Wpis D:folder jest ścieżką zależną "
-            "od bieżącego katalogu na tym dysku."
+
+def print_progress(done: int, total: int, label: str) -> None:
+    total = max(total, 1)
+    done = max(0, min(done, total))
+    width = 28
+    filled = int(width * done / total)
+    bar = "█" * filled + "░" * (width - filled)
+    percent = int(done * 100 / total)
+    print(f"\r{label}: {bar} {percent:3d}%", end="\n" if done == total else "", flush=True)
+
+
+# -----------------------------------------------------------------------------
+# Wersja runtime
+# -----------------------------------------------------------------------------
+
+
+def _literal_assignments(path: Path) -> dict[str, str]:
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    except Exception as exc:
+        raise PackError(f"Nie można odczytać {path}: {exc}") from exc
+    values: dict[str, str] = {}
+    for node in tree.body:
+        targets: list[ast.AST] = []
+        value_node: ast.AST | None = None
+        if isinstance(node, ast.Assign):
+            targets = list(node.targets)
+            value_node = node.value
+        elif isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+            value_node = node.value
+        if not isinstance(value_node, ast.Constant) or not isinstance(value_node.value, str):
+            continue
+        for target in targets:
+            if isinstance(target, ast.Name):
+                values[target.id] = value_node.value.strip()
+    return values
+
+
+def read_version_info(root: Path) -> VersionInfo:
+    version_file = root / "latka_jazn" / "version.py"
+    if not version_file.is_file():
+        raise PackError(f"Brak wymaganego pliku: {version_file}")
+    values = _literal_assignments(version_file)
+    package_version = (
+        values.get("PACKAGE_VERSION")
+        or values.get("DISTRIBUTION_VERSION")
+        or values.get("__version__")
+        or values.get("VERSION")
+        or ""
+    ).strip()
+    if not package_version:
+        raise PackError("latka_jazn/version.py nie zawiera literału PACKAGE_VERSION/DISTRIBUTION_VERSION.")
+    release = values.get("PACKAGE_RELEASE_NAME", "").strip().strip("-_. ")
+    full = package_version
+    if release and not package_version.lower().endswith(f"-{release}".lower()):
+        full = f"{package_version}-{release}"
+    filename_version = re.sub(r"^v", "", full, flags=re.IGNORECASE)
+    if any(ch in filename_version for ch in '\\/:*?"<>|'):
+        raise PackError(f"Wersja nie nadaje się do nazwy pliku: {filename_version!r}")
+    return VersionInfo(
+        version_file=version_file.resolve(),
+        package_version=package_version,
+        release_name=release,
+        full_version=full,
+        filename_version=filename_version,
+    )
+
+
+def archived_version_from_bytes(raw: bytes) -> str:
+    try:
+        tree = ast.parse(raw.decode("utf-8-sig"))
+    except Exception as exc:
+        raise PackError(f"Nie można odczytać wersji z ZIP-a: {exc}") from exc
+    values: dict[str, str] = {}
+    for node in tree.body:
+        targets: list[ast.AST] = []
+        value_node: ast.AST | None = None
+        if isinstance(node, ast.Assign):
+            targets = list(node.targets)
+            value_node = node.value
+        elif isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+            value_node = node.value
+        if isinstance(value_node, ast.Constant) and isinstance(value_node.value, str):
+            for target in targets:
+                if isinstance(target, ast.Name):
+                    values[target.id] = value_node.value.strip()
+    base = values.get("PACKAGE_VERSION") or values.get("DISTRIBUTION_VERSION") or values.get("__version__") or values.get("VERSION")
+    if not base:
+        raise PackError("Archiwalny version.py nie zawiera wersji.")
+    release = values.get("PACKAGE_RELEASE_NAME", "").strip().strip("-_. ")
+    if release and not base.lower().endswith(f"-{release}".lower()):
+        return f"{base}-{release}"
+    return base
+
+
+# -----------------------------------------------------------------------------
+# Skanowanie i polityka planu
+# -----------------------------------------------------------------------------
+
+
+def git_is_available(root: Path) -> bool:
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--show-toplevel"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            check=False,
         )
-    return text
+        if completed.returncode != 0:
+            return False
+        top = Path(completed.stdout.decode("utf-8", "replace").strip()).resolve()
+        return top == root.resolve()
+    except (OSError, ValueError):
+        return False
 
 
-def ask_path_text(prompt: str, default: str | None = None, *, only_directories: bool = True) -> str:
-    """Pyta o ścieżkę z widocznym Tab/autouzupełnianiem, gdy to możliwe.
-
-    Zasada v4.24:
-    - menu tekstowe zostaje tekstowe, ale pole ścieżki może użyć prompt_toolkit,
-      jeśli biblioteka jest już dostępna w środowisku,
-    - dzięki temu Tab/autouzupełnianie działa także po wybraniu trybu tekstowego,
-    - bez prompt_toolkit pokazujemy propozycję w nawiasie i Enter ją akceptuje,
-    - literalnie wpisane ^X / ctrl+x / esc nie może zostać przyjęte jako nazwa folderu.
-    """
-    can_use_prompt_toolkit = (
-        HAS_PROMPT_TOOLKIT
-        and _pt_prompt is not None
-        and _pt_PathCompleter is not None
-        and sys.stdin.isatty()
+def _git_paths(root: Path, *args: str) -> list[str]:
+    completed = subprocess.run(
+        ["git", "-C", str(root), "ls-files", "-z", *args],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
     )
-    if can_use_prompt_toolkit:
-        try:
-            completer = _pt_PathCompleter(
-                only_directories=only_directories,
-                expanduser=True,
-                get_paths=path_completion_roots,
+    if completed.returncode != 0:
+        detail = completed.stderr.decode("utf-8", "replace").strip()
+        raise PackError(f"git ls-files nie powiódł się: {detail}")
+    result: list[str] = []
+    for raw in completed.stdout.split(b"\0"):
+        if not raw:
+            continue
+        result.append(normalize_rel(raw.decode("utf-8", "surrogateescape")))
+    return result
+
+
+def discover_filesystem_candidates(root: Path, subtree: str | None = None) -> tuple[list[str], str]:
+    """Skanuje zwykły system plików, niezależnie od reguł .gitignore.
+
+    Dla pamięci jest to celowe: memory/ jest zazwyczaj ignorowane przez Git,
+    ale profil memory ma właśnie wykonywać jej kopię. Nadal obowiązuje późniejsza
+    centralna polityka wykluczająca WAL/SHM, archiwa, cache i sekrety.
+    """
+
+    root = root.resolve()
+    scan_root = root
+    label = "filesystem:rglob"
+    if subtree:
+        relative_subtree = normalize_rel(subtree.rstrip("/"))
+        scan_root = root / Path(*PurePosixPath(relative_subtree).parts)
+        label = f"filesystem:rglob({relative_subtree}/;gitignore-bypassed)"
+        if not scan_root.exists():
+            return [], label + ":missing"
+        if not scan_root.is_dir():
+            raise PackError(f"Oczekiwano katalogu pamięci, ale ścieżka nie jest katalogiem: {scan_root}")
+
+    candidates: list[str] = []
+    for path in scan_root.rglob("*"):
+        if path.is_file() and not path.is_symlink():
+            candidates.append(normalize_rel(path.relative_to(root).as_posix()))
+    return sorted(set(candidates)), label
+
+
+def discover_candidates(root: Path) -> tuple[list[str], str]:
+    """Kandydaci systemowi: Git-aware w repozytorium, filesystem poza Git."""
+
+    if git_is_available(root):
+        tracked = _git_paths(root, "--cached")
+        missing = [rel for rel in tracked if not (root / Path(*PurePosixPath(rel).parts)).is_file()]
+        if missing:
+            raise PackError(
+                "Śledzone pliki są usunięte z working tree. Przed pakowaniem zatwierdź albo cofnij usunięcia: "
+                + ", ".join(missing[:10])
             )
-            default_label = default or ""
-            # W trybie kursorowym zostajemy przy prompt_toolkit: edycja ścieżki
-            # jest w tym samym stylu pracy, z wartością w nawiasie [] i Tab.
-            message = f"{prompt} [{default_label}] " if default_label else f"{prompt} [] "
-            kwargs: dict[str, Any] = {
-                "default": "",
-                "completer": completer,
-                "complete_while_typing": False,
-                "complete_in_thread": False,
-                "reserve_space_for_menu": 0,
-                "key_bindings": cancel_key_bindings(),
-                "rprompt": "Tab autouzupełnij | Esc wróć | Ctrl+X zamknij bez zapisu | Enter OK",
-                "wrap_lines": False,
-            }
-            if _pt_CompleteStyle is not None:
-                # Najbliżej zachowania terminalowego: Tab uzupełnia wspólny prefiks
-                # zamiast od razu budować duże menu na pół ekranu.
-                kwargs["complete_style"] = _pt_CompleteStyle.READLINE_LIKE
-            value = _pt_prompt(message, **kwargs).strip()
-            if value == CANCEL_INPUT_MARKER:
-                raise UserCancelledInput()
-            if value == APP_EXIT_MARKER:
-                raise UserRequestedAppExit()
-            control = _plain_control_word(value)
-            if control == "exit":
-                raise UserRequestedAppExit()
-            if control == "cancel":
-                raise UserCancelledInput()
-            if not value and not default:
-                raise UserCancelledInput()
-            return normalize_path_text(value if value else (default or ""))
-        except UserCancelledInput:
-            raise
-        except UserRequestedAppExit:
-            raise
-        except ValueError:
-            raise
-        except Exception as exc:
-            if ACTIVE_UI_MODE == "cursor":
-                print(f"UWAGA: edycja ścieżki w trybie kursorowym niedostępna ({exc}). Wracam bez zmiany.")
-                raise UserCancelledInput()
-            print(f"UWAGA: autouzupełnianie ścieżek niedostępne ({exc}). Używam zwykłego wpisywania.")
-    label = prompt
-    hint = path_prompt_hint(only_directories)
-    if default:
-        value = input(f"{label} [{default}] ({hint}): " ).strip()
-        if not value:
-            value = default
-    else:
-        value = input(f"{label} ({hint}): " ).strip()
-        if not value:
-            raise UserCancelledInput()
-    control = _plain_control_word(value)
-    if control == "exit":
-        raise UserRequestedAppExit()
-    if control == "cancel":
-        raise UserCancelledInput()
-    return normalize_path_text(value)
+        others = _git_paths(root, "--others", "--exclude-standard")
+        return sorted(set(tracked) | set(others)), "git:tracked+untracked-nonignored"
+
+    return discover_filesystem_candidates(root)
 
 
-def ask_bool(prompt: str, default: bool = False, *, require_explicit: bool = False) -> bool:
-    """Pyta o Tak/Nie.
+def discover_memory_candidates(root: Path) -> tuple[list[str], str]:
+    """Kandydaci pamięci: zawsze bezpośrednio z memory/, także gdy Git ją ignoruje."""
 
-    Domyślnie zachowuje dawną kompatybilność: pusty Enter akceptuje wartość
-    domyślną. Gdy require_explicit=True, prompt nie ma domyślnej odpowiedzi:
-    pusty Enter jest no-op i tylko ponawia pytanie, bez zatwierdzania Tak/Nie.
-    """
-    suffix = "T/N, Enter=nic" if require_explicit else ("T/n" if default else "t/N")
-    yes_values = {"t", "tak", "y", "yes", "1", "true"}
-    no_values = {"n", "nie", "no", "0", "false"}
-    while True:
-        value = input(f"{prompt} [{suffix}]: ").strip().lower()
-        control = _plain_control_word(value)
-        if control == "exit":
-            raise UserRequestedAppExit()
-        if control == "cancel":
-            raise UserCancelledInput()
-        if not value:
-            if require_explicit:
-                # Krytyczne potwierdzenia, np. start pakowania, nie mają
-                # domyślnego Tak. Sam Enter nie pakuje, nie anuluje i nie
-                # drukuje dodatkowych komunikatów — tylko wraca do tego samego pytania.
-                continue
-            return default
-        if value in yes_values:
-            return True
-        if value in no_values:
-            return False
-        print("Wpisz T/Tak albo N/Nie.")
+    return discover_filesystem_candidates(root, "memory")
 
-def ask_int(prompt: str, default: int, *, minimum: int | None = None, maximum: int | None = None) -> int:
-    while True:
-        raw = ask_text(prompt, str(default))
-        try:
-            value = int(raw)
-        except ValueError:
-            print("Podaj liczbę całkowitą.")
+
+def matches_exclude_pattern(relative: str, patterns: Iterable[str]) -> str | None:
+    name = PurePosixPath(relative).name
+    relative_cmp = relative.lower()
+    name_cmp = name.lower()
+    parts = tuple(part.lower() for part in PurePosixPath(relative).parts)
+    for raw in patterns:
+        pattern = str(raw).strip().replace("\\", "/")
+        if not pattern:
             continue
-        if minimum is not None and value < minimum:
-            print(f"Wartość musi być >= {minimum}.")
-            continue
-        if maximum is not None and value > maximum:
-            print(f"Wartość musi być <= {maximum}.")
-            continue
-        return value
-
-
-def section(title: str) -> None:
-    print("\n" + "=" * 78)
-    print(f"  {title}")
-    print("=" * 78)
-
-
-def subsection(title: str) -> None:
-    print("\n" + "-" * 78)
-    print(f"  {title}")
-    print("-" * 78)
-
-
-def settings_path() -> Path:
-    return Path(__file__).resolve().with_name(SETTINGS_FILE_NAME)
-
-
-def legacy_settings_path() -> Path | None:
-    if not LEGACY_SETTINGS_FILE_NAME:
-        return None
-    return Path(__file__).resolve().with_name(LEGACY_SETTINGS_FILE_NAME)
-
-
-def _path_to_str(path: Path | str | None) -> str:
-    return "" if path is None else str(path)
-
-
-def script_directory() -> Path:
-    """Folder, w którym znajduje się ten generator.
-
-    Używany tylko jako tekst startowy w polu edycji ścieżki, gdy użytkownik
-    nie ustawił jeszcze folderu źródłowego albo folderu zapisu. To nie jest
-    automatyczne zaakceptowanie folderu do pakowania — źródło dalej musi
-    przejść walidację latka_jazn/version.py.
-    """
-    return Path(__file__).resolve().parent
-
-
-def path_text_for_edit(path: Path | str | None) -> str:
-    """Zwraca czytelny tekst ścieżki do pola edycji.
-
-    Dla katalogów dodaje separator na końcu, żeby dalsze wpisywanie i Tab
-    zachowywały się bliżej PowerShellowego `cd .\\folder\\` niż pustego promptu.
-    """
-    if path is None or not str(path).strip():
-        candidate = script_directory()
-    else:
-        candidate = Path(str(path)).expanduser()
-    text = str(candidate)
-    if text and not text.endswith(("/", "\\")):
-        text += os.sep
-    return text
-
-
-def default_source_edit_path() -> str:
-    """Propozycja startowa dla folderu do pakowania: folder aplikacji."""
-    return path_text_for_edit(script_directory())
-
-
-def default_output_edit_path() -> str:
-    """Propozycja startowa dla folderu zapisu: folder aplikacji + katalog pakiet."""
-    return path_text_for_edit(script_directory() / "pakiet")
-
-
-def path_edit_default_path(current: Path | str | None, *, output_package_folder: bool = False) -> str:
-    """Domyślna treść pola ścieżki w trybie tekstowym i kursorowym."""
-    if current is not None and str(current).strip():
-        return path_text_for_edit(current)
-    if output_package_folder:
-        return default_output_edit_path()
-    return default_source_edit_path()
-
-
-def cursor_edit_default_path(current: Path | str | None) -> str | None:
-    """Alias kompatybilności dla starszych wywołań."""
-    return path_edit_default_path(current)
-
-
-def as_str_list(value: object) -> list[str]:
-    """Bezpiecznie zamienia wartość z ustawień/profilu na listę tekstów."""
-    if isinstance(value, (list, tuple, set)):
-        return [str(item) for item in value if str(item).strip()]
-    return []
-
-
-def as_int(value: object, default: int) -> int:
-    """Bezpiecznie odczytuje int z JSON/argparse bez mieszania typów dla Pylance."""
-    if isinstance(value, bool):
-        return int(value)
-    if isinstance(value, int):
-        return value
-    if isinstance(value, str):
-        try:
-            return int(value.strip())
-        except ValueError:
-            return default
-    return default
-
-
-def as_bool(value: object, default: bool) -> bool:
-    """Bezpiecznie odczytuje bool z JSON/argparse."""
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, int):
-        return bool(value)
-    if isinstance(value, str):
-        raw = value.strip().lower()
-        if raw in {"1", "true", "t", "tak", "yes", "y"}:
-            return True
-        if raw in {"0", "false", "f", "nie", "no", "n"}:
-            return False
-    return default
-
-
-def prompt_toolkit_parts() -> tuple[Any, Any, Any, Any, Any, Any] | None:
-    """Zwraca komponenty prompt_toolkit jako Any po pełnym sprawdzeniu None."""
-    if not HAS_PROMPT_TOOLKIT or not sys.stdin.isatty():
-        return None
-    if (
-        _pt_Application is None
-        or _pt_KeyBindings is None
-        or _pt_Layout is None
-        or _pt_Window is None
-        or _pt_FormattedTextControl is None
-        or _pt_Style is None
-    ):
-        return None
-    return (
-        cast(Any, _pt_Application),
-        cast(Any, _pt_KeyBindings),
-        cast(Any, _pt_Layout),
-        cast(Any, _pt_Window),
-        cast(Any, _pt_FormattedTextControl),
-        cast(Any, _pt_Style),
-    )
-
-
-
-
-def state_to_settings(state: WizardState) -> dict[str, object]:
-    # Od v5.4 `auto` nie jest trzecim trybem UI. To osobna flaga startowa:
-    # użyj zapisanego trybu tekstowy/kursorowy bez pytania.
-    ui_mode = normalize_ui_mode(state.ui_mode or "plain")
-    if ui_mode == "cursor":
-        ui_mode_setting = "kursorowy"
-    else:
-        ui_mode_setting = "tekstowy"
-    return {
-        "schema_version": "jazn_pack_settings/v2",
-        "saved_at": now_iso(),
-        "script_version": VERSION,
-        "source_folder": _path_to_str(state.source_folder),
-        "output_dir": _path_to_str(state.out_dir),
-        # A generated archive name is derived from latka_jazn/version.py on each run.
-        # Persist only a genuinely manual override, never a stale resolved version.
-        "archive_name": state.archive_name if state.archive_name_manual else "",
-        "archive_name_manual": state.archive_name_manual,
-        "archive_name_source": (
-            "manual_override"
-            if state.archive_name_manual
-            else "generated_from_latka_jazn/version.py_at_runtime"
-        ),
-        "archive_basename_requested": state.archive_basename_requested,
-        "part_size_mb": state.part_size_mb,
-        "compression_level": state.compression_level,
-        "force": state.force,
-        "include_empty_dirs": state.include_empty_dirs,
-        "pack_profile": state.pack_profile,
-        "use_default_excludes": state.use_default_excludes,
-        "use_custom_excludes": state.use_custom_excludes,
-        "custom_excludes": list(state.custom_excludes),
-        "disabled_default_excludes": list(state.disabled_default_excludes),
-        "append_version_to_name": state.append_version_to_name,
-        "version_file": _path_to_str(state.version_file),
-        "ui_mode": ui_mode_setting,
-        "ui_auto_start": bool(state.ui_auto_start),
-    }
-
-def apply_settings_to_state(state: WizardState, data: dict[str, object]) -> None:
-    def _maybe_path(value: object) -> Path | None:
-        text = str(value or "").strip()
-        return Path(text).expanduser() if text else None
-
-    source = _maybe_path(data.get("source_folder"))
-    out = _maybe_path(data.get("output_dir"))
-    if source is not None:
-        state.source_folder = source
-    if out is not None:
-        state.out_dir = out
-    stored_archive_name = str(data.get("archive_name") or "").strip()
-    state.archive_name_manual = bool(data.get("archive_name_manual", state.archive_name_manual))
-    if state.archive_name_manual:
-        state.archive_name = stored_archive_name or state.archive_name
-    else:
-        # Ignore legacy generated names such as jazn_latka_vX.Y.Z.zip. The current
-        # name is rebuilt from latka_jazn/version.py after the source is resolved.
-        if stored_archive_name:
-            state.settings_needs_cleanup = True
-        state.archive_name = ""
-    state.archive_basename_requested = str(data.get("archive_basename_requested") or state.archive_basename_requested)
-    state.part_size_mb = as_int(data.get("part_size_mb"), state.part_size_mb)
-    state.compression_level = as_int(data.get("compression_level"), state.compression_level)
-    state.force = as_bool(data.get("force"), state.force)
-    state.include_empty_dirs = as_bool(data.get("include_empty_dirs"), state.include_empty_dirs)
-    profile = str(data.get("pack_profile") or state.pack_profile)
-    state.pack_profile = profile if profile in PACK_PROFILES else DEFAULT_PACK_PROFILE
-    state.use_default_excludes = as_bool(data.get("use_default_excludes"), state.use_default_excludes)
-    state.use_custom_excludes = as_bool(data.get("use_custom_excludes"), state.use_custom_excludes)
-    custom = data.get("custom_excludes")
-    if isinstance(custom, list):
-        state.custom_excludes = [str(x) for x in custom if str(x).strip()]
-    disabled = data.get("disabled_default_excludes")
-    if isinstance(disabled, list):
-        state.disabled_default_excludes = [str(x) for x in disabled if str(x).strip()]
-    state.append_version_to_name = as_bool(data.get("append_version_to_name"), state.append_version_to_name)
-    version_file = str(data.get("version_file") or "").strip()
-    state.version_file = version_file or None
-    ui_mode_raw = str(data.get("ui_mode") or "").strip()
-    if ui_mode_raw:
-        normalized_ui = normalize_ui_mode(ui_mode_raw)
-        if normalized_ui == "auto":
-            # Migracja z v5.2/v5.3: stare `ui_mode=auto` oznaczało start bez pytania.
-            # Teraz zapisujemy konkretny tryb, a automat jako oddzielną flagę.
-            state.ui_mode = resolve_auto_ui_mode()
-            state.ui_auto_start = True
-        else:
-            state.ui_mode = normalized_ui
-    if "ui_auto_start" in data:
-        state.ui_auto_start = as_bool(data.get("ui_auto_start"), state.ui_auto_start)
-    elif state.settings_loaded_from is not None or ui_mode_raw:
-        # Kompatybilność dla ustawień sprzed v5.4: zapisany tryb oznacza,
-        # że aplikacja może startować od razu tym trybem.
-        state.ui_auto_start = bool(ui_mode_raw)
-    state.plan = None
-
-
-def load_settings(state: WizardState) -> bool:
-    # Najpierw nowa nazwa, potem stara nazwa jako migracja wsteczna.
-    for path in (settings_path(), legacy_settings_path()):
-        if path is None or not path.exists():
-            continue
-        try:
-            data = json.loads(path.read_text(encoding="utf-8-sig"))
-            if not isinstance(data, dict):
-                continue
-            apply_settings_to_state(state, data)
-            state.settings_loaded_from = path
-            return True
-        except Exception as exc:
-            print(f"UWAGA: nie udało się wczytać ustawień z {path}: {exc}")
-            return False
-    return False
-
-
-def save_settings(state: WizardState, *, quiet: bool = True) -> Path:
-    path = settings_path()
-    try:
-        path.write_text(json.dumps(state_to_settings(state), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        state.settings_last_saved_to = path
-        if not quiet:
-            print(f"Zapisano ustawienia: {path}")
-    except OSError as exc:
-        # Zapis ustawień jest wygodą, nie warunkiem pakowania.
-        # Dzięki temu skrypt nie wywali się, gdy folder programu jest tylko do odczytu.
-        if not quiet:
-            print(f"UWAGA: nie udało się zapisać ustawień do {path}: {exc}")
-    return path
-
-
-def snapshot_settings_file() -> dict[str, tuple[bool, str]]:
-    """Zapamiętuje stan plików ustawień z początku sesji.
-
-    Obejmuje nową nazwę `__jazn_pack_generator_settings.json` oraz starą
-    `_jazn_pack_legacy_disabled.json`, żeby wyjście bez zapisywania nie
-    zostawiało przypadkowej migracji po sesji testowej.
-    """
-    snapshot: dict[str, tuple[bool, str]] = {}
-    for path in (settings_path(), legacy_settings_path()):
-        if path is None:
-            continue
-        try:
-            if path.exists():
-                snapshot[str(path)] = (True, path.read_text(encoding="utf-8-sig"))
-            else:
-                snapshot[str(path)] = (False, "")
-        except OSError:
-            snapshot[str(path)] = (False, "")
-    return snapshot
-
-
-def restore_settings_file(snapshot: dict[str, tuple[bool, str]]) -> None:
-    """Przywraca pliki ustawień do stanu z początku sesji."""
-    for path_text, (existed, content) in snapshot.items():
-        path = Path(path_text)
-        try:
-            if existed:
-                path.write_text(content, encoding="utf-8")
-            elif path.exists():
-                path.unlink()
-        except OSError as exc:
-            print(f"UWAGA: nie udało się przywrócić pliku ustawień {path}: {exc}")
-
-
-def process_lock_path() -> Path:
-    """Zwraca ścieżkę pliku blokady procesu obok aplikacji."""
-    return Path(__file__).resolve().with_name(PROCESS_LOCK_FILE_NAME)
-
-def legacy_process_lock_paths() -> list[Path]:
-    """Stare locki z nazw wcześniejszych wersji, czyszczone przy starcie v4.16+."""
-    return [Path(__file__).resolve().with_name(name) for name in LEGACY_PROCESS_LOCK_FILE_NAMES]
-
-
-def _read_lock_file(path: Path) -> dict[str, object] | None:
-    try:
-        data = json.loads(path.read_text(encoding="utf-8-sig"))
-        return data if isinstance(data, dict) else None
-    except Exception:
-        return None
-
-
-def cleanup_legacy_process_locks(*, prompt_user: bool = True) -> None:
-    """Usuwa lub obsługuje locki po starych nazwach skryptu.
-
-    v4.16 działa jako `_jazn_pack_generator.py` i używa
-    `__jazn_pack_generator.lock.json`. Pliki `_jazn_pack_generate.lock.json`
-    zostają tylko po przerwanych starszych wersjach. Jeżeli zapisany PID już nie
-    żyje, lock jest usuwany. Jeżeli żyje i wygląda na starszy generator, pytamy
-    o zamknięcie procesu, tak jak przy aktualnym locku.
-    """
-    for path in legacy_process_lock_paths():
-        if not path.exists():
-            continue
-        lock = _read_lock_file(path)
-        if not lock:
-            try:
-                path.unlink()
-            except OSError:
-                pass
-            continue
-        old_pid = as_int(lock.get("pid"), 0)
-        if not old_pid or old_pid == os.getpid() or not _pid_alive(old_pid):
-            try:
-                path.unlink()
-            except OSError:
-                pass
-            continue
-        same_script = _looks_like_same_script_process(old_pid, lock)
-        if not same_script:
-            print(f"UWAGA: znaleziono stary lock {path}, ale nie potwierdzam, że PID {old_pid} to generator. Zostawiam bez zmian.")
-            continue
-        section("Wykryto poprzedni proces starego generatora")
-        print(f"Poprzedni PID:              {old_pid}")
-        print(f"Stary plik blokady:         {path}")
-        close_it = False
-        if prompt_user and sys.stdin.isatty():
-            close_it = ask_bool("Zamknąć poprzedni proces starego generatora", True)
-        else:
-            print("Tryb nieinteraktywny: nie zamykam automatycznie poprzedniego procesu.")
-        if close_it and _terminate_process_tree(old_pid):
-            print("Zamknięto poprzedni proces starego generatora.")
-            try:
-                path.unlink()
-            except OSError:
-                pass
-        elif close_it:
-            print("UWAGA: nie udało się zamknąć poprzedniego procesu starego generatora.")
-
-
-
-def _read_process_lock() -> dict[str, object] | None:
-    path = process_lock_path()
-    if not path.exists():
-        return None
-    return _read_lock_file(path)
-
-
-def _write_process_lock() -> Path | None:
-    global _PROCESS_LOCK_PATH
-    path = process_lock_path()
-    _PROCESS_LOCK_PATH = path
-    data = {
-        "schema_version": "jazn_pack_process_lock/v1",
-        "created_at": now_iso(),
-        "pid": os.getpid(),
-        "script_path": str(Path(__file__).resolve()),
-        "executable": sys.executable,
-        "argv": list(sys.argv),
-        "cwd": str(Path.cwd()),
-    }
-    try:
-        path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        return path
-    except OSError as exc:
-        print(f"UWAGA: nie udało się zapisać pliku blokady procesu {path}: {exc}")
-        return None
-
-
-def _release_process_lock(path: Path | None = None, pid: int | None = None) -> None:
-    # W fazie atexit część globali modułu może być już czyszczona, dlatego
-    # ścieżkę i PID przekazujemy jako argumenty przy rejestracji handlera.
-    try:
-        lock_path = path or _PROCESS_LOCK_PATH or process_lock_path()
-        current_pid = int(pid or os.getpid())
-        if not lock_path.exists():
-            return
-        try:
-            data = json.loads(lock_path.read_text(encoding="utf-8-sig"))
-        except Exception:
-            data = None
-        stored_pid = as_int(data.get("pid"), 0) if isinstance(data, dict) else 0
-        if stored_pid == current_pid:
-            lock_path.unlink()
-    except Exception:
-        pass
-
-
-def _pid_alive(pid: int) -> bool:
-    if pid <= 0 or pid == os.getpid():
-        return False
-    if os.name == "nt":
-        try:
-            result = subprocess.run(
-                ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            output = (result.stdout or "") + (result.stderr or "")
-            return str(pid) in output and "INFO:" not in output.upper()
-        except Exception:
-            pass
-    try:
-        os.kill(pid, 0)
-        return True
-    except PermissionError:
-        return True
-    except OSError:
-        return False
-
-
-def _process_command_line(pid: int) -> str:
-    if pid <= 0:
-        return ""
-    if os.name == "nt":
-        commands = [
-            [
-                "powershell",
-                "-NoProfile",
-                "-Command",
-                f"$p = Get-CimInstance Win32_Process -Filter \"ProcessId={pid}\"; if ($p) {{ $p.CommandLine }}",
-            ],
-            ["wmic", "process", "where", f"ProcessId={pid}", "get", "CommandLine", "/value"],
-        ]
-        for command in commands:
-            try:
-                result = subprocess.run(command, capture_output=True, text=True, timeout=5)
-                text = ((result.stdout or "") + "\n" + (result.stderr or "")).strip()
-                if text:
-                    return text
-            except Exception:
-                continue
-        return ""
-
-    proc_cmdline = Path(f"/proc/{pid}/cmdline")
-    try:
-        if proc_cmdline.exists():
-            raw = proc_cmdline.read_bytes()
-            return raw.replace(b"\0", b" ").decode("utf-8", errors="replace").strip()
-    except Exception:
-        pass
-    try:
-        result = subprocess.run(["ps", "-p", str(pid), "-o", "command="], capture_output=True, text=True, timeout=5)
-        return (result.stdout or "").strip()
-    except Exception:
-        return ""
-
-
-def _looks_like_same_script_process(pid: int, lock_data: dict[str, object]) -> bool:
-    script_path = str(lock_data.get("script_path") or Path(__file__).resolve())
-    script_name = Path(script_path).name.lower()
-    command_line = _process_command_line(pid).lower()
-    if not command_line:
-        # Brak możliwości odczytu komendy = nie zabijamy automatycznie.
-        return False
-    return script_name in command_line or str(Path(script_path)).lower() in command_line
-
-
-def _terminate_process_tree(pid: int, *, timeout_seconds: float = 5.0) -> bool:
-    if pid <= 0 or pid == os.getpid():
-        return False
-    if os.name == "nt":
-        # Nie używamy /T domyślnie. /T zamyka też procesy potomne, co bywa
-        # zbyt agresywne w PowerShell/Windows Terminal. Tu celem jest tylko
-        # poprzedni PID zapisany w locku tego generatora.
-        for command in (
-            ["taskkill", "/PID", str(pid)],
-            ["taskkill", "/PID", str(pid), "/F"],
-        ):
-            try:
-                subprocess.run(command, capture_output=True, text=True, timeout=timeout_seconds)
-            except Exception:
-                pass
-            time.sleep(0.3)
-            if not _pid_alive(pid):
-                return True
-        return not _pid_alive(pid)
-
-    try:
-        os.kill(pid, signal.SIGTERM)
-    except OSError:
-        return not _pid_alive(pid)
-    deadline = time.time() + timeout_seconds
-    while time.time() < deadline:
-        if not _pid_alive(pid):
-            return True
-        time.sleep(0.2)
-    try:
-        os.kill(pid, signal.SIGKILL)
-    except OSError:
-        pass
-    time.sleep(0.2)
-    return not _pid_alive(pid)
-
-
-def activate_process_guard(*, prompt_user: bool = True) -> None:
-    """Pilnuje, żeby nie zostawały żywe poprzednie procesy tej aplikacji.
-
-    Mechanizm działa tylko dla procesu zapisanego w pliku lock tej aplikacji.
-    Nie zamyka przypadkowych procesów: jeśli nie da się potwierdzić, że PID należy
-    do tego samego skryptu, zostawia go w spokoju i tylko czyści stary lock.
-    """
-    cleanup_legacy_process_locks(prompt_user=prompt_user)
-    lock = _read_process_lock()
-    path = process_lock_path()
-    if lock:
-        old_pid = as_int(lock.get("pid"), 0)
-
-        if old_pid and old_pid != os.getpid() and _pid_alive(old_pid):
-            same_script = _looks_like_same_script_process(old_pid, lock)
-            if same_script:
-                section("Wykryto poprzedni proces generatora")
-                print(f"Poprzedni PID:              {old_pid}")
-                print(f"Plik blokady:               {path}")
-                print("Poprzednie uruchomienie wygląda na ten sam skrypt.")
-                close_it = False
-                if prompt_user and sys.stdin.isatty():
-                    close_it = ask_bool("Zamknąć poprzedni proces generatora", True)
-                else:
-                    print("Tryb nieinteraktywny: nie zamykam automatycznie poprzedniego procesu.")
-                if close_it:
-                    if _terminate_process_tree(old_pid):
-                        print("Zamknięto poprzedni proces generatora.")
-                    else:
-                        print("UWAGA: nie udało się zamknąć poprzedniego procesu generatora.")
-                else:
-                    print("Kontynuuję bez zamykania poprzedniego procesu.")
-            else:
-                print(f"UWAGA: znaleziono lock z PID {old_pid}, ale nie potwierdzam, że to ten skrypt. Czyszczę lock bez zamykania procesu.")
-        elif path.exists():
-            # Stary lock po normalnym/crashowym zamknięciu.
-            try:
-                path.unlink()
-            except OSError:
-                pass
-
-    lock_path_written = _write_process_lock()
-    if lock_path_written is not None:
-        atexit.register(_release_process_lock, lock_path_written, os.getpid())
-
-# =============================================================================
-# WERSJA / NAZWA PACZKI
-# =============================================================================
-
-
-def _literal_string_from_assignment(node: ast.AST) -> str | None:
-    if isinstance(node, ast.Constant) and isinstance(node.value, str):
-        return node.value
+        pattern = pattern.lstrip("/")
+        pattern_cmp = pattern.lower()
+        if pattern_cmp.startswith("**/") and pattern_cmp.endswith("/"):
+            folder = pattern_cmp[3:-1]
+            if folder and folder in parts[:-1]:
+                return raw
+        if fnmatch.fnmatch(relative_cmp, pattern_cmp) or fnmatch.fnmatch(name_cmp, pattern_cmp):
+            return raw
+        if pattern_cmp.endswith("/"):
+            folder = pattern_cmp.rstrip("/")
+            if relative_cmp == folder or relative_cmp.startswith(folder + "/"):
+                return raw
     return None
 
 
-def normalize_version(value: str) -> str:
-    version = str(value).strip().strip('"\'')
-    version = re.sub(r"^v", "", version, flags=re.IGNORECASE)
-    if not version:
-        raise ValueError("Wersja z version.py jest pusta")
-    if any(ch in version for ch in '\\/?:*"<>|'):
-        raise ValueError(f"Wersja zawiera znaki niedozwolone w nazwie pliku: {version!r}")
-    return version
+def common_forbidden_reason(relative: str) -> str | None:
+    """Nienaruszalna granica bezpieczeństwa, niezależna od ustawień UI."""
+
+    relative = normalize_rel(relative)
+    parts = [part.lower() for part in PurePosixPath(relative).parts]
+    name = parts[-1]
+
+    if name in SECRET_EXACT_NAMES and name != ".env.example":
+        return "secret_file"
+    if any(token in name for token in SECRET_NAME_TOKENS):
+        return "secret_name"
+    if name.endswith(TRANSIENT_DATABASE_SUFFIXES):
+        return "transient_database_file"
+    return None
 
 
-def normalize_release_name(value: str | None) -> str:
-    release = str(value or "").strip().strip('"\'')
-    if not release:
-        return ""
-    if any(ch in release for ch in '\\/>:<*?"|'):
-        raise ValueError(f"PACKAGE_RELEASE_NAME zawiera znaki niedozwolone w nazwie pliku: {release!r}")
-    release = re.sub(r"\s+", "-", release)
-    release = release.strip("-_.")
-    return release
+def profile_forbidden_reason(relative: str, profile: str) -> str | None:
+    relative = normalize_rel(relative)
+    parts = [part.lower() for part in PurePosixPath(relative).parts]
+    root_name = parts[0]
+
+    if profile == "memory":
+        if root_name != "memory":
+            return "outside_memory_profile"
+        if relative == MEMORY_PACKAGE_MANIFEST:
+            return "virtual_manifest_replaces_source"
+        return common_forbidden_reason(relative)
+
+    return common_forbidden_reason(relative)
 
 
-def compose_package_version_full(
-    package_version: str,
-    package_release_name: str | None = None,
-) -> str:
-    """Zwraca pełną wersję pakietu zgodną z kontraktem version.py.
-
-    PACKAGE_VERSION i PACKAGE_RELEASE_NAME są odrębnymi polami źródła prawdy.
-    Sufiks wydania nie może być pomijany podczas porównywania z manifestem,
-    ale nie może też zostać dopisany drugi raz, gdy PACKAGE_VERSION już go zawiera.
-    """
-
-    version = normalize_version(package_version)
-    release = normalize_release_name(package_release_name)
-    if not release:
-        return version
-    suffix = f"-{release}"
-    if version.lower().endswith(suffix.lower()):
-        return version
-    return f"{version}{suffix}"
+def matching_base_exclude(relative: str, profile: str, rules: Iterable[ExclusionRule]) -> ExclusionRule | None:
+    for raw_rule in rules:
+        rule = raw_rule.normalized()
+        if not rule.enabled or not rule.pattern:
+            continue
+        if rule.scope not in {"common", profile}:
+            continue
+        if matches_exclude_pattern(relative, [rule.pattern]) is not None:
+            return rule
+    return None
 
 
-def manifest_version_matches(
-    manifest_version: str,
-    package_version: str,
-    package_release_name: str | None = None,
-) -> bool:
-    """Porównuje manifest z pełną wersją wynikającą z version.py."""
-
-    return normalize_version(manifest_version) == compose_package_version_full(
-        package_version,
-        package_release_name,
-    )
-
-def read_version_from_py(version_file: Path, variable_names: Iterable[str] = VERSION_VARIABLES) -> str:
-    version_file = version_file.resolve()
-    if not version_file.exists() or not version_file.is_file():
-        raise FileNotFoundError(f"Nie znaleziono pliku wersji: {version_file}")
-    text = version_file.read_text(encoding="utf-8-sig")
-    tree = ast.parse(text, filename=str(version_file))
-    wanted = set(variable_names)
-    for node in tree.body:
-        if isinstance(node, ast.Assign):
-            value = _literal_string_from_assignment(node.value)
-            if value is None:
-                continue
-            for target in node.targets:
-                if isinstance(target, ast.Name) and target.id in wanted:
-                    return normalize_version(value)
-        elif isinstance(node, ast.AnnAssign):
-            value = _literal_string_from_assignment(node.value) if node.value is not None else None
-            if value is None:
-                continue
-            target = node.target
-            if isinstance(target, ast.Name) and target.id in wanted:
-                return normalize_version(value)
-    raise ValueError(f"Nie znaleziono zmiennej wersji {sorted(wanted)} w pliku: {version_file}")
+def filter_candidates(
+    candidates: Iterable[str],
+    *,
+    profile: str,
+    base_excludes: Iterable[ExclusionRule],
+    custom_excludes: Iterable[str],
+) -> tuple[list[str], list[tuple[str, str]]]:
+    selected: list[str] = []
+    excluded: list[tuple[str, str]] = []
+    for relative in candidates:
+        base = matching_base_exclude(relative, profile, base_excludes)
+        if base is not None:
+            excluded.append((relative, f"base:{base.scope}:{base.pattern}"))
+            continue
+        custom = matches_exclude_pattern(relative, custom_excludes)
+        if custom is not None:
+            excluded.append((relative, f"manual:{custom}"))
+            continue
+        reason = profile_forbidden_reason(relative, profile)
+        if reason:
+            excluded.append((relative, reason))
+            continue
+        selected.append(relative)
+    return sorted(set(selected)), excluded
 
 
-def read_optional_string_from_py(version_file: Path, variable_names: Iterable[str]) -> str:
-    version_file = version_file.resolve()
-    if not version_file.exists() or not version_file.is_file():
-        return ""
-    text = version_file.read_text(encoding="utf-8-sig")
-    tree = ast.parse(text, filename=str(version_file))
-    wanted = set(variable_names)
-    for node in tree.body:
-        if isinstance(node, ast.Assign):
-            value = _literal_string_from_assignment(node.value)
-            if value is None:
-                continue
-            for target in node.targets:
-                if isinstance(target, ast.Name) and target.id in wanted:
-                    return value.strip().strip('"\'')
-        elif isinstance(node, ast.AnnAssign):
-            value = _literal_string_from_assignment(node.value) if node.value is not None else None
-            if value is None:
-                continue
-            target = node.target
-            if isinstance(target, ast.Name) and target.id in wanted:
-                return value.strip().strip('"\'')
-    return ""
-
-
-def default_version_file_for_source(source_folder: Path) -> Path:
-    """Domyślny plik wersji Jaźni względem rootu pakowanego folderu."""
-    return source_folder.resolve() / "latka_jazn" / "version.py"
-
-
-def find_version_file(source_folder: Path, explicit_version_file: str | Path | None = None) -> Path:
-    """Znajduje plik version.py dla pakowanego folderu.
-
-    Domyślnie akceptujemy tylko root runtime Jaźni, czyli folder zawierający
-    `latka_jazn/version.py`. Nie szukamy już w cwd ani obok skryptu, bo to mogło
-    fałszywie zaakceptować niewłaściwy katalog do spakowania.
-    """
-    source_folder = source_folder.resolve()
-    if explicit_version_file:
-        explicit = Path(explicit_version_file).expanduser()
-        if not explicit.is_absolute():
-            explicit = (source_folder / explicit).resolve()
-        explicit = explicit.resolve()
-        if explicit.exists() and explicit.is_file():
-            return explicit
-        raise FileNotFoundError(
-            "Nie znaleziono wskazanego pliku wersji: "
-            f"{explicit}\nFolder do pakowania nie został zaakceptowany."
-        )
-
-    expected = default_version_file_for_source(source_folder)
-    if expected.exists() and expected.is_file():
-        return expected
-    raise FileNotFoundError(
-        "Nie znaleziono domyślnego pliku wersji Jaźni:\n"
-        f"  - {expected}\n"
-        "Folder do pakowania musi być rootem runtime/projektu Jaźni i zawierać "
-        "plik .\\latka_jazn\\version.py."
+def hash_source_entry(root: Path, relative: str, classification: str) -> PlanEntry:
+    path = (root / Path(*PurePosixPath(relative).parts)).resolve()
+    try:
+        path.relative_to(root.resolve())
+    except ValueError as exc:
+        raise PackError(f"Ścieżka wychodzi poza root: {relative}") from exc
+    if not path.is_file() or path.is_symlink():
+        raise PackError(f"Planowana ścieżka nie jest zwykłym plikiem: {relative}")
+    stat = path.stat()
+    digest = sha256_file(path)
+    stat_after = path.stat()
+    if stat.st_size != stat_after.st_size or stat.st_mtime_ns != stat_after.st_mtime_ns:
+        raise PackError(f"Plik zmienił się podczas budowania planu: {relative}")
+    return PlanEntry(
+        relative=relative,
+        source=path,
+        size_bytes=stat_after.st_size,
+        sha256=digest,
+        classification=classification,
+        mtime_ns=stat_after.st_mtime_ns,
     )
 
 
-def read_source_version_info(source_folder: Path, explicit_version_file: str | Path | None = None) -> tuple[Path, str, str]:
-    """Waliduje folder źródłowy i zwraca (version_file, version, release)."""
-    resolved_version_file = find_version_file(source_folder, explicit_version_file)
-    package_version = read_version_from_py(resolved_version_file)
-    release = read_optional_string_from_py(resolved_version_file, RELEASE_NAME_VARIABLES) or PACKAGE_RELEASE_NAME
-    return resolved_version_file, package_version, normalize_release_name(release)
+def virtual_entry(relative: str, data: bytes, classification: str) -> PlanEntry:
+    return PlanEntry(
+        relative=normalize_rel(relative),
+        source=None,
+        size_bytes=len(data),
+        sha256=sha256_bytes(data),
+        classification=classification,
+        virtual_bytes=data,
+    )
 
 
-def _run_source_integrity_action(
-    source_folder: Path,
-    action: str,
-    request: dict[str, object],
-) -> dict[str, object]:
-    """Uruchamia kanoniczny moduł integralności z wybranego źródła.
+def serialize_json(payload: Any) -> bytes:
+    return (json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=False) + "\n").encode("utf-8")
 
-    Osobny proces gwarantuje, że generator nie użyje przypadkiem wcześniej
-    zaimportowanej wersji ``latka_jazn`` z innego runtime albo środowiska.
-    """
 
-    script = r'''
+# -----------------------------------------------------------------------------
+# Kanoniczny manifest systemowy
+# -----------------------------------------------------------------------------
+
+
+def source_manifest_bridge(root: Path, relative_paths: Sequence[str]) -> tuple[dict[str, Any], bytes] | None:
+    """Używa modułu integralności pakowanego runtime, jeśli obsługuje exact plan."""
+
+    bridge = r'''
+import inspect
 import json
 import sys
 from pathlib import Path
 
-action = sys.argv[1]
-root = Path(sys.argv[2]).resolve()
-sys.path.insert(0, str(root))
-from latka_jazn.tools.package_integrity import (
-    build_package_integrity_manifest,
-    serialize_package_integrity_manifest,
-    verify_package_integrity_manifest_in_zips,
-)
-
+root = Path(sys.argv[1]).resolve()
 request = json.load(sys.stdin)
-if action == "build":
-    payload = build_package_integrity_manifest(
-        root,
-        relative_paths=request.get("relative_paths") or [],
-    )
-    manifest_text = serialize_package_integrity_manifest(payload).decode("utf-8")
-    result = {"payload": payload, "manifest_text": manifest_text}
-elif action == "verify-zips":
-    result = verify_package_integrity_manifest_in_zips(
-        [Path(item) for item in request.get("zip_paths") or []],
-        allowed_unprotected_prefixes=request.get("allowed_unprotected_prefixes") or [],
-    )
-else:
-    raise SystemExit(f"unknown action: {action}")
-print(json.dumps(result, ensure_ascii=False))
+sys.path.insert(0, str(root))
+try:
+    from latka_jazn.tools.package_integrity import build_package_integrity_manifest
+except Exception as exc:
+    print("__JAZN_RESULT__" + json.dumps({"available": False, "reason": f"import: {type(exc).__name__}: {exc}"}, ensure_ascii=False))
+    raise SystemExit(0)
+
+signature = inspect.signature(build_package_integrity_manifest)
+if "relative_paths" not in signature.parameters:
+    print("__JAZN_RESULT__" + json.dumps({"available": False, "reason": "relative_paths unsupported"}, ensure_ascii=False))
+    raise SystemExit(0)
+
+try:
+    payload = build_package_integrity_manifest(root, relative_paths=request["relative_paths"])
+    try:
+        from latka_jazn.tools.package_integrity import serialize_package_integrity_manifest
+    except Exception:
+        raw = (json.dumps(payload, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+    else:
+        raw = serialize_package_integrity_manifest(payload)
+        if isinstance(raw, str):
+            raw = raw.encode("utf-8")
+    result = {"available": True, "payload": payload, "manifest_text": raw.decode("utf-8")}
+except Exception as exc:
+    result = {"available": True, "error": f"{type(exc).__name__}: {exc}"}
+print("__JAZN_RESULT__" + json.dumps(result, ensure_ascii=False))
 '''
     completed = subprocess.run(
-        [sys.executable, "-X", "utf8", "-c", script, action, str(source_folder.resolve())],
-        input=json.dumps(request, ensure_ascii=False),
-        capture_output=True,
+        [sys.executable, "-X", "utf8", "-c", bridge, str(root)],
+        input=json.dumps({"relative_paths": list(relative_paths)}, ensure_ascii=False),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
         encoding="utf-8",
         errors="replace",
-        timeout=180,
+        timeout=300,
         check=False,
     )
-    if completed.returncode != 0:
-        detail = (completed.stderr or completed.stdout or "").strip()
-        raise RuntimeError(
-            f"Kanoniczny moduł integralności zakończył się kodem {completed.returncode}: {detail}"
-        )
-    try:
-        payload = json.loads(completed.stdout)
-    except Exception as exc:
-        raise RuntimeError(
-            "Kanoniczny moduł integralności zwrócił niepoprawny JSON: "
-            f"{completed.stdout[:500]!r}"
-        ) from exc
-    if not isinstance(payload, dict):
-        raise RuntimeError("Kanoniczny moduł integralności nie zwrócił obiektu JSON")
-    return payload
-
-
-def build_integrity_manifest_virtual_file(
-    source_folder: Path,
-    plan: PackPlan,
-    *,
-    package_version: str,
-    package_release_name: str = "",
-) -> tuple[bytes, dict[str, object]] | None:
-    """Buduje świeży manifest z dokładnego planu bez zmiany źródła."""
-
-    relative_paths = [rel_posix(path, source_folder) for path in plan.files]
-    required = {
-        "SOURCE_PROVENANCE.json",
-        "run.py",
-        "main.py",
-        "latka_jazn/version.py",
-        PACKAGE_INTEGRITY_MANIFEST_NAME,
-    }
-    if not required.issubset(set(relative_paths)):
+    marker = "__JAZN_RESULT__"
+    lines = [line for line in completed.stdout.splitlines() if line.startswith(marker)]
+    if not lines:
+        detail = (completed.stderr or completed.stdout).strip()
+        raise PackError(f"Moduł integralności nie zwrócił kontraktu JSON: {detail[:1000]}")
+    result = json.loads(lines[-1][len(marker):])
+    if not result.get("available"):
         return None
-    result = _run_source_integrity_action(
-        source_folder,
-        "build",
-        {"relative_paths": relative_paths},
-    )
+    if result.get("error"):
+        raise PackError(f"Kanoniczny moduł integralności odrzucił plan: {result['error']}")
     payload = result.get("payload")
     manifest_text = result.get("manifest_text")
     if not isinstance(payload, dict) or not isinstance(manifest_text, str):
-        raise RuntimeError("Niepełna odpowiedź budowania PACKAGE_INTEGRITY_MANIFEST.json")
-    manifest_version = str(payload.get("runtime_version") or payload.get("version") or "")
-    expected_version = compose_package_version_full(package_version, package_release_name)
-    if not manifest_version_matches(manifest_version, package_version, package_release_name):
-        raise RuntimeError(
-            "Wersja świeżego manifestu nie zgadza się z pełną wersją z "
-            "latka_jazn/version.py: "
-            f"manifest={manifest_version!r}, version.py_full={expected_version!r}"
-        )
-    return manifest_text.encode("utf-8"), payload
+        raise PackError("Niepełna odpowiedź modułu integralności.")
+    return payload, manifest_text.encode("utf-8")
 
 
-def verify_integrity_manifest_in_generated_volumes(
-    source_folder: Path,
-    volume_paths: list[Path],
-    *,
-    allowed_unprotected_prefixes: Iterable[str] = (),
-) -> dict[str, object]:
-    result = _run_source_integrity_action(
-        source_folder,
-        "verify-zips",
-        {
-            "zip_paths": [str(path.resolve()) for path in volume_paths],
-            "allowed_unprotected_prefixes": list(allowed_unprotected_prefixes),
-        },
-    )
-    if not result.get("ok"):
-        errors = result.get("errors")
-        raise ValueError(
-            "Weryfikacja PACKAGE_INTEGRITY_MANIFEST.json w ZIP-ie nie powiodła się: "
-            + json.dumps(errors, ensure_ascii=False)[:4000]
-        )
-    return result
-
-
-def apply_version_to_archive_name(
-    archive_basename: str,
-    package_version: str,
-    *,
-    package_release_name: str | None = None,
-    enabled: bool = True,
-) -> str:
-    raw = archive_basename.strip()
-    if not raw:
-        raise ValueError("archive_basename nie może być pusty")
-    has_zip = raw.lower().endswith(".zip")
-    stem = raw[:-4] if has_zip else raw
-    version = normalize_version(package_version)
-    release = normalize_release_name(package_release_name)
-
-    if "{version}" in stem:
-        stem = stem.replace("{version}", version)
-    elif enabled:
-        suffix = f"_v{version}"
-        if not stem.lower().endswith(suffix.lower()):
-            stem = f"{stem}{suffix}"
-
-    if "{release_name}" in stem or "{release}" in stem:
-        stem = stem.replace("{release_name}", release).replace("{release}", release)
-        stem = re.sub(r"[-_.]+$", "", stem)
-    elif enabled and release:
-        release_suffix = f"-{release}"
-        if not version.lower().endswith(release_suffix.lower()) and not stem.lower().endswith(release_suffix.lower()):
-            stem = f"{stem}{release_suffix}"
-
-    return sanitize_zip_name(stem)
-
-
-
-def refresh_version_and_default_name(state: WizardState, *, keep_custom_name: bool = False) -> None:
-    if state.source_folder is None:
-        return
-    state.resolved_version_file = find_version_file(state.source_folder, state.version_file)
-    state.package_version = read_version_from_py(state.resolved_version_file)
-    release = read_optional_string_from_py(state.resolved_version_file, RELEASE_NAME_VARIABLES) or PACKAGE_RELEASE_NAME
-    state.package_release_name = normalize_release_name(release)
-    should_keep_custom = bool(keep_custom_name and state.archive_name_manual and state.archive_name)
-    if should_keep_custom:
-        state.archive_name = sanitize_zip_name(state.archive_name)
-        return
-    state.archive_name = apply_version_to_archive_name(
-        state.archive_basename_requested or ARCHIVE_BASENAME,
-        state.package_version,
-        package_release_name=state.package_release_name,
-        enabled=True,
-    )
-    state.archive_name_manual = False
-    state.plan = None
-
-# =============================================================================
-# WYKLUCZENIA I PLAN PAKOWANIA
-# =============================================================================
-
-
-def matches_include_prefix(rel: str, include_prefixes: Iterable[str], *, is_dir: bool = False) -> bool:
-    prefixes = [p.strip().replace("\\", "/").lstrip("/") for p in include_prefixes if str(p).strip()]
-    if not prefixes:
-        return True
-    rel = rel.replace("\\", "/").lstrip("/")
-    rel_dir = rel.rstrip("/") + ("/" if is_dir else "")
-    for prefix in prefixes:
-        prefix = prefix.rstrip("/") + "/"
-        base = prefix.rstrip("/")
-        if rel == base or rel.startswith(prefix):
-            return True
-        # Dla katalogów pozwala pokazać katalog nadrzędny, jeśli prowadzi do prefiksu.
-        if is_dir and prefix.startswith(rel_dir):
-            return True
-    return False
-
-
-
-def matching_exclusion_pattern(rel: str, patterns: Iterable[str]) -> str | None:
-    rel = rel.replace("\\", "/").lstrip("/")
-    rel_path = PurePosixPath(rel)
-    rel_parts = rel_path.parts
-    rel_name = rel_path.name
-    for pat in patterns:
-        raw_pattern = pat.strip().replace("\\", "/")
-        root_only = raw_pattern.startswith("/")
-        p = raw_pattern.lstrip("/")
-        if not p:
-            continue
-        if p.endswith("/"):
-            folder = p.rstrip("/")
-            if not folder:
-                continue
-            # Wzorzec bez ukośnika, np. __pycache__/ albo .git/, ma pasować
-            # do folderu o tej nazwie na dowolnej głębokości, nie tylko w root.
-            if "/" not in folder:
-                if root_only:
-                    if rel == folder or rel.startswith(folder + "/"):
-                        return pat
-                elif folder in rel_parts:
-                    return pat
-                continue
-            if rel == folder or rel.startswith(folder + "/"):
-                return pat
-            continue
-        if fnmatch.fnmatch(rel, p) or fnmatch.fnmatch(rel_name, p):
-            return pat
-    return None
-
-def is_excluded(rel: str, patterns: Iterable[str]) -> bool:
-    return matching_exclusion_pattern(rel, patterns) is not None
-
-
-def discover_pack_plan(root: Path, include_empty_dirs: bool, exclude_patterns: list[str], include_prefixes: list[str] | None = None) -> PackPlan:
-    root = root.resolve()
-    files: list[Path] = []
-    dirs: list[Path] = []
-    excluded: list[tuple[str, str]] = []
-    total_size = 0
-
-    # Najpierw zbieramy ścieżki, żeby progress odkrywania był prawdziwy.
-    all_paths = sorted(root.rglob("*"), key=lambda x: x.as_posix().lower())
-    total = len(all_paths)
-    if total:
-        print_bar(0, total, label="Skanowanie")
-
-    include_prefixes = include_prefixes or []
-
-    for index, p in enumerate(all_paths, start=1):
-        rel = rel_posix(p, root)
-        if include_prefixes and not matches_include_prefix(rel, include_prefixes, is_dir=p.is_dir()):
-            excluded.append((rel, "<poza profilem/include_prefix>"))
-            if index % 200 == 0 or index == total:
-                print_bar(index, total, label="Skanowanie")
-            continue
-        pattern = matching_exclusion_pattern(rel, exclude_patterns)
-        if pattern is not None:
-            excluded.append((rel, pattern))
-            if index % 200 == 0 or index == total:
-                print_bar(index, total, label="Skanowanie")
-            continue
-        if p.is_dir():
-            if include_empty_dirs:
-                dirs.append(p)
-        elif p.is_file():
-            files.append(p)
-            try:
-                total_size += p.stat().st_size
-            except OSError:
-                pass
-        if index % 200 == 0 or index == total:
-            print_bar(index, total, label="Skanowanie")
-
-    return PackPlan(files=files, dirs=dirs, source_total_size=total_size, excluded=excluded)
-
-
-def summarize_top_level(plan: PackPlan, root: Path, limit: int = 25) -> list[tuple[str, int, int]]:
-    stats: dict[str, list[int]] = {}
-    for file in plan.files:
-        rel = rel_posix(file, root)
-        top = rel.split("/", 1)[0]
-        item = stats.setdefault(top, [0, 0])
-        item[0] += 1
+def internal_manifest_schema(root: Path) -> str:
+    source = root / PACKAGE_INTEGRITY_MANIFEST
+    if source.is_file():
         try:
-            item[1] += file.stat().st_size
-        except OSError:
+            payload = json.loads(source.read_text(encoding="utf-8-sig"))
+            value = str(payload.get("schema_version") or "").strip()
+            if value:
+                return value
+        except Exception:
             pass
-    rows = [(name, count_size[0], count_size[1]) for name, count_size in stats.items()]
-    rows.sort(key=lambda x: (-x[1], x[0].lower()))
-    return rows[:limit]
+    return "package_integrity_manifest/v2"
 
 
-def save_preview_json(state: WizardState) -> Path:
-    require_ready_state(state)
-    assert state.plan is not None
-    assert state.source_folder is not None
-    assert state.out_dir is not None
-    out_dir = state.out_dir.resolve()
-    out_dir.mkdir(parents=True, exist_ok=True)
-    preview_path = out_dir / f"{state.archive_name}.pack_preview.json"
-    data = {
-        "created_at": now_iso(),
-        "script": Path(__file__).name,
-        "script_version": VERSION,
-        "source_folder": str(state.source_folder.resolve()),
-        "output_dir": str(out_dir),
-        "archive_name_after_join": state.archive_name,
-        "package_version": state.package_version,
-        "package_release_name": state.package_release_name,
-        "version_file": str(state.resolved_version_file) if state.resolved_version_file else None,
-        "part_size_mb": state.part_size_mb,
-        "compression_level": state.compression_level,
-        "include_empty_dirs": state.include_empty_dirs,
-        "force": state.force,
-        "pack_profile": state.pack_profile,
-        "pack_profile_label": state.profile_label(),
-        "include_prefixes": state.include_prefixes(),
-        "exclude_patterns": state.effective_excludes(),
-        "profile_default_exclude_patterns": state.profile_default_excludes(),
-        "active_default_exclude_patterns": state.active_default_excludes(),
-        "disabled_default_exclude_patterns": state.disabled_default_excludes,
-        "custom_exclude_patterns": state.custom_excludes,
-        "source_file_count": state.plan.file_count,
-        "source_dir_count": state.plan.dir_count,
-        "source_total_size_bytes": state.plan.source_total_size,
-        "excluded_count": len(state.plan.excluded),
-        "files": [rel_posix(p, state.source_folder.resolve()) for p in state.plan.files],
-        "dirs": [rel_posix(p, state.source_folder.resolve()) + "/" for p in state.plan.dirs],
-        "excluded_sample": [{"path": rel, "pattern": pat} for rel, pat in state.plan.excluded[:1000]],
+def build_internal_system_manifest(
+    root: Path,
+    version: VersionInfo,
+    entries: Sequence[PlanEntry],
+    excluded: Sequence[tuple[str, str]],
+) -> tuple[dict[str, Any], bytes]:
+    files = [
+        {
+            "path": item.relative,
+            "size_bytes": item.size_bytes,
+            "sha256": item.sha256,
+            "mutable_runtime": False,
+            "classification": "static_project_file",
+            "archive": False,
+            "hash_policy": "sha256_file_bytes",
+        }
+        for item in sorted(entries, key=lambda x: x.relative)
+    ]
+    present = {item["path"] for item in files}
+    missing = sorted(REQUIRED_SYSTEM_PATHS - present)
+    if missing:
+        raise PackError(f"Brak wymaganych plików systemowych: {missing}")
+    generated = utc_now()
+    payload: dict[str, Any] = {
+        "schema_version": internal_manifest_schema(root),
+        "version": version.full_version,
+        "runtime_version": version.full_version,
+        "package_version": version.full_version,
+        "generated_at_utc": generated,
+        "updated_at_utc": generated,
+        "start_file": "run.py",
+        "file_count": len(files),
+        "static_file_count": len(files),
+        "mutable_runtime_file_count": 0,
+        "runtime_mutable_file_count": 0,
+        "excluded_file_count": len(excluded),
+        "runtime_state_file": "RUNTIME_STATE.json",
+        "runtime_memory_split_policy": {
+            "static_manifest": "PACKAGE_INTEGRITY_MANIFEST.json protects static project files only.",
+            "runtime_state": "Runtime state, memory, SQLite and workspace_runtime are excluded.",
+        },
+        "excluded_policy": {
+            "roots": sorted(SYSTEM_FORBIDDEN_ROOTS | COMMON_FORBIDDEN_DIR_NAMES),
+            "file_names": sorted(SYSTEM_FORBIDDEN_FILE_NAMES),
+            "suffixes": sorted(set(COMMON_FORBIDDEN_SUFFIXES + SYSTEM_DATABASE_SUFFIXES + TRANSIENT_DATABASE_SUFFIXES)),
+        },
+        "truth_boundary": (
+            "The manifest hashes the exact canonical static plan. It excludes itself, Git history, memory, "
+            "runtime state, SQLite, archives, secrets, logs, backups and temporary files."
+        ),
+        "files": files,
+        "excluded_files": [path for path, _ in excluded],
+        "deferred_hash_files": [],
     }
-    preview_path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    return preview_path
+    return payload, serialize_json(payload)
 
-# =============================================================================
-# ZIP STREAMING
-# =============================================================================
+
+def build_system_plan(
+    root: Path,
+    version: VersionInfo,
+    candidates: Sequence[str],
+    excluded: list[tuple[str, str]],
+    scan_method: str,
+) -> PackPlan:
+    # Źródłowy manifest nigdy nie jest kopiowany. Zastąpi go świeży plik wirtualny.
+    candidates = [path for path in candidates if path != PACKAGE_INTEGRITY_MANIFEST]
+
+    bridge_result = source_manifest_bridge(root, candidates)
+    entries: list[PlanEntry] = []
+    if bridge_result is not None:
+        payload, manifest_bytes = bridge_result
+        manifest_files = payload.get("files")
+        if not isinstance(manifest_files, list):
+            raise PackError("Kanoniczny manifest nie zawiera listy files.")
+        candidate_set = set(candidates)
+        for item in manifest_files:
+            if not isinstance(item, dict):
+                raise PackError("Niepoprawny wpis files w kanonicznym manifeście.")
+            relative = normalize_rel(str(item.get("path") or ""))
+            if relative not in candidate_set:
+                raise PackError(f"Manifest wskazuje plik spoza zaakceptowanych kandydatów: {relative}")
+            entry = hash_source_entry(root, relative, "static_project_file")
+            expected_size = int(item.get("size_bytes", -1))
+            expected_hash = str(item.get("sha256") or "").lower()
+            if expected_size != entry.size_bytes or expected_hash != entry.sha256:
+                raise PackError(f"Manifest źródłowy rozjechał się z working tree: {relative}")
+            entries.append(entry)
+        builder = "latka_jazn.tools.package_integrity:relative_paths"
+    else:
+        total = len(candidates)
+        for index, relative in enumerate(candidates, start=1):
+            entries.append(hash_source_entry(root, relative, "static_project_file"))
+            if index % 50 == 0 or index == total:
+                print_progress(index, total, "Hash system")
+        payload, manifest_bytes = build_internal_system_manifest(root, version, entries, excluded)
+        builder = "internal_fallback"
+
+    present = {item.relative for item in entries}
+    missing = sorted(REQUIRED_SYSTEM_PATHS - present)
+    if missing:
+        raise PackError(f"Kanoniczny plan nie zawiera wymaganych plików: {missing}")
+
+    manifest_version = str(payload.get("runtime_version") or payload.get("version") or "")
+    if manifest_version != version.full_version:
+        # Dopuszczamy jedynie różnicę w wiodącym v.
+        if re.sub(r"^v", "", manifest_version, flags=re.I) != re.sub(r"^v", "", version.full_version, flags=re.I):
+            raise PackError(
+                "Wersja świeżego manifestu różni się od version.py: "
+                f"manifest={manifest_version!r}, version.py={version.full_version!r}"
+            )
+
+    entries.append(virtual_entry(PACKAGE_INTEGRITY_MANIFEST, manifest_bytes, "package_integrity_manifest"))
+    entries.sort(key=lambda x: x.relative)
+    return PackPlan(
+        root=root,
+        profile="system",
+        version=version,
+        entries=entries,
+        excluded=excluded,
+        scan_method=scan_method,
+        manifest_builder=builder,
+    )
+
+
+def build_memory_plan(
+    root: Path,
+    version: VersionInfo,
+    candidates: Sequence[str],
+    excluded: list[tuple[str, str]],
+    scan_method: str,
+) -> PackPlan:
+    candidates = [path for path in candidates if path != MEMORY_PACKAGE_MANIFEST]
+    entries: list[PlanEntry] = []
+    total = len(candidates)
+    for index, relative in enumerate(candidates, start=1):
+        entries.append(hash_source_entry(root, relative, "memory_file"))
+        if index % 20 == 0 or index == total:
+            print_progress(index, total, "Hash memory")
+
+    files = [
+        {
+            "path": item.relative,
+            "size_bytes": item.size_bytes,
+            "sha256": item.sha256,
+            "classification": item.classification,
+        }
+        for item in sorted(entries, key=lambda x: x.relative)
+    ]
+    payload = {
+        "schema_version": MEMORY_MANIFEST_SCHEMA,
+        "runtime_version": version.full_version,
+        "generated_at_utc": utc_now(),
+        "file_count": len(files),
+        "files": files,
+        "excluded_files": [path for path, _ in excluded if path.startswith("memory/")],
+        "truth_boundary": "This manifest protects memory/ files and excludes transient WAL/SHM and nested archives.",
+    }
+    entries.append(virtual_entry(MEMORY_PACKAGE_MANIFEST, serialize_json(payload), "memory_package_manifest"))
+    entries.sort(key=lambda x: x.relative)
+    return PackPlan(
+        root=root,
+        profile="memory",
+        version=version,
+        entries=entries,
+        excluded=excluded,
+        scan_method=scan_method,
+        manifest_builder="internal_memory_manifest",
+    )
+
+
+def _empty_memory_profile_error(
+    root: Path,
+    discovered: Sequence[str],
+    excluded: Sequence[tuple[str, str]],
+    scan_method: str,
+) -> PackError:
+    memory_root = root / "memory"
+    if not memory_root.exists():
+        return PackError(
+            "Profil memory wymaga katalogu memory/ w wybranym rootcie. "
+            f"Nie znaleziono: {memory_root}"
+        )
+    if not memory_root.is_dir():
+        return PackError(f"Ścieżka memory istnieje, ale nie jest katalogiem: {memory_root}")
+    reasons: dict[str, int] = {}
+    for _, reason in excluded:
+        reasons[reason] = reasons.get(reason, 0) + 1
+    reason_text = ", ".join(f"{name}={count}" for name, count in sorted(reasons.items())) or "brak"
+    return PackError(
+        "Profil memory nie znalazł plików dopuszczonych do pakowania. "
+        f"Skan={scan_method}; znaleziono surowo={len(discovered)}; wykluczenia: {reason_text}"
+    )
+
+
+def build_plan(
+    root: Path,
+    profile: str,
+    custom_excludes: Sequence[str],
+    base_excludes: Sequence[ExclusionRule] | None = None,
+) -> PackPlan:
+    root = root.expanduser().resolve()
+    if profile not in {"system", "memory", "combined"}:
+        raise PackError(f"Niepoprawny profil planu: {profile}")
+    version = read_version_info(root)
+    active_base_excludes = list(base_excludes) if base_excludes is not None else default_exclusion_rules()
+
+    if profile == "system":
+        system_candidates, system_scan_method = discover_candidates(root)
+        selected, excluded = filter_candidates(
+            system_candidates,
+            profile="system",
+            base_excludes=active_base_excludes,
+            custom_excludes=custom_excludes,
+        )
+        return build_system_plan(root, version, selected, excluded, system_scan_method)
+
+    if profile == "memory":
+        memory_candidates, memory_scan_method = discover_memory_candidates(root)
+        selected, excluded = filter_candidates(
+            memory_candidates,
+            profile="memory",
+            base_excludes=active_base_excludes,
+            custom_excludes=custom_excludes,
+        )
+        if not selected:
+            raise _empty_memory_profile_error(
+                root,
+                memory_candidates,
+                excluded,
+                memory_scan_method,
+            )
+        return build_memory_plan(root, version, selected, excluded, memory_scan_method)
+
+    # combined celowo używa dwóch źródeł kandydatów:
+    # - system: tracked + untracked non-ignored,
+    # - pamięć: bezpośredni filesystem memory/, nawet jeśli Git ją ignoruje.
+    system_candidates, system_scan_method = discover_candidates(root)
+    memory_candidates, memory_scan_method = discover_memory_candidates(root)
+    system_selected, system_excluded = filter_candidates(
+        system_candidates,
+        profile="system",
+        base_excludes=active_base_excludes,
+        custom_excludes=custom_excludes,
+    )
+    memory_selected, memory_excluded = filter_candidates(
+        memory_candidates,
+        profile="memory",
+        base_excludes=active_base_excludes,
+        custom_excludes=custom_excludes,
+    )
+    system_plan = build_system_plan(
+        root,
+        version,
+        system_selected,
+        system_excluded,
+        system_scan_method,
+    )
+    memory_plan = (
+        build_memory_plan(
+            root,
+            version,
+            memory_selected,
+            memory_excluded,
+            memory_scan_method,
+        )
+        if memory_selected
+        else None
+    )
+    entries = list(system_plan.entries)
+    if memory_plan:
+        entries.extend(memory_plan.entries)
+    seen: set[str] = set()
+    duplicates: list[str] = []
+    for item in entries:
+        if item.relative in seen:
+            duplicates.append(item.relative)
+        seen.add(item.relative)
+    if duplicates:
+        raise PackError("Duplikaty w planie combined: " + ", ".join(sorted(set(duplicates))))
+    entries.sort(key=lambda x: x.relative)
+    combined_scan_method = (
+        f"system={system_scan_method};memory={memory_scan_method}"
+    )
+    return PackPlan(
+        root=root,
+        profile="combined",
+        version=version,
+        entries=entries,
+        excluded=system_excluded + memory_excluded,
+        scan_method=combined_scan_method,
+        manifest_builder=system_plan.manifest_builder + "+memory",
+    )
+
+
+# -----------------------------------------------------------------------------
+# Zapis ZIP
+# -----------------------------------------------------------------------------
+
+
+def verify_source_unchanged(entry: PlanEntry) -> None:
+    if entry.source is None:
+        return
+    stat = entry.source.stat()
+    if stat.st_size != entry.size_bytes or stat.st_mtime_ns != entry.mtime_ns:
+        raise PackError(f"Plik zmienił się po zatwierdzeniu planu: {entry.relative}")
+
+
+def write_entry(zf: zipfile.ZipFile, entry: PlanEntry, compression_level: int) -> str:
+    verify_source_unchanged(entry)
+    digest = hashlib.sha256()
+    zi = make_zipinfo(entry, compression_level)
+    zip64_limit = int(getattr(zipfile, "ZIP64_LIMIT", (1 << 31) - 1))
+    with zf.open(zi, "w", force_zip64=entry.size_bytes >= zip64_limit) as target:
+        if entry.virtual_bytes is not None:
+            data = entry.virtual_bytes
+            for offset in range(0, len(data), CHUNK_SIZE):
+                chunk = data[offset: offset + CHUNK_SIZE]
+                digest.update(chunk)
+                target.write(chunk)
+        else:
+            assert entry.source is not None
+            with entry.source.open("rb") as source:
+                for chunk in iter(lambda: source.read(CHUNK_SIZE), b""):
+                    digest.update(chunk)
+                    target.write(chunk)
+    actual = digest.hexdigest()
+    if actual != entry.sha256:
+        raise PackError(f"Hash pliku zmienił się podczas pakowania: {entry.relative}")
+    verify_source_unchanged(entry)
+    return actual
+
+
+def write_zip_file(path: Path, entries: Sequence[PlanEntry], compression_level: int) -> None:
+    with zipfile.ZipFile(
+        path,
+        mode="x",
+        compression=zipfile.ZIP_DEFLATED,
+        compresslevel=compression_level,
+        allowZip64=True,
+        strict_timestamps=False,
+    ) as zf:
+        total = len(entries)
+        for index, entry in enumerate(entries, start=1):
+            write_entry(zf, entry, compression_level)
+            if index % 20 == 0 or index == total:
+                print_progress(index, total, "Pakowanie")
+
+
+def split_group_by_size(entries: Sequence[PlanEntry]) -> tuple[list[PlanEntry], list[PlanEntry]]:
+    total = sum(max(item.size_bytes, 1) for item in entries)
+    target = total / 2
+    current = 0
+    split_at = 1
+    for index, item in enumerate(entries[:-1], start=1):
+        current += max(item.size_bytes, 1)
+        split_at = index
+        if current >= target:
+            break
+    return list(entries[:split_at]), list(entries[split_at:])
+
+
+def initial_groups(entries: Sequence[PlanEntry], part_size: int) -> list[list[PlanEntry]]:
+    groups: list[list[PlanEntry]] = []
+    current: list[PlanEntry] = []
+    current_size = 0
+    for entry in entries:
+        estimate = entry.size_bytes + 2048
+        if current and current_size + estimate > part_size:
+            groups.append(current)
+            current = []
+            current_size = 0
+        current.append(entry)
+        current_size += estimate
+    if current:
+        groups.append(current)
+    return groups or [[]]
+
+
+def independent_volume_name(base_zip_name: str, number: int) -> str:
+    if number == 1:
+        return base_zip_name
+    stem = base_zip_name[:-4]
+    return f"{stem}.part{number:03d}.zip"
 
 
 class SplitPartWriter:
-    """Nie-seekowalny writer dla zipfile.ZipFile zapisujący .zip.001, .zip.002 itd."""
+    """Nie-seekowalny writer: jeden logiczny ZIP trafia do .001, .002..."""
 
-    def __init__(self, out_dir: Path, base_zip_name: str, part_size: int, *, force: bool = False):
-        if part_size <= 0:
-            raise ValueError("part_size musi być większy od zera")
+    def __init__(self, out_dir: Path, base_zip_name: str, part_size: int):
         self.out_dir = out_dir
-        self.base_zip_name = sanitize_zip_name(base_zip_name)
+        self.base_zip_name = base_zip_name
         self.part_size = part_size
-        self.force = force
         self.total_written = 0
-        self.current_part_no = 0
-        self.current_part_written = 0
-        self.current_file: BinaryIO | None = None
+        self.current_no = 0
+        self.current_written = 0
+        self.current: BinaryIO | None = None
         self.current_hash: Any | None = None
-        self.full_hash = hashlib.sha256()
-        self.parts: list[dict[str, object]] = []
+        self.logical_hash = hashlib.sha256()
+        self.parts: list[OutputPart] = []
         self.closed = False
-        self.out_dir.mkdir(parents=True, exist_ok=True)
-        self._check_existing_outputs()
 
     def writable(self) -> bool:
         return True
@@ -1836,122 +1385,83 @@ class SplitPartWriter:
         return self.total_written
 
     def flush(self) -> None:
-        if self.current_file:
-            self.current_file.flush()
+        if self.current:
+            self.current.flush()
+
+    def write(self, data: bytes | bytearray | memoryview) -> int:
+        if self.closed:
+            raise ValueError("write to closed SplitPartWriter")
+        view = memoryview(data)
+        offset = 0
+        while offset < len(view):
+            if self.current is None:
+                self._open_next()
+            free = self.part_size - self.current_written
+            if free <= 0:
+                self._close_current()
+                continue
+            take = min(free, len(view) - offset)
+            chunk = view[offset: offset + take]
+            assert self.current is not None and self.current_hash is not None
+            self.current.write(chunk)
+            self.current_hash.update(chunk)
+            self.logical_hash.update(chunk)
+            self.current_written += take
+            self.total_written += take
+            offset += take
+            if self.current_written >= self.part_size:
+                self._close_current()
+        return len(view)
 
     def close(self) -> None:
         if self.closed:
             return
-        self._close_current_part()
+        self._close_current()
         self.closed = True
 
-    def write(self, data) -> int:
-        if self.closed:
-            raise ValueError("zapis do zamkniętego SplitPartWriter")
-        if not data:
-            return 0
-        view = memoryview(data)
-        total_len = len(view)
-        offset = 0
-        while offset < total_len:
-            if self.current_file is None:
-                self._open_next_part()
-            free = self.part_size - self.current_part_written
-            if free <= 0:
-                self._close_current_part()
-                continue
-            take = min(free, total_len - offset)
-            chunk = view[offset: offset + take]
-            assert self.current_file is not None
-            assert self.current_hash is not None
-            self.current_file.write(chunk)
-            self.current_hash.update(chunk)
-            self.full_hash.update(chunk)
-            self.current_part_written += take
-            self.total_written += take
-            offset += take
-            if self.current_part_written >= self.part_size:
-                self._close_current_part()
-        return total_len
-
-    def _part_path(self, no: int) -> Path:
-        return self.out_dir / f"{self.base_zip_name}.{no:03d}"
-
-    def _known_output_paths(self) -> list[Path]:
-        patterns = [
-            f"{self.base_zip_name}.*",
-            f"{self.base_zip_name}.parts.sha256",
-            f"{self.base_zip_name}.sha256",
-            f"{self.base_zip_name}.source_files.sha256",
-            f"{self.base_zip_name}.manifest.json",
-            f"{self.base_zip_name}.join.ps1",
-            f"{self.base_zip_name}.pack_preview.json",
-        ]
-        paths: list[Path] = []
-        for pat in patterns:
-            paths.extend(self.out_dir.glob(pat))
-        return sorted(set(paths))
-
-    def _check_existing_outputs(self) -> None:
-        existing = self._known_output_paths()
-        if not existing:
-            return
-        if not self.force:
-            sample = "\n".join(f"  - {p}" for p in existing[:20])
-            more = "" if len(existing) <= 20 else f"\n  ... oraz {len(existing) - 20} więcej"
-            raise FileExistsError(
-                "Znaleziono wcześniejsze pliki wyjściowe. Włącz force albo zmień nazwę/folder wyjściowy.\n"
-                + sample + more
-            )
-        for p in existing:
-            if p.is_file():
-                p.unlink()
-
-    def _open_next_part(self) -> None:
-        self.current_part_no += 1
-        self.current_part_written = 0
-        part_path = self._part_path(self.current_part_no)
-        self.current_file = part_path.open("xb")
+    def _open_next(self) -> None:
+        self.current_no += 1
+        self.current_written = 0
+        path = self.out_dir / f"{self.base_zip_name}.{self.current_no:03d}"
+        self.current = path.open("xb")
         self.current_hash = hashlib.sha256()
 
-    def _close_current_part(self) -> None:
-        if self.current_file is None:
+    def _close_current(self) -> None:
+        if self.current is None:
             return
-        self.current_file.flush()
-        self.current_file.close()
+        self.current.flush()
+        self.current.close()
         assert self.current_hash is not None
-        part_path = self._part_path(self.current_part_no)
-        size = part_path.stat().st_size
-        self.parts.append({
-            "part_no": self.current_part_no,
-            "filename": part_path.name,
-            "size_bytes": size,
-            "sha256": self.current_hash.hexdigest(),
-        })
-        self.current_file = None
+        path = self.out_dir / f"{self.base_zip_name}.{self.current_no:03d}"
+        self.parts.append(OutputPart(
+            filename=path.name,
+            size_bytes=path.stat().st_size,
+            sha256=self.current_hash.hexdigest(),
+            part_no=self.current_no,
+            is_complete_zip=False,
+        ))
+        self.current = None
         self.current_hash = None
-        self.current_part_written = 0
+        self.current_written = 0
 
 
 class SplitPartsReader:
-    """Seekowalny, tylko-do-odczytu widok wielu części jako jednego pliku ZIP.
+    """Seekowalny czytnik logicznego pliku z kolejnych części binarnych."""
 
-    Pozwala `zipfile.ZipFile` otworzyć i w pełni przetestować dzielone archiwum
-    bez tworzenia tymczasowego pełnego ZIP-a na dysku.
-    """
-
-    def __init__(self, paths: list[Path]):
+    def __init__(self, paths: Sequence[Path]):
         if not paths:
-            raise ValueError("Brak części do odczytu")
-        self.paths = [Path(path).resolve() for path in paths]
+            raise PackError("Brak części binarnych.")
+        self.paths = list(paths)
         self.sizes = [path.stat().st_size for path in self.paths]
-        self.offsets = [0]
+        self.ends: list[int] = []
+        total = 0
         for size in self.sizes:
-            self.offsets.append(self.offsets[-1] + size)
-        self.total_size = self.offsets[-1]
+            total += size
+            self.ends.append(total)
+        self.total_size = total
         self.position = 0
-        self._handle: BinaryIO | None = None
-        self._handle_index = -1
+        self.handle: BinaryIO | None = None
+        self.handle_index = -1
         self.closed = False
 
     def readable(self) -> bool:
@@ -1967,11098 +1477,3761 @@ class SplitPartsReader:
         return self.position
 
     def seek(self, offset: int, whence: int = os.SEEK_SET) -> int:
-        if self.closed:
-            raise ValueError("operacja na zamkniętym czytniku")
         if whence == os.SEEK_SET:
-            target = offset
+            position = offset
         elif whence == os.SEEK_CUR:
-            target = self.position + offset
+            position = self.position + offset
         elif whence == os.SEEK_END:
-            target = self.total_size + offset
+            position = self.total_size + offset
         else:
-            raise ValueError(f"Nieobsługiwany whence: {whence}")
-        if target < 0:
-            raise ValueError("ujemna pozycja seek")
-        self.position = min(target, self.total_size)
+            raise ValueError("invalid whence")
+        if position < 0:
+            raise ValueError("negative seek position")
+        self.position = min(position, self.total_size)
         return self.position
 
-    def _open_part(self, index: int) -> BinaryIO:
-        if self._handle is not None and self._handle_index == index:
-            return self._handle
-        if self._handle is not None:
-            self._handle.close()
-        self._handle = self.paths[index].open("rb")
-        self._handle_index = index
-        return self._handle
-
     def read(self, size: int = -1) -> bytes:
-        if self.closed:
-            raise ValueError("operacja na zamkniętym czytniku")
-        if self.position >= self.total_size:
+        if self.closed or self.position >= self.total_size:
             return b""
         remaining = self.total_size - self.position if size is None or size < 0 else min(size, self.total_size - self.position)
         chunks: list[bytes] = []
-        while remaining > 0 and self.position < self.total_size:
-            index = bisect.bisect_right(self.offsets, self.position) - 1
-            index = min(max(index, 0), len(self.paths) - 1)
-            local_offset = self.position - self.offsets[index]
+        while remaining > 0:
+            index = bisect.bisect_right(self.ends, self.position)
+            start = 0 if index == 0 else self.ends[index - 1]
+            local_offset = self.position - start
             available = self.sizes[index] - local_offset
             take = min(remaining, available)
-            handle = self._open_part(index)
+            handle = self._handle_for(index)
             handle.seek(local_offset)
             chunk = handle.read(take)
             if not chunk:
-                raise OSError(f"Nieoczekiwany koniec części: {self.paths[index]}")
+                break
             chunks.append(chunk)
             self.position += len(chunk)
             remaining -= len(chunk)
         return b"".join(chunks)
 
+    def _handle_for(self, index: int) -> BinaryIO:
+        if self.handle_index != index:
+            if self.handle:
+                self.handle.close()
+            self.handle = self.paths[index].open("rb")
+            self.handle_index = index
+        assert self.handle is not None
+        return self.handle
+
     def close(self) -> None:
-        if self._handle is not None:
-            self._handle.close()
-            self._handle = None
+        if self.handle:
+            self.handle.close()
+        self.handle = None
         self.closed = True
 
-    def __enter__(self):
+    def __enter__(self) -> "SplitPartsReader":
         return self
 
-    def __exit__(self, exc_type, exc, tb):
+    def __exit__(self, exc_type, exc, tb) -> None:
         self.close()
-        return False
 
 
-def normalize_artifact_mode(value: str | None) -> str:
-    mode = str(value or DEFAULT_ARTIFACT_MODE).strip().lower()
-    aliases = {
-        "parts": "parts_only",
-        "parts-only": "parts_only",
-        "minimal": "parts_only",
-        "all": "diagnostic",
-        "full": "diagnostic",
-        "sidecars": "diagnostic",
-    }
-    mode = aliases.get(mode, mode)
-    if mode not in ARTIFACT_MODES:
-        raise ValueError(f"Nieznany tryb plików dodatkowych: {value!r}")
-    return mode
-
-
-def cleanup_archive_outputs(out_dir: Path, archive_name: str) -> None:
-    """Usuwa artefakty wskazanego archiwum po nieudanej operacji.
-
-    Obsługuje nowy format `<nazwa>.zip`, `<nazwa>.part002.zip`, ... oraz
-    dawne binarne części `<nazwa>.zip.001`, `.002`, ... .
-    """
-    out_dir = Path(out_dir).resolve()
-    archive_name = sanitize_zip_name(archive_name)
-    stem = archive_name[:-4]
-    candidates: set[Path] = set()
-    for pattern in (
-        archive_name,
-        f"{stem}.part[0-9][0-9][0-9].zip",
-        f"{archive_name}.*",
-        f"{stem}.package-set.sha256",
-        f"{stem}.extract_all.py",
-    ):
-        candidates.update(out_dir.glob(pattern))
-    for path in sorted(candidates):
-        try:
-            if path.is_file():
-                path.unlink()
-        except OSError:
-            pass
-
-
-def verify_generated_split_archive(
-    out_dir: Path,
-    archive_name: str,
-    parts: list[dict[str, object]],
-    *,
-    expected_full_sha256: str,
-    run_crc: bool = True,
-) -> dict[str, object]:
-    """Pełna weryfikacja wygenerowanych części bez zapisywania pełnego ZIP-a."""
-    archive_name = sanitize_zip_name(archive_name)
-    if not parts:
-        raise ValueError("Generator nie utworzył żadnej części ZIP")
-
-    paths: list[Path] = []
-    full_hash = hashlib.sha256()
-    total_size = 0
-    for expected_no, item in enumerate(parts, start=1):
-        filename = str(item.get("filename") or "")
-        if not filename.endswith(f".{expected_no:03d}"):
-            raise ValueError(f"Nieciągła numeracja części: {filename}")
-        path = out_dir / filename
-        if not path.exists() or not path.is_file():
-            raise FileNotFoundError(f"Brak wygenerowanej części: {path}")
-        actual_size = path.stat().st_size
-        expected_size = int(item.get("size_bytes") or 0)
-        if actual_size != expected_size:
-            raise ValueError(f"Zły rozmiar części {filename}: {actual_size}, oczekiwano {expected_size}")
-        part_hash = hashlib.sha256()
-        with path.open("rb") as handle:
-            while True:
-                chunk = handle.read(8 * 1024 * 1024)
-                if not chunk:
-                    break
-                part_hash.update(chunk)
-                full_hash.update(chunk)
-        actual_part_sha = part_hash.hexdigest()
-        expected_part_sha = str(item.get("sha256") or "").lower()
-        if actual_part_sha != expected_part_sha:
-            raise ValueError(f"Zły SHA256 części {filename}: {actual_part_sha}, oczekiwano {expected_part_sha}")
-        paths.append(path)
-        total_size += actual_size
-
-    actual_full_sha = full_hash.hexdigest()
-    if actual_full_sha != expected_full_sha256.lower():
-        raise ValueError(f"Zły SHA256 logicznego ZIP-a: {actual_full_sha}, oczekiwano {expected_full_sha256}")
-
-    with SplitPartsReader(paths) as reader:
-        with zipfile.ZipFile(reader, "r") as zf:
-            validate_zip_member_names(zf)
-            entries = len(zf.infolist())
-            if run_crc:
-                bad = zf.testzip()
-                if bad:
-                    raise ValueError(f"Błędny CRC/header wpisu ZIP: {bad}")
-
-    return {
-        "ok": True,
-        "archive_name": archive_name,
-        "parts_count": len(paths),
-        "logical_zip_size_bytes": total_size,
-        "logical_zip_sha256": actual_full_sha,
-        "entries": entries,
-        "crc_tested": bool(run_crc),
-    }
-
-
-class Utf8ZipInfo(zipfile.ZipInfo):
-    """ZipInfo wymuszający UTF-8 w lokalnym nagłówku i central directory.
-
-    Python zwykle sam ustawia flagę UTF-8 dla nazw spoza ASCII, ale przy
-    strumieniowym zapisie dużych paczek i testach narzędziami Info-ZIP
-    bezpieczniej wymusić identyczne kodowanie nazwy w obu miejscach ZIP-a.
-    To ogranicza ostrzeżenia typu: mismatching local filename / central filename.
-    """
-
-    def _encodeFilenameFlags(self):  # type: ignore[override]
-        return self.filename.encode("utf-8"), self.flag_bits | 0x800
-
-def make_zipinfo_for_file(src: Path, arcname: str, compression: int, compresslevel: int) -> zipfile.ZipInfo:
-    zi = Utf8ZipInfo(arcname, date_time=safe_zip_datetime(src))
-    zi.compress_type = compression
-    for attr_name in ("compress_level", "_compresslevel"):
-        try:
-            setattr(zi, attr_name, compresslevel)
-        except Exception:
-            pass
-    try:
-        mode = src.stat().st_mode
-        zi.external_attr = (mode & 0xFFFF) << 16
-        if os.name == "nt":
-            zi.external_attr |= 0x20
-    except OSError:
-        pass
-    return zi
-
-
-def make_zipinfo_for_dir(src: Path, arcname: str) -> zipfile.ZipInfo:
-    if not arcname.endswith("/"):
-        arcname += "/"
-    zi = Utf8ZipInfo(arcname, date_time=safe_zip_datetime(src))
-    zi.external_attr = ((src.stat().st_mode if src.exists() else 0o40755) & 0xFFFF) << 16 | 0x10
-    zi.compress_type = zipfile.ZIP_STORED
-    return zi
-
-
-def write_join_script(out_dir: Path, base_zip_name: str) -> None:
-    base_zip_name = sanitize_zip_name(base_zip_name)
-    ps1 = out_dir / f"{base_zip_name}.join.ps1"
-    content = rf'''# Łączy części {base_zip_name}.001, {base_zip_name}.002, ... w pełny ZIP.
-# Uruchom w PowerShell w tym samym folderze co części:
-#   powershell -ExecutionPolicy Bypass -File .\{base_zip_name}.join.ps1
-#
-# Skrypt weryfikuje pliki kontrolne, jeżeli są obok części:
-#   {base_zip_name}.manifest.json
-#   {base_zip_name}.parts.sha256
-#   {base_zip_name}.sha256
-#
-# Opcje:
-#   -SkipPartHash       pomija SHA256 pojedynczych części, ale nadal sprawdza kompletność i pełny ZIP
-#   -KeepExisting       nie usuwa istniejącego pełnego ZIP-a; przerwie pracę, jeśli plik już istnieje
-#   -DotNetZipCheck     po sklejeniu sprawdza, czy .NET umie otworzyć central directory ZIP-a
-#   -PythonZipTest      uruchamia: python -X utf8 -m zipfile -t <pełny ZIP>
-#   -PythonExtract      uruchamia obok wygenerowany .extract_here.py i rozpakowuje do -Destination
-#   -Destination        domyślnie /mnt/data/jazn_runtime_current dla środowiska ChatGPT
-
-param(
-    [switch]$SkipPartHash,
-    [switch]$KeepExisting,
-    [switch]$DotNetZipCheck,
-    [switch]$PythonZipTest,
-    [switch]$PythonExtract,
-    [string]$Destination = "/mnt/data/jazn_runtime_current"
-)
-
-$ErrorActionPreference = "Stop"
-$ProgressPreference = "SilentlyContinue"
-$base = "{base_zip_name}"
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-if (-not $scriptDir) {{ $scriptDir = (Get-Location).Path }}
-Set-Location -LiteralPath $scriptDir
-
-$swTotal = [System.Diagnostics.Stopwatch]::StartNew()
-$manifestPath = Join-Path $scriptDir "$base.manifest.json"
-$partsHashPath = Join-Path $scriptDir "$base.parts.sha256"
-$fullHashPath = Join-Path $scriptDir "$base.sha256"
-$outPath = Join-Path $scriptDir $base
-$extractHelperPath = Join-Path $scriptDir "$base.extract_here.py"
-
-function Get-PythonCommand {{
-    foreach ($candidate in @("py", "python", "python3")) {{
-        $cmd = Get-Command $candidate -ErrorAction SilentlyContinue
-        if ($cmd) {{ return $cmd.Source }}
-    }}
-    throw "Nie znaleziono Pythona: py/python/python3. Bez niego PS1 może skleić ZIP, ale nie wykona PythonZipTest/PythonExtract."
-}}
-
-function Invoke-PythonChecked([string[]]$Arguments) {{
-    $python = Get-PythonCommand
-    & $python @Arguments
-    if ($LASTEXITCODE -ne 0) {{ throw ("Python zakonczyl sie kodem {{0}}: {{1}} {{2}}" -f $LASTEXITCODE, $python, ($Arguments -join ' ')) }}
-}}
-
-function Read-ShaFile([string]$Path) {{
-    $items = @()
-    if (-not (Test-Path -LiteralPath $Path)) {{ return $items }}
-    foreach ($line in Get-Content -LiteralPath $Path -Encoding UTF8) {{
-        $raw = [string]$line
-        if (-not $raw.Trim()) {{ continue }}
-        if ($raw.TrimStart().StartsWith('#')) {{ continue }}
-        if ($raw -match '^([0-9a-fA-F]{{64}})\s+\*?(.+)$') {{
-            $items += [pscustomobject]@{{ sha256 = $Matches[1].ToLowerInvariant(); filename = $Matches[2].Trim() }}
-        }}
-    }}
-    return $items
-}}
-
-$expectedParts = @()
-$expectedFullSha = $null
-$source = "glob"
-
-if (Test-Path -LiteralPath $manifestPath) {{
-    $source = "manifest"
-    $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    $expectedFullSha = ([string]$manifest.logical_full_zip_sha256).ToLowerInvariant()
-    foreach ($p in @($manifest.parts)) {{
-        $expectedParts += [pscustomobject]@{{
-            part_no = [int]$p.part_no
-            filename = [string]$p.filename
-            size_bytes = [int64]$p.size_bytes
-            sha256 = ([string]$p.sha256).ToLowerInvariant()
-        }}
-    }}
-}} elseif (Test-Path -LiteralPath $partsHashPath) {{
-    $source = "parts.sha256"
-    $n = 0
-    foreach ($p in Read-ShaFile $partsHashPath) {{
-        $n += 1
-        $expectedParts += [pscustomobject]@{{
-            part_no = $n
-            filename = [string]$p.filename
-            size_bytes = $null
-            sha256 = ([string]$p.sha256).ToLowerInvariant()
-        }}
-    }}
-}}
-
-if (-not $expectedParts -or $expectedParts.Count -eq 0) {{
-    $source = "glob"
-    $found = Get-ChildItem -LiteralPath $scriptDir -File | Where-Object {{ $_.Name -match ('^' + [regex]::Escape($base) + '\.\d{{3}}$') }} | Sort-Object Name
-    $n = 0
-    foreach ($f in $found) {{
-        $n += 1
-        $expectedParts += [pscustomobject]@{{
-            part_no = $n
-            filename = $f.Name
-            size_bytes = $null
-            sha256 = $null
-        }}
-    }}
-}}
-
-if (-not $expectedParts -or $expectedParts.Count -eq 0) {{ throw "Brak części dla $base" }}
-$expectedParts = @($expectedParts | Sort-Object part_no)
-
-for ($i = 0; $i -lt $expectedParts.Count; $i++) {{
-    $expectedNo = $i + 1
-    $expectedSuffix = ('{{0:d3}}' -f $expectedNo)
-    if ($expectedParts[$i].filename -notmatch ('\.' + $expectedSuffix + '$')) {{
-        throw "Nieciągła albo błędna kolejność części: oczekiwano .$expectedSuffix, a jest $($expectedParts[$i].filename)"
-    }}
-}}
-
-$expectedNames = @{{}}
-foreach ($p in $expectedParts) {{ $expectedNames[$p.filename] = $true }}
-$extraParts = Get-ChildItem -LiteralPath $scriptDir -File | Where-Object {{
-    $_.Name -match ('^' + [regex]::Escape($base) + '\.\d{{3}}$') -and -not $expectedNames.ContainsKey($_.Name)
-}}
-if ($extraParts.Count -gt 0) {{
-    $names = ($extraParts | Select-Object -ExpandProperty Name) -join ', '
-    throw "Znaleziono dodatkowe części nieujęte w manifeście/hashach: $names"
-}}
-
-Write-Host "Źródło listy części: $source"
-Write-Host "Części oczekiwane: $($expectedParts.Count)"
-
-$sw = [System.Diagnostics.Stopwatch]::StartNew()
-foreach ($p in $expectedParts) {{
-    $partPath = Join-Path $scriptDir $p.filename
-    if (-not (Test-Path -LiteralPath $partPath)) {{ throw "Brak części: $($p.filename)" }}
-    $file = Get-Item -LiteralPath $partPath
-    if ($null -ne $p.size_bytes -and [int64]$p.size_bytes -ne [int64]$file.Length) {{
-        throw "Zły rozmiar części $($p.filename): jest $($file.Length), oczekiwano $($p.size_bytes)"
-    }}
-    if (-not $SkipPartHash -and $p.sha256) {{
-        $actual = (Get-FileHash -LiteralPath $partPath -Algorithm SHA256).Hash.ToLowerInvariant()
-        if ($actual -ne $p.sha256) {{ throw "Zły SHA256 części $($p.filename): $actual, oczekiwano $($p.sha256)" }}
-    }}
-}}
-$sw.Stop()
-Write-Host ("Weryfikacja części OK: {{0:n3}} s" -f $sw.Elapsed.TotalSeconds)
-
-if (Test-Path -LiteralPath $fullHashPath) {{
-    $fromShaFile = @(Read-ShaFile $fullHashPath)
-    if ($fromShaFile.Count -gt 0 -and -not $expectedFullSha) {{
-        $expectedFullSha = ([string]$fromShaFile[0].sha256).ToLowerInvariant()
-    }}
-}}
-
-if (Test-Path -LiteralPath $outPath) {{
-    if ($KeepExisting) {{ throw "Pełny ZIP już istnieje: $outPath" }}
-    Remove-Item -LiteralPath $outPath -Force
-}}
-
-$sw = [System.Diagnostics.Stopwatch]::StartNew()
-$bufferSize = 8 * 1024 * 1024
-$target = [System.IO.File]::Open($outPath, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
-try {{
-    foreach ($p in $expectedParts) {{
-        Write-Host "Dodaję $($p.filename)..."
-        $partPath = Join-Path $scriptDir $p.filename
-        $src = [System.IO.File]::Open($partPath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
-        try {{ $src.CopyTo($target, $bufferSize) }} finally {{ $src.Dispose() }}
-    }}
-}} finally {{
-    $target.Dispose()
-}}
-$sw.Stop()
-Write-Host ("Sklejanie OK: {{0:n3}} s" -f $sw.Elapsed.TotalSeconds)
-
-if ($expectedFullSha) {{
-    $sw = [System.Diagnostics.Stopwatch]::StartNew()
-    $actualFullSha = (Get-FileHash -LiteralPath $outPath -Algorithm SHA256).Hash.ToLowerInvariant()
-    $sw.Stop()
-    if ($actualFullSha -ne $expectedFullSha) {{
-        throw "Zły SHA256 pełnego ZIP-a: $actualFullSha, oczekiwano $expectedFullSha"
-    }}
-    Write-Host ("SHA256 pełnego ZIP-a OK: {{0:n3}} s" -f $sw.Elapsed.TotalSeconds)
-}} else {{
-    Write-Host "UWAGA: brak oczekiwanego SHA256 pełnego ZIP-a; pomijam porównanie."
-}}
-
-if ($DotNetZipCheck) {{
-    $sw = [System.Diagnostics.Stopwatch]::StartNew()
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
-    $zip = [System.IO.Compression.ZipFile]::OpenRead($outPath)
-    try {{
-        Write-Host "Central directory OK; wpisów ZIP: $($zip.Entries.Count)"
-    }} finally {{
-        $zip.Dispose()
-    }}
-    $sw.Stop()
-    Write-Host ("Test .NET central directory OK: {{0:n3}} s" -f $sw.Elapsed.TotalSeconds)
-}}
-
-if ($PythonZipTest) {{
-    $sw = [System.Diagnostics.Stopwatch]::StartNew()
-    Invoke-PythonChecked @("-X", "utf8", "-m", "zipfile", "-t", $outPath)
-    $sw.Stop()
-    Write-Host ("Python zipfile -t OK: {{0:n3}} s" -f $sw.Elapsed.TotalSeconds)
-}}
-
-if ($PythonExtract) {{
-    if (-not (Test-Path -LiteralPath $extractHelperPath)) {{ throw "Brak helpera rozpakowania: $extractHelperPath" }}
-    $sw = [System.Diagnostics.Stopwatch]::StartNew()
-    Invoke-PythonChecked @("-X", "utf8", $extractHelperPath, "--parts-dir", $scriptDir, "--destination", $Destination, "--keep-existing-zip", "--force")
-    $sw.Stop()
-    Write-Host ("Python extract_here OK: {{0:n3}} s" -f $sw.Elapsed.TotalSeconds)
-}}
-
-$swTotal.Stop()
-Write-Host "Gotowe: $outPath"
-Write-Host ("Czas łączny: {{0:n3}} s" -f $swTotal.Elapsed.TotalSeconds)
-Write-Host "Do pełnego testu CRC/rozpakowania dużych paczek z polskimi znakami najlepiej użyj Python zipfile albo helpera v5, np.:"
-Write-Host "  py -X utf8 -m zipfile -t .\$base"
-Write-Host "  py -X utf8 .\$base.extract_here.py --destination /mnt/data/jazn_runtime_current"
-'''
-    ps1.write_text(content, encoding="utf-8-sig")
-
-
-def write_extract_here_script(out_dir: Path, base_zip_name: str) -> None:
-    """Tworzy pomocniczy skrypt Pythona do walidacji i rozpakowania paczki w /mnt/data."""
-    base_zip_name = sanitize_zip_name(base_zip_name)
-    helper = out_dir / f"{base_zip_name}.extract_here.py"
-    template = r"""#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-# Validate, join, test and extract split Jaźń ZIP parts.
-# Default destination is /mnt/data/jazn_runtime_current for ChatGPT sandbox/container runtime.
-# The script refuses unsafe ZIP paths before extraction.
-from __future__ import annotations
-
-import argparse
-import hashlib
-import json
-import os
-import shutil
-import time
-import zipfile
-from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
-
-BASE_ZIP_NAME = __BASE_ZIP_NAME__
-CHUNK_SIZE = 8 * 1024 * 1024
-
-@dataclass
-class ExpectedPart:
-    part_no: int
-    filename: str
-    size_bytes: int | None
-    sha256: str | None
-
-def sha256_file(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open('rb') as f:
-        while True:
-            b = f.read(CHUNK_SIZE)
-            if not b:
-                break
-            h.update(b)
-    return h.hexdigest()
-
-def parse_sha_file(path: Path) -> list[tuple[str, str]]:
-    rows: list[tuple[str, str]] = []
-    if not path.exists():
-        return rows
-    for line in path.read_text(encoding='utf-8-sig').splitlines():
-        raw = line.strip()
-        if not raw or raw.startswith('#'):
-            continue
-        parts = raw.split(maxsplit=1)
-        if len(parts) != 2 or len(parts[0]) != 64:
-            continue
-        rows.append((parts[0].lower(), parts[1].lstrip('*').strip()))
-    return rows
-
-def load_expectations(parts_dir: Path) -> tuple[list[ExpectedPart], str | None, str]:
-    manifest_path = parts_dir / (BASE_ZIP_NAME + '.manifest.json')
-    parts_sha_path = parts_dir / (BASE_ZIP_NAME + '.parts.sha256')
-    full_sha_path = parts_dir / (BASE_ZIP_NAME + '.sha256')
-    expected: list[ExpectedPart] = []
-    full_sha: str | None = None
-    source = 'glob'
-    if manifest_path.exists():
-        source = 'manifest'
-        data = json.loads(manifest_path.read_text(encoding='utf-8-sig'))
-        full_sha = str(data.get('logical_full_zip_sha256') or '').lower() or None
-        for item in data.get('parts') or []:
-            expected.append(ExpectedPart(int(item['part_no']), str(item['filename']), int(item['size_bytes']) if item.get('size_bytes') is not None else None, str(item.get('sha256') or '').lower() or None))
-    elif parts_sha_path.exists():
-        source = 'parts.sha256'
-        for no, (digest, filename) in enumerate(parse_sha_file(parts_sha_path), start=1):
-            expected.append(ExpectedPart(no, filename, None, digest))
-    if not full_sha and full_sha_path.exists():
-        rows = parse_sha_file(full_sha_path)
-        if rows:
-            full_sha = rows[0][0]
-    if not expected:
-        found = sorted(parts_dir.glob(BASE_ZIP_NAME + '.[0-9][0-9][0-9]'))
-        for no, path in enumerate(found, start=1):
-            expected.append(ExpectedPart(no, path.name, None, None))
-    expected.sort(key=lambda p: p.part_no)
-    return expected, full_sha, source
-
-def validate_parts(parts_dir: Path, expected: list[ExpectedPart], *, skip_part_hash: bool) -> None:
-    if not expected:
-        raise SystemExit('Brak części ZIP.')
-    expected_names = {p.filename for p in expected}
-    extra = sorted(p.name for p in parts_dir.glob(BASE_ZIP_NAME + '.[0-9][0-9][0-9]') if p.name not in expected_names)
-    if extra:
-        raise SystemExit('Dodatkowe części nieujęte w manifeście/hashach: ' + ', '.join(extra))
-    for idx, part in enumerate(expected, start=1):
-        suffix = f'.{idx:03d}'
-        if not part.filename.endswith(suffix):
-            raise SystemExit(f'Nieciągła kolejność części: oczekiwano {suffix}, jest {part.filename}')
-        path = parts_dir / part.filename
-        if not path.exists():
-            raise SystemExit(f'Brak części: {part.filename}')
-        if part.size_bytes is not None and path.stat().st_size != part.size_bytes:
-            raise SystemExit(f'Zły rozmiar części {part.filename}: jest {path.stat().st_size}, oczekiwano {part.size_bytes}')
-        if part.sha256 and not skip_part_hash:
-            actual = sha256_file(path)
-            if actual != part.sha256:
-                raise SystemExit(f'Zły SHA256 części {part.filename}: {actual}, oczekiwano {part.sha256}')
-
-def join_parts(parts_dir: Path, expected: list[ExpectedPart], out_zip: Path, *, keep_existing: bool) -> None:
-    if out_zip.exists():
-        if keep_existing:
-            return
-        out_zip.unlink()
-    tmp = out_zip.with_suffix(out_zip.suffix + '.joining.tmp')
-    if tmp.exists():
-        tmp.unlink()
-    with tmp.open('xb') as target:
-        for part in expected:
-            with (parts_dir / part.filename).open('rb') as src:
-                shutil.copyfileobj(src, target, length=CHUNK_SIZE)
-    os.replace(tmp, out_zip)
-
-def unsafe_zip_name(name: str) -> str | None:
-    p = PurePosixPath(name.replace('\\', '/'))
-    if name.startswith(('/', '\\')):
-        return 'absolute path'
-    if len(name) >= 2 and name[1] == ':':
-        return 'drive path'
-    if any(part == '..' for part in p.parts):
-        return 'parent traversal'
-    if '\x00' in name:
-        return 'NUL byte'
-    return None
-
-def validate_zip_paths(zf: zipfile.ZipFile) -> None:
-    bad = []
-    for info in zf.infolist():
-        reason = unsafe_zip_name(info.filename)
-        if reason:
-            bad.append(f'{info.filename!r}: {reason}')
-    if bad:
-        raise SystemExit('ZIP zawiera niebezpieczne ścieżki:\n' + '\n'.join(bad[:20]))
-
-def extract_zip(out_zip: Path, destination: Path, *, force: bool, clean: bool) -> None:
-    destination = destination.resolve()
-    dangerous_clean_targets = {Path('/').resolve(), Path('/mnt').resolve(), Path('/mnt/data').resolve()}
-    if clean and destination in dangerous_clean_targets:
-        raise SystemExit(f'Odmawiam --clean dla zbyt szerokiego celu: {destination}')
-    if destination.exists():
-        if clean:
-            shutil.rmtree(destination)
-        elif not force:
-            raise SystemExit(f'Folder docelowy już istnieje: {destination}\nUżyj --force albo --clean.')
-    destination.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(out_zip, 'r') as zf:
-        validate_zip_paths(zf)
-        zf.extractall(destination)
-
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description='Validate, join, test and extract Jaźń ZIP parts.')
-    parser.add_argument('--parts-dir', default=str(Path(__file__).resolve().parent), help='Folder with .zip.001 parts and sidecar hash/manifest files.')
-    parser.add_argument('--destination', default='/mnt/data/jazn_runtime_current', help='Extraction destination. Default: /mnt/data/jazn_runtime_current')
-    parser.add_argument('--zip-out', default='', help='Full ZIP path. Default: <parts-dir>/<base zip name>.')
-    parser.add_argument('--skip-part-hash', action='store_true')
-    parser.add_argument('--skip-testzip', action='store_true')
-    parser.add_argument('--join-only', action='store_true')
-    parser.add_argument('--keep-existing-zip', action='store_true')
-    parser.add_argument('--force', action='store_true', help='Allow extracting into existing destination.')
-    parser.add_argument('--clean', action='store_true', help='Delete destination first. Refuses /, /mnt and /mnt/data.')
-    args = parser.parse_args(argv)
-    t0 = time.perf_counter()
-    parts_dir = Path(args.parts_dir).expanduser().resolve()
-    out_zip = Path(args.zip_out).expanduser().resolve() if args.zip_out else parts_dir / BASE_ZIP_NAME
-    expected, expected_full_sha, source = load_expectations(parts_dir)
-    print(f'Źródło listy części: {source}')
-    print(f'Części oczekiwane: {len(expected)}')
-    step = time.perf_counter()
-    validate_parts(parts_dir, expected, skip_part_hash=args.skip_part_hash)
-    print(f'Weryfikacja części OK: {time.perf_counter() - step:.3f} s')
-    step = time.perf_counter()
-    join_parts(parts_dir, expected, out_zip, keep_existing=args.keep_existing_zip)
-    print(f'Sklejanie OK: {time.perf_counter() - step:.3f} s')
-    if expected_full_sha:
-        step = time.perf_counter()
-        actual = sha256_file(out_zip)
-        if actual != expected_full_sha:
-            raise SystemExit(f'Zły SHA256 pełnego ZIP-a: {actual}, oczekiwano {expected_full_sha}')
-        print(f'SHA256 pełnego ZIP-a OK: {time.perf_counter() - step:.3f} s')
-    with zipfile.ZipFile(out_zip, 'r') as zf:
-        validate_zip_paths(zf)
-        print(f'Central directory OK; wpisów ZIP: {len(zf.infolist())}')
-        if not args.skip_testzip:
-            step = time.perf_counter()
-            bad = zf.testzip()
-            if bad:
-                raise SystemExit(f'Błędny CRC/header wpisu ZIP: {bad}')
-            print(f'Pełny test CRC zipfile.testzip OK: {time.perf_counter() - step:.3f} s')
-    if not args.join_only:
-        step = time.perf_counter()
-        extract_zip(out_zip, Path(args.destination), force=args.force, clean=args.clean)
-        print(f'Rozpakowanie OK: {time.perf_counter() - step:.3f} s')
-        print(f'Cel: {Path(args.destination).expanduser().resolve()}')
-    print(f'Czas łączny: {time.perf_counter() - t0:.3f} s')
-    return 0
-
-if __name__ == '__main__':
-    raise SystemExit(main())
-"""
-    content = template.replace("__BASE_ZIP_NAME__", repr(base_zip_name))
-    helper.write_text(content, encoding="utf-8")
-
-
-
-@dataclass(slots=True)
-class PackagePartExpectation:
-    part_no: int
-    filename: str
-    size_bytes: int | None = None
-    sha256: str | None = None
-
-
-def parse_sha256sum_file(path: Path) -> list[tuple[str, str]]:
-    """Czyta prosty plik SHA256SUMS: `<hash>  <filename>`."""
-    rows: list[tuple[str, str]] = []
-    if not path.exists() or not path.is_file():
-        return rows
-    for line in path.read_text(encoding="utf-8-sig").splitlines():
-        raw = line.strip()
-        if not raw or raw.startswith("#"):
-            continue
-        match = re.match(r"^([0-9a-fA-F]{64})\s+\*?(.+)$", raw)
-        if not match:
-            continue
-        rows.append((match.group(1).lower(), match.group(2).strip()))
-    return rows
-
-
-def sha256_file(path: Path, *, chunk_size: int = 8 * 1024 * 1024) -> str:
-    """Zwraca SHA256 pliku bez ładowania go w całości do pamięci."""
-    h = hashlib.sha256()
-    with path.open("rb") as handle:
-        while True:
-            chunk = handle.read(chunk_size)
-            if not chunk:
-                break
-            h.update(chunk)
-    return h.hexdigest()
-
-
-def infer_base_zip_name(parts_dir: Path, base_zip_name: str | None = None) -> str:
-    """Ustala nazwę pełnego ZIP-a na podstawie argumentu albo plików sidecar."""
-    if base_zip_name:
-        return sanitize_zip_name(base_zip_name)
-    manifests = sorted(parts_dir.glob("*.zip.manifest.json"))
-    if len(manifests) == 1:
-        return manifests[0].name[:-len(".manifest.json")]
-    part_groups: dict[str, int] = {}
-    for part in parts_dir.glob("*.zip.[0-9][0-9][0-9]"):
-        base = part.name[:-4]
-        part_groups[base] = part_groups.get(base, 0) + 1
-    if len(part_groups) == 1:
-        return next(iter(part_groups))
-    ordinary_bases = sorted(
-        path.name
-        for path in parts_dir.glob("*.zip")
-        if not re.search(r"\.part\d{3}\.zip$", path.name, flags=re.IGNORECASE)
-    )
-    candidates = set(manifest.name[:-len(".manifest.json")] for manifest in manifests)
-    candidates.update(part_groups)
-    candidates.update(ordinary_bases)
-    if len(candidates) == 1:
-        return sanitize_zip_name(next(iter(candidates)))
-    if not candidates:
-        raise FileNotFoundError(f"Nie znaleziono ZIP-a, części ani manifestu paczki w folderze: {parts_dir}")
-    raise ValueError("W folderze jest więcej niż jedna możliwa paczka. Podaj nazwę ZIP przez --zip-name albo ustaw nazwę w menu.")
-
-
-def load_package_expectations(parts_dir: Path, base_zip_name: str) -> tuple[list[PackagePartExpectation], str | None, str]:
-    """Ładuje oczekiwane części z manifestu, parts.sha256 albo globu."""
-    parts_dir = parts_dir.expanduser().resolve()
-    base_zip_name = sanitize_zip_name(base_zip_name)
-    manifest_path = parts_dir / f"{base_zip_name}.manifest.json"
-    parts_sha_path = parts_dir / f"{base_zip_name}.parts.sha256"
-    full_sha_path = parts_dir / f"{base_zip_name}.sha256"
-    expected: list[PackagePartExpectation] = []
-    expected_full_sha: str | None = None
-    source = "glob"
-
-    if manifest_path.exists():
-        source = "manifest"
-        data = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
-        full_value = str(data.get("logical_full_zip_sha256") or "").strip().lower()
-        expected_full_sha = full_value or None
-        for item in data.get("parts") or []:
-            expected.append(PackagePartExpectation(
-                part_no=int(item["part_no"]),
-                filename=str(item["filename"]),
-                size_bytes=int(item["size_bytes"]) if item.get("size_bytes") is not None else None,
-                sha256=str(item.get("sha256") or "").strip().lower() or None,
-            ))
-    elif parts_sha_path.exists():
-        source = "parts.sha256"
-        for part_no, (digest, filename) in enumerate(parse_sha256sum_file(parts_sha_path), start=1):
-            expected.append(PackagePartExpectation(part_no=part_no, filename=filename, sha256=digest))
-
-    if not expected:
-        windows_volumes = discover_windows_zip_volumes(parts_dir, base_zip_name)
-        if windows_volumes:
-            for part_no, path in enumerate(windows_volumes, start=1):
-                expected.append(PackagePartExpectation(part_no=part_no, filename=path.name))
-        else:
-            found = sorted(parts_dir.glob(f"{base_zip_name}.[0-9][0-9][0-9]"))
-            for part_no, path in enumerate(found, start=1):
-                expected.append(PackagePartExpectation(part_no=part_no, filename=path.name))
-
-    if not expected_full_sha and full_sha_path.exists():
-        rows = parse_sha256sum_file(full_sha_path)
-        if rows:
-            expected_full_sha = rows[0][0]
-
-    expected.sort(key=lambda item: item.part_no)
-    return expected, expected_full_sha, source
-
-
-def validate_package_parts(parts_dir: Path, base_zip_name: str, *, skip_part_hash: bool = False) -> tuple[list[PackagePartExpectation], str | None, str]:
-    """Sprawdza kompletność, kolejność, rozmiary i SHA256 części paczki."""
-    parts_dir = parts_dir.expanduser().resolve()
-    base_zip_name = sanitize_zip_name(base_zip_name)
-    expected, expected_full_sha, source = load_package_expectations(parts_dir, base_zip_name)
-    if not expected:
-        raise FileNotFoundError(f"Brak części paczki: {base_zip_name}.001, {base_zip_name}.002, ...")
-
-    expected_names = {part.filename for part in expected}
-    extra_candidates = list(parts_dir.glob(f"{base_zip_name}.[0-9][0-9][0-9]"))
-    extra_candidates.extend(parts_dir.glob(f"{base_zip_name[:-4]}.part[0-9][0-9][0-9].zip"))
-    extra_parts = sorted(path.name for path in extra_candidates if path.name not in expected_names)
-    if extra_parts:
-        raise ValueError("Znaleziono dodatkowe części nieujęte w manifeście/hashach: " + ", ".join(extra_parts))
-
-    independent_windows_volumes = bool(expected and expected[0].filename == base_zip_name)
-    for index, part in enumerate(expected, start=1):
-        if independent_windows_volumes:
-            expected_name = windows_zip_volume_name(base_zip_name, index)
-            if part.filename != expected_name:
-                raise ValueError(
-                    "Nieciągła albo błędna kolejność woluminów ZIP: "
-                    f"oczekiwano {expected_name}, jest {part.filename}"
-                )
-        else:
-            suffix = f".{index:03d}"
-            if not part.filename.endswith(suffix):
-                raise ValueError(f"Nieciągła albo błędna kolejność części: oczekiwano {suffix}, jest {part.filename}")
-        part_path = parts_dir / part.filename
-        if not part_path.exists() or not part_path.is_file():
-            raise FileNotFoundError(f"Brak części: {part.filename}")
-        if part.size_bytes is not None and part_path.stat().st_size != part.size_bytes:
-            raise ValueError(f"Zły rozmiar części {part.filename}: jest {part_path.stat().st_size}, oczekiwano {part.size_bytes}")
-        if part.sha256 and not skip_part_hash:
-            actual = sha256_file(part_path)
-            if actual != part.sha256:
-                raise ValueError(f"Zły SHA256 części {part.filename}: {actual}, oczekiwano {part.sha256}")
-    return expected, expected_full_sha, source
-
-
-def join_split_package_to_zip(
-    parts_dir: Path,
+def write_independent(
+    temp_dir: Path,
     base_zip_name: str,
-    *,
-    zip_out: Path | None = None,
-    skip_part_hash: bool = False,
-    force: bool = False,
-    keep_existing: bool = False,
-) -> Path:
-    """Łączy części `.zip.001`, `.zip.002`, ... w jeden pełny ZIP."""
-    parts_dir = parts_dir.expanduser().resolve()
-    base_zip_name = sanitize_zip_name(base_zip_name)
-    out_zip = zip_out.expanduser().resolve() if zip_out is not None else parts_dir / base_zip_name
-    expected, expected_full_sha, source = validate_package_parts(parts_dir, base_zip_name, skip_part_hash=skip_part_hash)
-    if expected and expected[0].filename == base_zip_name:
-        if len(expected) == 1:
-            return parts_dir / base_zip_name
-        raise ValueError(
-            "Ta paczka używa niezależnych woluminów ZIP. Każdy wolumin można otworzyć "
-            "bez sklejania; --join-package dotyczy tylko dawnych binarnych części .zip.001."
+    plan: PackPlan,
+    part_size: int,
+    compression_level: int,
+) -> tuple[list[OutputPart], None]:
+    accepted: list[Path] = []
+
+    def emit(entries: list[PlanEntry]) -> None:
+        candidate = temp_dir / f".candidate-{uuid.uuid4().hex}.zip"
+        write_zip_file(candidate, entries, compression_level)
+        size = candidate.stat().st_size
+        if size > part_size and len(entries) > 1:
+            candidate.unlink()
+            left, right = split_group_by_size(entries)
+            emit(left)
+            emit(right)
+            return
+        accepted.append(candidate)
+
+    for group in initial_groups(plan.entries, part_size):
+        emit(group)
+
+    outputs: list[OutputPart] = []
+    for index, candidate in enumerate(accepted, start=1):
+        name = independent_volume_name(base_zip_name, index)
+        final_temp = temp_dir / name
+        os.replace(candidate, final_temp)
+        outputs.append(OutputPart(
+            filename=name,
+            size_bytes=final_temp.stat().st_size,
+            sha256=sha256_file(final_temp),
+            part_no=index,
+            is_complete_zip=True,
+        ))
+    return outputs, None
+
+
+def write_binary(
+    temp_dir: Path,
+    base_zip_name: str,
+    plan: PackPlan,
+    part_size: int,
+    compression_level: int,
+) -> tuple[list[OutputPart], str]:
+    writer = SplitPartWriter(temp_dir, base_zip_name, part_size)
+    try:
+        with zipfile.ZipFile(
+            writer,
+            mode="w",
+            compression=zipfile.ZIP_DEFLATED,
+            compresslevel=compression_level,
+            allowZip64=True,
+            strict_timestamps=False,
+        ) as zf:
+            total = len(plan.entries)
+            for index, entry in enumerate(plan.entries, start=1):
+                write_entry(zf, entry, compression_level)
+                if index % 20 == 0 or index == total:
+                    print_progress(index, total, "Pakowanie")
+    finally:
+        writer.close()
+    return list(writer.parts), writer.logical_hash.hexdigest()
+
+
+# -----------------------------------------------------------------------------
+# Weryfikacja
+# -----------------------------------------------------------------------------
+
+
+def verify_zip_names(infos: Sequence[zipfile.ZipInfo]) -> None:
+    seen: set[str] = set()
+    for info in infos:
+        relative = normalize_rel(info.filename.rstrip("/")) if info.filename.endswith("/") else normalize_rel(info.filename)
+        if info.filename in seen:
+            raise PackError(f"Duplikat wpisu w ZIP-ie: {info.filename}")
+        seen.add(info.filename)
+        if not relative:
+            raise PackError("Pusty wpis ZIP.")
+
+
+def verify_zip_stream(zf: zipfile.ZipFile, plan: PackPlan) -> dict[str, Any]:
+    infos = [info for info in zf.infolist() if not info.is_dir()]
+    verify_zip_names(infos)
+    bad = zf.testzip()
+    if bad:
+        raise PackError(f"Błędny CRC lub nagłówek ZIP: {bad}")
+
+    expected = {item.relative: item for item in plan.entries}
+    actual_names = {info.filename for info in infos}
+    missing = sorted(set(expected) - actual_names)
+    unexpected = sorted(actual_names - set(expected))
+    if missing or unexpected:
+        raise PackError(
+            "Zawartość ZIP-a różni się od kanonicznego planu. "
+            f"Brakujące={missing[:10]}, nadmiarowe={unexpected[:10]}"
         )
 
-    section("Łączenie paczki w jeden ZIP")
-    print(f"Folder części:              {parts_dir}")
-    print(f"Nazwa ZIP:                  {base_zip_name}")
-    print(f"Źródło listy części:         {source}")
-    print(f"Części oczekiwane:           {len(expected)}")
-    print(f"Pełny ZIP:                  {out_zip}")
-
-    if out_zip.exists():
-        if keep_existing:
-            print("Pełny ZIP już istnieje; keep_existing=True, więc nie sklejam ponownie.")
-        elif not force:
-            raise FileExistsError(f"Pełny ZIP już istnieje: {out_zip}. Użyj force=True albo usuń plik.")
-        else:
-            out_zip.unlink()
-
-    if not out_zip.exists():
-        tmp = out_zip.with_name(out_zip.name + ".joining.tmp")
-        if tmp.exists():
-            tmp.unlink()
-        total = max(len(expected), 1)
-        with tmp.open("xb") as target:
-            for index, part in enumerate(expected, start=1):
-                print_bar(index - 1, total, label="Sklejanie")
-                with (parts_dir / part.filename).open("rb") as src:
-                    shutil.copyfileobj(src, target, length=8 * 1024 * 1024)
-            print_bar(total, total, label="Sklejanie")
-        os.replace(tmp, out_zip)
-
-    if expected_full_sha:
-        actual = sha256_file(out_zip)
-        if actual != expected_full_sha:
-            raise ValueError(f"Zły SHA256 pełnego ZIP-a: {actual}, oczekiwano {expected_full_sha}")
-        print(f"SHA256 pełnego ZIP-a OK:    {actual}")
-    else:
-        print("UWAGA: brak oczekiwanego SHA256 pełnego ZIP-a; pomijam porównanie.")
-    return out_zip
-
-
-def unsafe_zip_member_name(name: str) -> str | None:
-    """Zwraca powód, jeśli nazwa wpisu ZIP jest niebezpieczna do rozpakowania."""
-    normalized = name.replace("\\", "/")
-    path = PurePosixPath(normalized)
-    if name.startswith(("/", "\\")):
-        return "absolute path"
-    if len(name) >= 2 and name[1] == ":":
-        return "drive path"
-    if any(part == ".." for part in path.parts):
-        return "parent traversal"
-    if "\x00" in name:
-        return "NUL byte"
-    return None
-
-
-def validate_zip_member_names(zf: zipfile.ZipFile) -> None:
-    """Odmawia archiwum z nazwami, które mogłyby wyjść poza folder docelowy."""
-    bad: list[str] = []
-    for info in zf.infolist():
-        reason = unsafe_zip_member_name(info.filename)
-        if reason:
-            bad.append(f"{info.filename!r}: {reason}")
-    if bad:
-        sample = "\n".join(bad[:20])
-        more = "" if len(bad) <= 20 else f"\n... oraz {len(bad) - 20} więcej"
-        raise ValueError("ZIP zawiera niebezpieczne ścieżki:\n" + sample + more)
-
-
-def test_joined_zip(out_zip: Path, *, run_crc: bool = True) -> dict[str, object]:
-    """Sprawdza central directory, nazwy wpisów i opcjonalnie pełny CRC/testzip."""
-    out_zip = out_zip.expanduser().resolve()
-    if not out_zip.exists() or not out_zip.is_file():
-        raise FileNotFoundError(f"Nie znaleziono pełnego ZIP-a: {out_zip}")
-    with zipfile.ZipFile(out_zip, "r") as zf:
-        infos = zf.infolist()
-        validate_zip_member_names(zf)
-        if run_crc:
-            bad = zf.testzip()
-            if bad:
-                raise ValueError(f"Błędny CRC/header wpisu ZIP: {bad}")
-        return {
-            "zip_path": str(out_zip),
-            "entries": len(infos),
-            "size_bytes": out_zip.stat().st_size,
-            "crc_tested": bool(run_crc),
-            "ok": True,
-        }
-
-
-def test_split_package(
-    parts_dir: Path,
-    base_zip_name: str,
-    *,
-    zip_out: Path | None = None,
-    skip_part_hash: bool = False,
-    join_if_missing: bool = True,
-    force_join: bool = False,
-    run_crc: bool = True,
-) -> dict[str, object]:
-    """Testuje części, strukturę ZIP i CRC bez tworzenia pełnego ZIP-a.
-
-    Jeżeli pełny ZIP już istnieje, testuje go bezpośrednio. W przeciwnym razie
-    używa `SplitPartsReader`, więc zwykły test nie dodaje żadnego pliku do
-    folderu paczki. Parametr `join_if_missing` zachowano dla kompatybilności:
-    wartość False nadal wymaga istniejącego pełnego ZIP-a.
-    """
-    parts_dir = parts_dir.expanduser().resolve()
-    base_zip_name = sanitize_zip_name(base_zip_name)
-    out_zip = zip_out.expanduser().resolve() if zip_out is not None else parts_dir / base_zip_name
-    expected, expected_full_sha, source = validate_package_parts(
-        parts_dir,
-        base_zip_name,
-        skip_part_hash=skip_part_hash,
-    )
-
-    report: dict[str, object] = {
-        "ok": True,
-        "parts_dir": str(parts_dir),
-        "base_zip_name": base_zip_name,
-        "parts_count": len(expected),
-        "parts_source": source,
-        "expected_full_sha256": expected_full_sha,
-    }
-
-    independent_windows_volumes = bool(expected and expected[0].filename == base_zip_name)
-    if independent_windows_volumes:
-        paths = [parts_dir / item.filename for item in expected]
-        package_hash = hashlib.sha256()
-        entries = 0
-        seen_files: set[str] = set()
-        for path in paths:
-            with path.open("rb") as handle:
-                while True:
-                    chunk = handle.read(8 * 1024 * 1024)
-                    if not chunk:
-                        break
-                    package_hash.update(chunk)
-            with zipfile.ZipFile(path, "r") as zf:
-                validate_zip_member_names(zf)
-                entries += len(zf.infolist())
-                for info in zf.infolist():
-                    if not info.is_dir():
-                        if info.filename in seen_files:
-                            raise ValueError(f"Duplikat pliku między woluminami: {info.filename}")
-                        seen_files.add(info.filename)
-                if run_crc:
-                    bad = zf.testzip()
-                    if bad:
-                        raise ValueError(f"Błędny CRC/header wpisu ZIP: {bad}")
-        actual_package_sha = package_hash.hexdigest()
-        if expected_full_sha and actual_package_sha != expected_full_sha:
-            raise ValueError(f"Zły SHA256 zestawu ZIP: {actual_package_sha}, oczekiwano {expected_full_sha}")
-        report.update({
-            "format": "independent_windows_zip_volumes",
-            "zip_paths": [str(path) for path in paths],
-            "entries": entries,
-            "files": len(seen_files),
-            "size_bytes": sum(path.stat().st_size for path in paths),
-            "crc_tested": bool(run_crc),
-            "actual_full_sha256": actual_package_sha,
-            "tested_directly_from_parts": True,
-            "requires_join": False,
-        })
-        return report
-
-    if out_zip.exists():
-        if expected_full_sha:
-            actual = sha256_file(out_zip)
-            if actual != expected_full_sha:
-                if not force_join:
-                    raise ValueError(
-                        f"Istniejący pełny ZIP ma zły SHA256: {actual}, "
-                        f"oczekiwano {expected_full_sha}"
-                    )
-                out_zip = join_split_package_to_zip(
-                    parts_dir,
-                    base_zip_name,
-                    zip_out=out_zip,
-                    skip_part_hash=skip_part_hash,
-                    force=True,
-                )
-        report.update(test_joined_zip(out_zip, run_crc=run_crc))
-        report["tested_directly_from_parts"] = False
-        return report
-
-    if not join_if_missing:
-        raise FileNotFoundError(f"Pełny ZIP nie istnieje: {out_zip}")
-
-    paths = [parts_dir / item.filename for item in expected]
-    total_size = sum(path.stat().st_size for path in paths)
-    actual_full_sha: str | None = None
-    if expected_full_sha:
+    for index, info in enumerate(infos, start=1):
+        entry = expected[info.filename]
+        if info.file_size != entry.size_bytes:
+            raise PackError(f"Zły rozmiar w ZIP-ie: {info.filename}")
         digest = hashlib.sha256()
-        for path in paths:
-            with path.open("rb") as handle:
-                while True:
-                    chunk = handle.read(8 * 1024 * 1024)
-                    if not chunk:
-                        break
-                    digest.update(chunk)
-        actual_full_sha = digest.hexdigest()
-        if actual_full_sha != expected_full_sha:
-            raise ValueError(
-                f"Zły SHA256 logicznego ZIP-a: {actual_full_sha}, "
-                f"oczekiwano {expected_full_sha}"
+        with zf.open(info, "r") as handle:
+            for chunk in iter(lambda: handle.read(CHUNK_SIZE), b""):
+                digest.update(chunk)
+        if digest.hexdigest() != entry.sha256:
+            raise PackError(f"Zły SHA-256 w ZIP-ie: {info.filename}")
+        if index % 50 == 0 or index == len(infos):
+            print_progress(index, len(infos), "Weryfikacja")
+
+    version_entry = expected.get("latka_jazn/version.py")
+    if version_entry:
+        archived_version = archived_version_from_bytes(zf.read("latka_jazn/version.py"))
+        if archived_version != plan.version.full_version:
+            if re.sub(r"^v", "", archived_version, flags=re.I) != re.sub(r"^v", "", plan.version.full_version, flags=re.I):
+                raise PackError(
+                    f"Wersja w ZIP-ie jest inna: {archived_version!r} != {plan.version.full_version!r}"
+                )
+
+    if PACKAGE_INTEGRITY_MANIFEST in expected:
+        payload = json.loads(zf.read(PACKAGE_INTEGRITY_MANIFEST).decode("utf-8-sig"))
+        manifest_paths = {str(item.get("path")) for item in payload.get("files") or [] if isinstance(item, dict)}
+        static_paths = {
+            item.relative
+            for item in plan.entries
+            if item.classification == "static_project_file"
+        }
+        if manifest_paths != static_paths:
+            raise PackError(
+                "PACKAGE_INTEGRITY_MANIFEST.json nie opisuje dokładnie statycznego planu. "
+                f"missing={sorted(static_paths - manifest_paths)[:10]}, extra={sorted(manifest_paths - static_paths)[:10]}"
             )
 
-    with SplitPartsReader(paths) as reader:
-        with zipfile.ZipFile(reader, "r") as zf:
-            validate_zip_member_names(zf)
-            entries = len(zf.infolist())
-            if run_crc:
-                bad = zf.testzip()
-                if bad:
-                    raise ValueError(f"Błędny CRC/header wpisu ZIP: {bad}")
-
-    report.update({
-        "zip_path": None,
-        "entries": entries,
-        "size_bytes": total_size,
-        "crc_tested": bool(run_crc),
-        "actual_full_sha256": actual_full_sha,
-        "tested_directly_from_parts": True,
-    })
-    return report
-
-
-def _current_package_parts_dir_and_name(state: WizardState) -> tuple[Path, str]:
-    if state.out_dir is None:
-        raise ValueError("Najpierw ustaw folder zapisu paczki.")
-    if not state.archive_name:
-        raise ValueError("Najpierw ustaw nazwę paczki ZIP.")
-    return state.out_dir.expanduser().resolve(), sanitize_zip_name(state.archive_name)
-
-
-def join_current_package_from_menu(state: WizardState) -> None:
-    """Opcja menu: łączy aktualnie ustawioną paczkę w jeden pełny ZIP."""
-    parts_dir, base_zip_name = _current_package_parts_dir_and_name(state)
-    out_zip = parts_dir / base_zip_name
-    force = False
-    keep_existing = False
-    if out_zip.exists():
-        print(f"Pełny ZIP już istnieje: {out_zip}")
-        if ask_bool("Użyć istniejącego ZIP-a bez ponownego sklejania", True, require_explicit=True):
-            keep_existing = True
-        else:
-            force = ask_bool("Nadpisać pełny ZIP po ponownej walidacji części", False, require_explicit=True)
-            if not force:
-                print("Anulowano łączenie.")
-                return
-    out_path = join_split_package_to_zip(parts_dir, base_zip_name, force=force, keep_existing=keep_existing)
-    print(f"Gotowe: {out_path}")
-
-
-def test_current_package_from_menu(state: WizardState) -> None:
-    """Opcja menu: testuje aktualnie ustawioną paczkę i pełny ZIP."""
-    parts_dir, base_zip_name = _current_package_parts_dir_and_name(state)
-    report = test_split_package(parts_dir, base_zip_name, join_if_missing=True, force_join=False, run_crc=True)
-    section("Test paczki OK")
-    print(json.dumps(report, ensure_ascii=False, indent=2))
-
-
-def windows_zip_volume_name(base_zip_name: str, volume_no: int) -> str:
-    """Nazwa niezależnego woluminu ZIP otwieranego bez sklejania.
-
-    Wolumin 1 zawsze zachowuje zwykłą nazwę `<nazwa>.zip`. Kolejne mają
-    czytelne nazwy `<nazwa>.part002.zip`, `<nazwa>.part003.zip`, ... .
-    """
-    base_zip_name = sanitize_zip_name(base_zip_name)
-    if volume_no < 1:
-        raise ValueError("volume_no musi być >= 1")
-    if volume_no == 1:
-        return base_zip_name
-    return f"{base_zip_name[:-4]}.part{volume_no:03d}.zip"
-
-
-def discover_windows_zip_volumes(out_dir: Path, base_zip_name: str) -> list[Path]:
-    """Zwraca istniejące woluminy nowego formatu w poprawnej kolejności."""
-    out_dir = Path(out_dir).expanduser().resolve()
-    base_zip_name = sanitize_zip_name(base_zip_name)
-    paths: list[Path] = []
-    first = out_dir / base_zip_name
-    if first.exists() and first.is_file():
-        paths.append(first)
-    stem = base_zip_name[:-4]
-    numbered = sorted(
-        out_dir.glob(f"{stem}.part[0-9][0-9][0-9].zip"),
-        key=lambda path: path.name.lower(),
-    )
-    paths.extend(path for path in numbered if path.is_file())
-    return paths
-
-
-def _windows_zip_output_paths(out_dir: Path, archive_name: str) -> list[Path]:
-    out_dir = Path(out_dir).expanduser().resolve()
-    archive_name = sanitize_zip_name(archive_name)
-    stem = archive_name[:-4]
-    candidates: set[Path] = set(discover_windows_zip_volumes(out_dir, archive_name))
-    for pattern in (
-        f"{archive_name}.*",
-        f"{stem}.package-set.sha256",
-        f"{stem}.extract_all.py",
-    ):
-        candidates.update(path for path in out_dir.glob(pattern) if path.is_file())
-    return sorted(candidates)
-
-
-def _prepare_windows_zip_outputs(out_dir: Path, archive_name: str, *, force: bool) -> None:
-    out_dir.mkdir(parents=True, exist_ok=True)
-    existing = _windows_zip_output_paths(out_dir, archive_name)
-    if existing and not force:
-        sample = "\n".join(f"  - {path}" for path in existing[:25])
-        more = "" if len(existing) <= 25 else f"\n  ... oraz {len(existing) - 25} więcej"
-        raise FileExistsError(
-            "Znaleziono wcześniejsze pliki wyjściowe. Włącz nadpisywanie albo zmień nazwę/folder.\n"
-            + sample
-            + more
-        )
-    if force:
-        for path in existing:
-            path.unlink()
-
-
-def _split_file_group_by_weight(files: list[Path]) -> tuple[list[Path], list[Path]]:
-    """Dzieli grupę możliwie równo według rozmiarów źródłowych."""
-    if len(files) < 2:
-        return files, []
-    sizes: list[int] = []
-    total = 0
-    for path in files:
-        try:
-            size = max(0, path.stat().st_size)
-        except OSError:
-            size = 0
-        sizes.append(size)
-        total += size
-    target = total / 2
-    running = 0
-    split_at = 1
-    for index, size in enumerate(sizes[:-1], start=1):
-        running += size
-        split_at = index
-        if running >= target:
-            break
-    split_at = max(1, min(split_at, len(files) - 1))
-    return files[:split_at], files[split_at:]
-
-
-def _initial_windows_volume_groups(files: list[Path], part_size: int) -> list[list[Path]]:
-    """Szybki wstępny podział po rozmiarze źródłowym z marginesem ZIP."""
-    if not files:
-        return [[]]
-    margin = min(
-        max(64 * 1024, part_size // 100),
-        16 * 1024 * 1024,
-        max(1, part_size // 10),
-    )
-    budget = max(1, part_size - margin)
-    groups: list[list[Path]] = []
-    current: list[Path] = []
-    current_size = 0
-    for path in files:
-        try:
-            size = max(0, path.stat().st_size)
-        except OSError:
-            size = 0
-        if current and current_size + size > budget:
-            groups.append(current)
-            current = []
-            current_size = 0
-        current.append(path)
-        current_size += size
-        if current_size >= budget:
-            groups.append(current)
-            current = []
-            current_size = 0
-    if current:
-        groups.append(current)
-    return groups or [[]]
-
-
-def _write_standard_zip_candidate(
-    *,
-    source_folder: Path,
-    candidate: Path,
-    files: list[Path],
-    dirs: list[Path],
-    compression_level: int,
-    collect_source_hashes: bool,
-    virtual_files: dict[str, bytes] | None = None,
-) -> tuple[list[str], int]:
-    """Zapisuje zwykły, seekowalny ZIP zgodny z narzędziami Windows."""
-    compression = zipfile.ZIP_DEFLATED
-    source_hash_lines: list[str] = []
-    candidate.parent.mkdir(parents=True, exist_ok=True)
-    if candidate.exists():
-        candidate.unlink()
-    with zipfile.ZipFile(
-        candidate,
-        mode="w",
-        compression=compression,
-        allowZip64=True,
-        compresslevel=compression_level,
-        strict_timestamps=False,
-    ) as zf:
-        for directory in dirs:
-            arc = rel_posix(directory, source_folder).rstrip("/") + "/"
-            if arc != "./":
-                zf.writestr(make_zipinfo_for_dir(directory, arc), b"")
-        virtual_files = virtual_files or {}
-        for src in files:
-            arc = rel_posix(src, source_folder)
-            file_hash = hashlib.sha256() if collect_source_hashes else None
-            virtual_data = virtual_files.get(arc)
-            size = len(virtual_data) if virtual_data is not None else src.stat().st_size
-            zi = make_zipinfo_for_file(src, arc, compression, compression_level)
-            zi.file_size = size
-            zip64_limit = int(getattr(zipfile, "ZIP64_LIMIT", (1 << 31) - 1))
-            with zf.open(
-                zi,
-                mode="w",
-                force_zip64=size >= zip64_limit,
-            ) as wf:
-                if virtual_data is not None:
-                    for offset in range(0, len(virtual_data), CHUNK_SIZE):
-                        chunk = virtual_data[offset: offset + CHUNK_SIZE]
-                        if file_hash is not None:
-                            file_hash.update(chunk)
-                        wf.write(chunk)
-                else:
-                    with src.open("rb") as rf:
-                        while True:
-                            chunk = rf.read(CHUNK_SIZE)
-                            if not chunk:
-                                break
-                            if file_hash is not None:
-                                file_hash.update(chunk)
-                            wf.write(chunk)
-            if file_hash is not None:
-                source_hash_lines.append(f"{file_hash.hexdigest()}  {arc}")
-    return source_hash_lines, candidate.stat().st_size
-
-
-def verify_independent_zip_volumes(
-    *,
-    source_folder: Path,
-    plan: PackPlan,
-    volume_paths: list[Path],
-    run_crc: bool,
-) -> dict[str, object]:
-    """Sprawdza każdy niezależny ZIP i kompletność całego zestawu."""
-    if not volume_paths:
-        raise ValueError("Brak woluminów ZIP do weryfikacji")
-    expected_files = {rel_posix(path, source_folder) for path in plan.files}
-    found_files: set[str] = set()
-    duplicates: list[str] = []
-    entries_total = 0
-    for path in volume_paths:
-        if not zipfile.is_zipfile(path):
-            raise ValueError(f"Plik nie jest poprawnym ZIP-em: {path}")
-        with zipfile.ZipFile(path, "r") as zf:
-            validate_zip_member_names(zf)
-            infos = zf.infolist()
-            entries_total += len(infos)
-            if run_crc:
-                bad = zf.testzip()
-                if bad:
-                    raise ValueError(f"Błędny CRC/header wpisu {bad!r} w {path.name}")
-            for info in infos:
-                if info.is_dir():
-                    continue
-                if info.filename in found_files:
-                    duplicates.append(info.filename)
-                found_files.add(info.filename)
-    missing = sorted(expected_files - found_files)
-    unexpected = sorted(found_files - expected_files)
-    if duplicates or missing or unexpected:
-        details: list[str] = []
-        if duplicates:
-            details.append("duplikaty: " + ", ".join(sorted(set(duplicates))[:10]))
-        if missing:
-            details.append("brakujące: " + ", ".join(missing[:10]))
-        if unexpected:
-            details.append("nadmiarowe: " + ", ".join(unexpected[:10]))
-        raise ValueError("Niezgodny zestaw woluminów ZIP — " + "; ".join(details))
     return {
         "ok": True,
-        "format": "independent_windows_zip_volumes",
-        "volumes_count": len(volume_paths),
-        "entries": entries_total,
-        "files_verified": len(found_files),
-        "crc_tested": bool(run_crc),
-        "each_volume_is_zip": True,
+        "files_verified": len(infos),
+        "crc": "ok",
+        "plan_sha256": plan.plan_sha256(),
     }
 
 
-def write_independent_volume_extract_script(out_dir: Path, base_zip_name: str) -> Path:
-    """Helper rozpakowujący wszystkie niezależne woluminy do jednego celu."""
-    base_zip_name = sanitize_zip_name(base_zip_name)
-    helper = out_dir / f"{base_zip_name}.extract_here.py"
-    template = r'''#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-from __future__ import annotations
+def verify_outputs(temp_dir: Path, outputs: Sequence[OutputPart], archive_format: str, plan: PackPlan) -> dict[str, Any]:
+    if archive_format == "independent":
+        found: set[str] = set()
+        total_files = 0
+        for output in outputs:
+            path = temp_dir / output.filename
+            if not zipfile.is_zipfile(path):
+                raise PackError(f"Wynik nie jest poprawnym ZIP-em: {path.name}")
+            with zipfile.ZipFile(path, "r") as zf:
+                infos = [info for info in zf.infolist() if not info.is_dir()]
+                verify_zip_names(infos)
+                bad = zf.testzip()
+                if bad:
+                    raise PackError(f"CRC niepoprawny w {path.name}: {bad}")
+                for info in infos:
+                    if info.filename in found:
+                        raise PackError(f"Duplikat między woluminami: {info.filename}")
+                    found.add(info.filename)
+                total_files += len(infos)
+        if found != set(plan.paths):
+            raise PackError(
+                "Zestaw niezależnych ZIP-ów różni się od planu. "
+                f"missing={sorted(set(plan.paths)-found)[:10]}, extra={sorted(found-set(plan.paths))[:10]}"
+            )
+        # Jedna logiczna walidacja hashów przez ponowne otwarcie każdego woluminu.
+        expected = {item.relative: item for item in plan.entries}
+        for output in outputs:
+            with zipfile.ZipFile(temp_dir / output.filename, "r") as zf:
+                for info in zf.infolist():
+                    if info.is_dir():
+                        continue
+                    entry = expected[info.filename]
+                    digest = hashlib.sha256()
+                    with zf.open(info) as handle:
+                        for chunk in iter(lambda: handle.read(CHUNK_SIZE), b""):
+                            digest.update(chunk)
+                    if digest.hexdigest() != entry.sha256 or info.file_size != entry.size_bytes:
+                        raise PackError(f"Niezgodny plik w {output.filename}: {info.filename}")
+        # Manifest i wersję sprawdzamy na wirtualnym logicznym widoku.
+        manifest_volume = next((temp_dir / item.filename for item in outputs if _zip_contains(temp_dir / item.filename, PACKAGE_INTEGRITY_MANIFEST)), None)
+        if manifest_volume:
+            with zipfile.ZipFile(manifest_volume, "r") as zf:
+                archived_version = archived_version_from_bytes(_read_member_from_set(temp_dir, outputs, "latka_jazn/version.py"))
+                if re.sub(r"^v", "", archived_version, flags=re.I) != re.sub(r"^v", "", plan.version.full_version, flags=re.I):
+                    raise PackError("Wersja archiwalna nie zgadza się z planem.")
+                payload = json.loads(zf.read(PACKAGE_INTEGRITY_MANIFEST).decode("utf-8-sig"))
+                manifest_paths = {str(item.get("path")) for item in payload.get("files") or [] if isinstance(item, dict)}
+                static_paths = {item.relative for item in plan.entries if item.classification == "static_project_file"}
+                if manifest_paths != static_paths:
+                    raise PackError("Manifest systemowy nie zgadza się ze statycznym planem.")
+        return {"ok": True, "volumes": len(outputs), "files": total_files, "crc": "ok"}
 
-import argparse
-import hashlib
-import json
-import shutil
-import zipfile
-from pathlib import Path, PurePosixPath
-
-BASE_ZIP_NAME = __BASE_ZIP_NAME__
+    paths = [temp_dir / item.filename for item in outputs]
+    with SplitPartsReader(paths) as reader:
+        with zipfile.ZipFile(reader, "r") as zf:
+            return verify_zip_stream(zf, plan)
 
 
-def sha256_file(path: Path) -> str:
+def _zip_contains(path: Path, member: str) -> bool:
+    with zipfile.ZipFile(path, "r") as zf:
+        return member in zf.namelist()
+
+
+def _read_member_from_set(temp_dir: Path, outputs: Sequence[OutputPart], member: str) -> bytes:
+    for output in outputs:
+        with zipfile.ZipFile(temp_dir / output.filename, "r") as zf:
+            if member in zf.namelist():
+                return zf.read(member)
+    raise PackError(f"Brak wpisu {member} w zestawie ZIP-ów.")
+
+
+# -----------------------------------------------------------------------------
+# Sidecar, transakcja i nazwy
+# -----------------------------------------------------------------------------
+
+
+def choose_format(requested: str, plan: PackPlan, part_size: int) -> str:
+    if requested in {"independent", "binary"}:
+        return requested
+
+    # Pamięć jest jednym logicznym backupem. Gdy przekracza limit części,
+    # auto zachowuje zgodność z 1.2_FINAL i wybiera .zip.001/.002...
+    if plan.profile == "memory" and plan.total_size > part_size:
+        return "binary"
+
+    # Pojedynczego pliku większego od limitu nie da się umieścić w
+    # samodzielnym woluminie mieszczącym się w limicie.
+    if any(item.size_bytes > part_size for item in plan.entries):
+        return "binary"
+    return "independent"
+
+
+def package_set_hash(outputs: Sequence[OutputPart]) -> str:
     digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        while True:
-            chunk = handle.read(8 * 1024 * 1024)
-            if not chunk:
-                break
-            digest.update(chunk)
+    for item in sorted(outputs, key=lambda x: x.part_no):
+        digest.update(f"{item.part_no}\0{item.filename}\0{item.size_bytes}\0{item.sha256}\n".encode("utf-8"))
     return digest.hexdigest()
 
 
-def unsafe_name(name: str) -> str | None:
-    normalized = name.replace("\\", "/")
-    path = PurePosixPath(normalized)
-    if name.startswith(("/", "\\")):
-        return "absolute path"
-    if len(name) >= 2 and name[1] == ":":
-        return "drive path"
-    if any(part == ".." for part in path.parts):
-        return "parent traversal"
-    if "\x00" in name:
-        return "NUL byte"
-    return None
-
-
-def volume_paths(parts_dir: Path) -> list[Path]:
-    first = parts_dir / BASE_ZIP_NAME
-    stem = BASE_ZIP_NAME[:-4]
-    paths = [first] if first.exists() else []
-    paths.extend(sorted(parts_dir.glob(f"{stem}.part[0-9][0-9][0-9].zip")))
-    return paths
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Waliduj i rozpakuj wszystkie niezależne woluminy ZIP.")
-    parser.add_argument("--parts-dir", default=str(Path(__file__).resolve().parent))
-    parser.add_argument("--destination", default="/mnt/data/jazn_runtime_current")
-    parser.add_argument("--skip-part-hash", action="store_true")
-    parser.add_argument("--skip-testzip", action="store_true")
-    parser.add_argument("--force", action="store_true")
-    parser.add_argument("--clean", action="store_true")
-    args = parser.parse_args()
-
-    parts_dir = Path(args.parts_dir).expanduser().resolve()
-    destination = Path(args.destination).expanduser().resolve()
-    paths = volume_paths(parts_dir)
-    if not paths:
-        raise SystemExit(f"Brak woluminów dla {BASE_ZIP_NAME}")
-
-    manifest_path = parts_dir / f"{BASE_ZIP_NAME}.manifest.json"
-    expected_hashes: dict[str, str] = {}
-    if manifest_path.exists():
-        data = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
-        for item in data.get("parts") or []:
-            expected_hashes[str(item.get("filename") or "")] = str(item.get("sha256") or "").lower()
-
-    if destination.exists():
-        if args.clean:
-            dangerous = {Path("/").resolve(), Path("/mnt").resolve(), Path("/mnt/data").resolve()}
-            if destination in dangerous:
-                raise SystemExit(f"Odmawiam --clean dla zbyt szerokiego celu: {destination}")
-            shutil.rmtree(destination)
-        elif not args.force:
-            raise SystemExit(f"Folder docelowy istnieje: {destination}; użyj --force albo --clean")
-    destination.mkdir(parents=True, exist_ok=True)
-
-    seen: set[str] = set()
-    for index, path in enumerate(paths, start=1):
-        expected = expected_hashes.get(path.name)
-        if expected and not args.skip_part_hash:
-            actual = sha256_file(path)
-            if actual != expected:
-                raise SystemExit(f"Zły SHA256 {path.name}: {actual}, oczekiwano {expected}")
-        with zipfile.ZipFile(path, "r") as zf:
-            for info in zf.infolist():
-                reason = unsafe_name(info.filename)
-                if reason:
-                    raise SystemExit(f"Niebezpieczna ścieżka {info.filename!r}: {reason}")
-                if not info.is_dir() and info.filename in seen:
-                    raise SystemExit(f"Duplikat pliku między woluminami: {info.filename}")
-                if not info.is_dir():
-                    seen.add(info.filename)
-            if not args.skip_testzip:
-                bad = zf.testzip()
-                if bad:
-                    raise SystemExit(f"Błędny CRC w {path.name}: {bad}")
-            print(f"[{index}/{len(paths)}] Rozpakowuję {path.name}")
-            zf.extractall(destination)
-    print(f"Gotowe: {destination}")
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
-'''
-    helper.write_text(template.replace("__BASE_ZIP_NAME__", repr(base_zip_name)), encoding="utf-8")
-    return helper
-
-
-def create_split_zip_from_plan(
-    *,
-    source_folder: Path,
-    out_dir: Path,
-    archive_name: str,
+def sidecar_payload(
+    base_zip_name: str,
     plan: PackPlan,
-    part_size_mb: int,
+    archive_format: str,
+    part_size: int,
     compression_level: int,
-    force: bool,
-    include_empty_dirs: bool,
-    exclude_patterns: list[str],
-    package_version: str,
-    package_release_name: str,
-    resolved_version_file: Path | None,
-    archive_basename_requested: str,
-    append_version_to_name: bool,
-    disabled_default_excludes: list[str] | None = None,
-    pack_profile: str = DEFAULT_PACK_PROFILE,
-    include_prefixes: list[str] | None = None,
-    artifact_mode: str = DEFAULT_ARTIFACT_MODE,
-    verify_after_pack: bool = VERIFY_AFTER_PACK,
-    verify_crc: bool = VERIFY_CRC_AFTER_PACK,
-) -> dict[str, object]:
-    source_folder = source_folder.resolve()
-    out_dir = out_dir.resolve()
-    archive_name = sanitize_zip_name(archive_name)
-    artifact_mode = normalize_artifact_mode(artifact_mode)
-
-    if not source_folder.exists() or not source_folder.is_dir():
-        raise NotADirectoryError(f"Folder źródłowy nie istnieje albo nie jest folderem: {source_folder}")
-    if is_relative_to(out_dir, source_folder):
-        raise ValueError("Folder wyjściowy nie może znajdować się wewnątrz folderu źródłowego.")
-    if part_size_mb <= 0:
-        raise ValueError("Rozmiar części ZIP musi być większy od zera")
-
-    part_size = part_size_mb * 1024 * 1024
-    collect_source_hashes = artifact_mode == "diagnostic"
-    integrity_virtual = build_integrity_manifest_virtual_file(
-        source_folder,
-        plan,
-        package_version=package_version,
-        package_release_name=package_release_name,
-    )
-    virtual_files: dict[str, bytes] = {}
-    integrity_payload: dict[str, object] | None = None
-    if integrity_virtual is not None:
-        integrity_bytes, integrity_payload = integrity_virtual
-        virtual_files[PACKAGE_INTEGRITY_MANIFEST_NAME] = integrity_bytes
-    _prepare_windows_zip_outputs(out_dir, archive_name, force=force)
-
-    section("Pakowanie")
-    print(f"Źródło: {source_folder}")
-    print(f"Wyjście: {out_dir}")
-    print(f"Nazwa pierwszego ZIP-a: {archive_name}")
-    print(f"Limit woluminu: {human_size(part_size)}")
-    print(f"Plików: {plan.file_count}; katalogów: {plan.dir_count}; rozmiar źródła: {human_size(plan.source_total_size)}")
-    if integrity_payload is not None:
-        print(
-            "Manifest integralności: świeży, zbudowany z dokładnego planu "
-            f"({integrity_payload.get('file_count')} plików statycznych)"
-        )
-    print("Każdy plik wyjściowy będzie samodzielnym, zwykłym ZIP-em.")
-
-    candidate_root = out_dir / f".{archive_name}.packing"
-    if candidate_root.exists():
-        shutil.rmtree(candidate_root)
-    candidate_root.mkdir(parents=True, exist_ok=False)
-
-    groups = _initial_windows_volume_groups(plan.files, part_size)
-    accepted: list[tuple[Path, list[Path], list[Path], list[str], bool]] = []
-    source_hash_lines: list[str] = []
-    first_dirs_pending = list(plan.dirs) if include_empty_dirs else []
-
-    def emit_group(files: list[Path], dirs: list[Path]) -> None:
-        candidate = candidate_root / f"candidate-{len(accepted) + 1:04d}-{time.time_ns()}.zip"
-        hashes, candidate_size = _write_standard_zip_candidate(
-            source_folder=source_folder,
-            candidate=candidate,
-            files=files,
-            dirs=dirs,
-            compression_level=compression_level,
-            collect_source_hashes=collect_source_hashes,
-            virtual_files=virtual_files,
-        )
-        if candidate_size > part_size and len(files) > 1:
-            candidate.unlink(missing_ok=True)
-            left, right = _split_file_group_by_weight(files)
-            emit_group(left, dirs)
-            emit_group(right, [])
-            return
-        oversized = candidate_size > part_size
-        accepted.append((candidate, list(files), list(dirs), hashes, oversized))
-
-    try:
-        total_groups = max(len(groups), 1)
-        for index, group in enumerate(groups, start=1):
-            print_bar(index - 1, total_groups, label="Pakowanie")
-            dirs = first_dirs_pending
-            first_dirs_pending = []
-            emit_group(group, dirs)
-        print_bar(total_groups, total_groups, label="Pakowanie")
-
-        volume_paths: list[Path] = []
-        parts: list[dict[str, object]] = []
-        for volume_no, (candidate, files, dirs, hashes, oversized) in enumerate(accepted, start=1):
-            final_path = out_dir / windows_zip_volume_name(archive_name, volume_no)
-            os.replace(candidate, final_path)
-            digest = sha256_file(final_path)
-            volume_paths.append(final_path)
-            source_hash_lines.extend(hashes)
-            parts.append({
-                "part_no": volume_no,
-                "filename": final_path.name,
-                "size_bytes": final_path.stat().st_size,
-                "sha256": digest,
-                "is_complete_zip": True,
-                "source_file_count": len(files),
-                "source_dir_count": len(dirs),
-                "exceeds_configured_part_size": bool(oversized),
-            })
-
-        verification: dict[str, object] | None = None
-        if verify_after_pack:
-            subsection("Weryfikacja wygenerowanych ZIP-ów")
-            verification = verify_independent_zip_volumes(
-                source_folder=source_folder,
-                plan=plan,
-                volume_paths=volume_paths,
-                run_crc=verify_crc,
-            )
-            if integrity_payload is not None:
-                integrity_verification = verify_integrity_manifest_in_generated_volumes(
-                    source_folder,
-                    volume_paths,
-                    allowed_unprotected_prefixes=("memory/",) if pack_profile == "full" else (),
-                )
-                verification["package_integrity_manifest"] = integrity_verification
-            print(
-                "Weryfikacja OK: "
-                f"{verification['volumes_count']} ZIP, "
-                f"{verification['files_verified']} plików, "
-                f"CRC={'OK' if verification['crc_tested'] else 'pominięty'}"
-                + (", manifest=OK" if integrity_payload is not None else "")
-            )
-
-        package_set_hash = hashlib.sha256()
-        total_output_size = 0
-        for path in volume_paths:
-            total_output_size += path.stat().st_size
-            with path.open("rb") as handle:
-                while True:
-                    chunk = handle.read(8 * 1024 * 1024)
-                    if not chunk:
-                        break
-                    package_set_hash.update(chunk)
-        package_set_sha = package_set_hash.hexdigest()
-        single_zip_sha = parts[0]["sha256"] if len(parts) == 1 else None
-
-        manifest: dict[str, object] = {
-            "schema_version": "jazn_windows_zip_volumes/v1",
-            "created_at": now_iso(),
-            "script": Path(__file__).name,
-            "script_version": f"v{VERSION}",
-            "package_version": package_version,
-            "package_release_name": package_release_name,
-            "version_file": str(resolved_version_file) if resolved_version_file else None,
-            "archive_basename_requested": archive_basename_requested,
-            "append_version_to_name": append_version_to_name,
-            "source_folder": str(source_folder),
-            "output_dir": str(out_dir),
-            "archive_name": archive_name,
-            "first_volume_name": volume_paths[0].name,
-            "part_size_bytes": part_size,
-            "part_size_human": human_size(part_size),
-            "compression": "ZIP_DEFLATED",
-            "compression_level": compression_level,
-            "zip64_enabled": True,
-            "multipart_zip_native": False,
-            "split_method": "independent_valid_zip_volumes_by_file_boundary",
-            "windows_explorer_compatible": True,
-            "requires_join_before_open": False,
-            "artifact_mode": artifact_mode,
-            "source_file_count": plan.file_count,
-            "source_dir_count": plan.dir_count,
-            "source_total_size_bytes": plan.source_total_size,
-            "output_size_bytes": total_output_size,
-            "package_set_sha256": package_set_sha,
-            "single_zip_sha256": single_zip_sha,
-            "logical_full_zip_size_bytes": total_output_size,
-            "logical_full_zip_sha256": package_set_sha,
-            "parts_count": len(parts),
-            "volumes_count": len(parts),
-            "parts": parts,
-            "pack_profile": pack_profile,
-            "include_prefixes": list(include_prefixes or []),
-            "exclude_patterns": exclude_patterns,
-            "profile_default_exclude_patterns": as_str_list(PACK_PROFILES.get(pack_profile, PACK_PROFILES[DEFAULT_PACK_PROFILE]).get("exclude_patterns")),
-            "disabled_default_exclude_patterns": list(disabled_default_excludes or []),
-            "include_empty_dirs": include_empty_dirs,
-            "plan_generated_at": plan.generated_at,
-            "excluded_count": len(plan.excluded),
-            "verification": verification,
-            "package_integrity_manifest_refreshed": integrity_payload is not None,
-            "package_integrity_manifest_version": (
-                str(integrity_payload.get("runtime_version") or integrity_payload.get("version") or "")
-                if integrity_payload is not None
-                else None
-            ),
-            "package_integrity_manifest_file_count": (
-                integrity_payload.get("file_count") if integrity_payload is not None else None
-            ),
-        }
-
-        generated_sidecars: list[str] = []
-        if artifact_mode == "diagnostic":
-            parts_sha_path = out_dir / f"{archive_name}.parts.sha256"
-            full_sha_path = out_dir / f"{archive_name}.sha256"
-            source_sha_path = out_dir / f"{archive_name}.source_files.sha256"
-            manifest_path = out_dir / f"{archive_name}.manifest.json"
-            extract_script = write_independent_volume_extract_script(out_dir, archive_name)
-
-            parts_sha_path.write_text(
-                "\n".join(f"{part['sha256']}  {part['filename']}" for part in parts) + "\n",
-                encoding="ascii",
-            )
-            if len(parts) == 1:
-                full_sha_path.write_text(f"{parts[0]['sha256']}  {archive_name}\n", encoding="ascii")
-            else:
-                full_sha_path.write_text(
-                    f"{package_set_sha}  {archive_name[:-4]}.package-set\n",
-                    encoding="ascii",
-                )
-            source_sha_path.write_text("\n".join(source_hash_lines) + "\n", encoding="utf-8")
-            manifest.update({
-                "source_hash_file": source_sha_path.name,
-                "parts_hash_file": parts_sha_path.name,
-                "package_hash_file": full_sha_path.name,
-                "extract_here_script": extract_script.name,
-            })
-            manifest_path.write_text(
-                json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
-                encoding="utf-8",
-            )
-            generated_sidecars = [
-                parts_sha_path.name,
-                full_sha_path.name,
-                source_sha_path.name,
-                manifest_path.name,
-                extract_script.name,
-            ]
-
-        manifest["generated_sidecars"] = generated_sidecars
-
-        section("Gotowe")
-        if len(parts) == 1:
-            print(f"ZIP: {parts[0]['filename']} ({human_size(int(parts[0]['size_bytes']))})")
-            print("Paczka nie przekroczyła limitu — nie utworzono żadnych sztucznych części.")
-        else:
-            print(f"Woluminy ZIP: {len(parts)}")
-            for part in parts:
-                oversize_note = " — pojedynczy duży plik" if part["exceeds_configured_part_size"] else ""
-                print(f"  - {part['filename']} ({human_size(int(part['size_bytes']))}){oversize_note}")
-            print("Każdy wolumin jest samodzielnym ZIP-em; nie trzeba ich sklejać przed otwarciem.")
-        print(f"Łączny rozmiar ZIP-ów: {human_size(total_output_size)}")
-        print(f"SHA256 zestawu: {package_set_sha}")
-        if artifact_mode == "parts_only":
-            print("Pliki dodatkowe: nie utworzono — tylko zwykłe pliki ZIP")
-        else:
-            print("Pliki diagnostyczne:")
-            for name in generated_sidecars:
-                print(f"  - {name}")
-        return manifest
-    except BaseException:
-        cleanup_archive_outputs(out_dir, archive_name)
-        raise
-    finally:
-        shutil.rmtree(candidate_root, ignore_errors=True)
-
-def create_split_zip(
-    source_folder: Path,
-    out_dir: Path,
-    archive_basename: str,
-    part_size_mb: int,
-    compression_level: int,
-    *,
-    force: bool,
-    include_empty_dirs: bool,
-    exclude_patterns: list[str],
-    append_version_to_name: bool = APPEND_VERSION_TO_NAME,
-    version_file: str | Path | None = None,
-    disabled_default_excludes: list[str] | None = None,
-    pack_profile: str = DEFAULT_PACK_PROFILE,
-    include_prefixes: list[str] | None = None,
-    artifact_mode: str = DEFAULT_ARTIFACT_MODE,
-    verify_after_pack: bool = VERIFY_AFTER_PACK,
-    verify_crc: bool = VERIFY_CRC_AFTER_PACK,
-) -> dict[str, object]:
-    source_folder = source_folder.resolve()
-    out_dir = out_dir.resolve()
-    resolved_version_file = find_version_file(source_folder, version_file)
-    package_version = read_version_from_py(resolved_version_file)
-    package_release_name = normalize_release_name(
-        read_optional_string_from_py(resolved_version_file, RELEASE_NAME_VARIABLES) or PACKAGE_RELEASE_NAME
-    )
-    archive_name = apply_version_to_archive_name(
-        archive_basename,
-        package_version,
-        package_release_name=package_release_name,
-        enabled=append_version_to_name,
-    )
-    plan = discover_pack_plan(source_folder, include_empty_dirs, exclude_patterns, include_prefixes or [])
-    return create_split_zip_from_plan(
-        source_folder=source_folder,
-        out_dir=out_dir,
-        archive_name=archive_name,
-        plan=plan,
-        part_size_mb=part_size_mb,
-        compression_level=compression_level,
-        force=force,
-        include_empty_dirs=include_empty_dirs,
-        exclude_patterns=exclude_patterns,
-        package_version=package_version,
-        package_release_name=package_release_name,
-        resolved_version_file=resolved_version_file,
-        archive_basename_requested=archive_basename,
-        append_version_to_name=append_version_to_name,
-        disabled_default_excludes=disabled_default_excludes,
-        pack_profile=pack_profile,
-        include_prefixes=include_prefixes or [],
-        artifact_mode=artifact_mode,
-        verify_after_pack=verify_after_pack,
-        verify_crc=verify_crc,
-    )
-
-# =============================================================================
-# TRYB INTERAKTYWNY
-# =============================================================================
-
-
-def require_ready_state(state: WizardState) -> None:
-    if state.source_folder is None:
-        raise ValueError("Najpierw ustaw ścieżkę źródłową")
-    if state.out_dir is None:
-        raise ValueError("Najpierw ustaw folder wyjściowy")
-    if not state.archive_name:
-        raise ValueError("Najpierw ustaw nazwę archiwum")
-
-
-
-
-def apply_source_path_text(state: WizardState, raw: str) -> bool:
-    """Ustawia folder źródłowy z podanego tekstu. Zwraca True po sukcesie."""
-    control = _plain_control_word(raw)
-    if control == "exit":
-        raise UserRequestedAppExit()
-    if control == "cancel":
-        raise UserCancelledInput()
-    text = normalize_path_text(raw)
-    if not text:
-        raise UserCancelledInput()
-    path = Path(text).expanduser()
-    if not path.exists() or not path.is_dir():
-        print(f"BŁĄD: folder nie istnieje albo nie jest folderem: {path}")
-        return False
-
-    candidate = path.resolve()
-    try:
-        resolved_version_file, package_version, package_release_name = read_source_version_info(candidate, state.version_file)
-    except Exception as exc:
-        print(f"BŁĄD: {exc}")
-        print("Nie ustawiono folderu do pakowania.")
-        return False
-
-    state.source_folder = candidate
-    state.resolved_version_file = resolved_version_file
-    state.package_version = package_version
-    state.package_release_name = package_release_name
-    state.archive_name = apply_version_to_archive_name(
-        state.archive_basename_requested or ARCHIVE_BASENAME,
-        state.package_version,
-        package_release_name=state.package_release_name,
-        enabled=True,
-    )
-    state.plan = None
-    print(f"Ustawiono źródło: {state.source_folder}")
-    print(f"Plik version.py: {state.resolved_version_file}")
-    print(f"Wersja: {state.package_version}")
-    if state.package_release_name:
-        print(f"Release: {state.package_release_name}")
-    print(f"Proponowana nazwa ZIP: {state.archive_name}")
-    return True
-
-
-def apply_output_path_text(state: WizardState, raw: str) -> bool:
-    """Ustawia folder wyjściowy z podanego tekstu. Zwraca True po sukcesie."""
-    control = _plain_control_word(raw)
-    if control == "exit":
-        raise UserRequestedAppExit()
-    if control == "cancel":
-        raise UserCancelledInput()
-    text = normalize_path_text(raw)
-    if not text:
-        raise UserCancelledInput()
-    path = Path(text).expanduser()
-    if not path.is_absolute():
-        path = (Path.cwd() / path)
-    path = path.resolve()
-    if state.source_folder is not None and is_relative_to(path, state.source_folder):
-        print("BŁĄD: folder wyjściowy nie może być wewnątrz folderu źródłowego.")
-        return False
-    state.out_dir = path
-    state.plan = None
-    print(f"Ustawiono wyjście: {state.out_dir}")
-    return True
-
-def configure_source(state: WizardState) -> None:
-    section("1. Ścieżka do folderu do spakowania")
-    default = path_edit_default_path(state.source_folder or SOURCE_FOLDER or None)
-    print("Folder źródłowy musi być rootem projektu/runtime Jaźni.")
-    print("Wymagany plik wersji: .\\latka_jazn\\version.py")
-    print(f"Proponowana ścieżka startowa: {default}")
-    while True:
-        try:
-            raw = ask_path_text("Folder źródłowy", default, only_directories=True)
-            path = Path(raw).expanduser()
-        except UserCancelledInput:
-            print("Anulowano zmianę folderu do pakowania.")
-            return
-        except ValueError as exc:
-            print(f"BŁĄD: {exc}")
-            continue
-        if apply_source_path_text(state, str(path)):
-            return
-
-
-def configure_output(state: WizardState) -> None:
-    section("2. Folder zapisu")
-    default = path_edit_default_path(state.out_dir, output_package_folder=True)
-    if state.out_dir is None:
-        print("Folder zapisu paczki nie jest jeszcze ustawiony.")
-        print("Domyślnie proponuję folder pakiet obok generatora; możesz wpisać inną ścieżkę.")
-    print(f"Proponowana ścieżka startowa: {default}")
-    while True:
-        try:
-            raw = ask_path_text("Folder wyjściowy", default, only_directories=True)
-        except UserCancelledInput:
-            print("Anulowano zmianę folderu zapisu.")
-            return
-        except ValueError as exc:
-            print(f"BŁĄD: {exc}")
-            continue
-        if apply_output_path_text(state, raw):
-            return
-
-
-def configure_name(state: WizardState) -> None:
-    section("3. Nazwa paczki ZIP z możliwością edycji")
-
-    generated_name = ""
-    if state.source_folder is not None:
-        # Odśwież wersję/release, ale nie mieszaj ręcznej nazwy z automatycznym sufiksem.
-        refresh_version_and_default_name(state, keep_custom_name=True)
-        print(f"Wersja z version.py: {state.package_version}")
-        if state.package_release_name:
-            print(f"Release z version.py: {state.package_release_name}")
-        generated_name = apply_version_to_archive_name(
-            state.archive_basename_requested or ARCHIVE_BASENAME,
-            state.package_version,
-            package_release_name=state.package_release_name,
-            enabled=True,
-        )
-    else:
-        print("Folder do pakowania nie jest jeszcze ustawiony.")
-        print("Możesz wpisać ręczną nazwę ZIP teraz albo wrócić i najpierw ustawić folder.")
-        generated_name = sanitize_zip_name(state.archive_basename_requested or ARCHIVE_BASENAME)
-
-    current_or_generated = state.archive_name or generated_name
-    print(f"Proponowana nazwa automatyczna: {generated_name}")
-    if state.archive_name_manual and state.archive_name:
-        print(f"Obecna nazwa ręczna:          {state.archive_name}")
-    print("Ręczna nazwa jest używana dokładnie jako Twoja nazwa: spacje → '_'. Rozszerzenie .zip nie jest wymagane — dodam je tylko, gdy go brakuje.")
-
-    while True:
-        try:
-            if ACTIVE_UI_MODE == "cursor" and HAS_PROMPT_TOOLKIT and sys.stdin.isatty():
-                raw = ask_edit_text(
-                    "Nazwa ZIP",
-                    current_or_generated,
-                    bottom_toolbar="Esc = wróć; Ctrl+X = zamknij bez zapisu; Enter = użyj propozycji; spacje → _",
-                )
-                if not raw.strip():
-                    normalized = sanitize_zip_name(current_or_generated)
-                    manual = bool(state.archive_name_manual and state.archive_name)
-                else:
-                    normalized = sanitize_zip_name(raw)
-                    manual = raw.strip() != generated_name
-            else:
-                raw = ask_text("Nazwa ZIP po złożeniu", current_or_generated)
-                if not raw.strip():
-                    normalized = sanitize_zip_name(current_or_generated)
-                    manual = bool(state.archive_name_manual and state.archive_name)
-                else:
-                    normalized = sanitize_zip_name(raw)
-                    manual = raw.strip() != generated_name
-        except UserCancelledInput:
-            print("Anulowano edycję nazwy paczki ZIP.")
-            return
-        try:
-            # Dodatkowa walidacja po normalizacji, żeby komunikat był jednoznaczny.
-            normalized = sanitize_zip_name(normalized)
-        except ValueError as exc:
-            print(f"BŁĄD: {exc}")
-            continue
-        state.archive_name = normalized
-        state.archive_name_manual = manual
-        state.plan = None
-        print(f"Ustawiono nazwę: {state.archive_name}")
-        return
-
-def profile_menu_label(state: WizardState) -> str:
-    """Pełna, czytelna nazwa profilu do pokazania w menu głównym."""
-    return state.profile_label()
-
-
-def pack_profile_short_label(state: WizardState) -> str:
-    labels = {
-        "pelna": "system + pamięć osobno",
-        "system": "sam system",
-        "memory": "sama pamięć",
-    }
-    return labels.get(state.pack_profile, state.pack_profile)
-
-
-def menu_value(value: object | None, *, empty: str = "BRAK") -> str:
-    text = str(value or "").strip()
-    return text if text else empty
-
-
-def settings_origin_label(state: WizardState) -> str:
-    """Źródło konfiguracji widoczne w statusie.
-
-    Sam automatyczny zapis ustawień przy starcie nie oznacza jeszcze, że użytkownik
-    świadomie wybrał własny zestaw. Dlatego o ustawieniach użytkownika mówimy
-    dopiero wtedy, gdy plik JSON faktycznie został wczytany.
-    """
-    if state.settings_loaded_from:
-        return "użytkownika"
-    return "profilu"
-
-
-def settings_have_pack_list_changes(state: WizardState) -> bool:
-    """Czy plik ustawień wnosi realne, użytkowe zmiany dla listy pakowania.
-
-    Sam fakt istnienia `__jazn_pack_generator_settings.json` nie powinien oznaczać w menu
-    "użytkownika", jeśli plik zawiera tylko wartości domyślne i puste ścieżki.
-    """
-    if not state.settings_loaded_from:
-        return False
-    return any([
-        state.source_folder is not None,
-        state.out_dir is not None,
-        bool(state.archive_name),
-        bool(state.custom_excludes),
-        bool(state.disabled_default_excludes),
-        state.pack_profile != DEFAULT_PACK_PROFILE,
-        state.use_default_excludes is not True,
-        state.use_custom_excludes is not True,
-        state.part_size_mb != PART_SIZE_MB,
-        state.compression_level != COMPRESSION_LEVEL,
-        state.force != FORCE_OVERWRITE,
-        state.include_empty_dirs != INCLUDE_EMPTY_DIRS,
-    ])
-
-
-def pack_list_settings_label(state: WizardState) -> str:
-    """Etykieta dla opcji 1 — co steruje listą pakowania."""
-    if state.source_folder is None:
-        return "najpierw folder"
-    if state.out_dir is None:
-        return "najpierw zapis"
-    if settings_have_pack_list_changes(state):
-        return "użytkownika"
-    return f"profil: {pack_profile_short_label(state)}"
-
-
-def plan_status_label(state: WizardState) -> str:
-    if state.plan is None:
-        return "brak"
-    return f"{state.plan.file_count} plików / {human_size(state.plan.source_total_size)}"
-
-
-def pack_settings_counter(state: WizardState) -> tuple[int, int]:
-    """Licznik skonfigurowanych ustawień paczki dla menu głównego.
-
-    Liczymy pięć głównych pól edytowalnych w sekcji 'Ustawienia paczki':
-    profil, rozmiar części, poziom kompresji, puste katalogi, nadpisywanie.
-    Wartości boolowskie też są ustawieniami — nawet gdy są wyłączone.
-    """
-    checks = [
-        bool(state.pack_profile),
-        int(state.part_size_mb) > 0,
-        0 <= int(state.compression_level) <= 9,
-        isinstance(state.include_empty_dirs, bool),
-        isinstance(state.force, bool),
-    ]
-    return sum(1 for item in checks if item), len(checks)
-
-
-def pack_settings_menu_label(state: WizardState) -> str:
-    configured, total = pack_settings_counter(state)
-    return f"ustawione {configured}/{total}"
-
-
-def on_off_label(value: bool) -> str:
-    return "ON" if value else "OFF"
-
-
-def exclusions_menu_label(state: WizardState) -> str:
-    default_total = len(state.profile_default_excludes())
-    default_active = len(state.active_default_excludes())
-    custom_total = len(state.custom_excludes)
-    # Gdy nie ma żadnych ręcznych wzorców, pokazujemy manualne OFF 0,
-    # nawet jeśli techniczna flaga use_custom_excludes jest włączona.
-    custom_label = on_off_label(bool(state.use_custom_excludes and custom_total > 0))
-    return (
-        f"domyślne {on_off_label(state.use_default_excludes)} {default_active}/{default_total}, "
-        f"manualne {custom_label} {custom_total}"
-    )
-
-
-def manual_exclusions_label(state: WizardState) -> str:
-    return f"{on_off_label(state.use_custom_excludes)}, wpisów {len(state.custom_excludes)}"
-
-
-
-def normalize_ui_mode(value: str) -> str:
-    """Normalizuje publiczne nazwy trybów UI.
-
-    Od v5.4 tryby wybierane przez użytkownika są tylko dwa: tekstowy i kursorowy.
-    `auto` zostaje rozpoznawane wyłącznie jako kompatybilność ze starszymi
-    ustawieniami/argumentami i jest rozwiązywane do konkretnego trybu.
-    """
-    raw = str(value or "plain").strip().lower()
-    mapping = {
-        "auto": "auto",
-        "a": "auto",
-        "3": "auto",
-        "tekst": "plain",
-        "tekstowy": "plain",
-        "text": "plain",
-        "plain": "plain",
-        "txt": "plain",
-        "lista": "plain",
-        "t": "plain",
-        "1": "plain",
-        "kursor": "cursor",
-        "kursorowy": "cursor",
-        "cursor": "cursor",
-        "c": "cursor",
-        "2": "cursor",
-    }
-    return mapping.get(raw, "plain")
-
-
-def resolve_auto_ui_mode() -> str:
-    """Zamienia preferencję auto na realny tryb działający w bieżącym terminalu."""
-    return "cursor" if HAS_PROMPT_TOOLKIT and sys.stdin.isatty() else "plain"
-
-
-def ui_mode_label(ui_mode: str) -> str:
-    mode = normalize_ui_mode(ui_mode)
-    if mode == "auto":
-        mode = resolve_auto_ui_mode()
-    if mode == "cursor":
-        return "kursorowy"
-    return "tekstowy"
-
-
-def ui_mode_setting_label(state: WizardState, active_ui_mode: str | None = None) -> str:
-    saved = normalize_ui_mode(state.ui_mode or active_ui_mode or "plain")
-    if saved == "auto":
-        saved = resolve_auto_ui_mode()
-    auto = "ON" if state.ui_auto_start else "OFF"
-    active = ui_mode_label(active_ui_mode or saved)
-    return f"zapisany: {ui_mode_label(saved)}, auto-start: {auto}, aktywny: {active}"
-
-
-def settings_file_available_for_auto(state: WizardState | None = None) -> bool:
-    """Auto w ekranie startowym pokazujemy dopiero, gdy istnieją ustawienia."""
-    if state is not None and state.settings_loaded_from is not None:
-        return True
-    try:
-        return settings_path().exists()
-    except OSError:
-        return False
-
-
-def _refresh_optional_ui_imports() -> None:
-    """Odświeża import prompt_toolkit po ewentualnej instalacji pip."""
-    global _pt_prompt, _pt_Application, _pt_PathCompleter, _pt_KeyBindings
-    global _pt_Layout, _pt_Window, _pt_FormattedTextControl, _pt_CompleteStyle
-    global _pt_Style, HAS_PROMPT_TOOLKIT
-
-    try:  # pragma: no cover - zależne od środowiska użytkownika
-        from prompt_toolkit import prompt as pt_prompt
-        from prompt_toolkit.application import Application as pt_Application
-        from prompt_toolkit.completion import PathCompleter as pt_PathCompleter
-        from prompt_toolkit.key_binding import KeyBindings as pt_KeyBindings
-        from prompt_toolkit.layout import Layout as pt_Layout
-        from prompt_toolkit.layout.containers import Window as pt_Window
-        from prompt_toolkit.layout.controls import FormattedTextControl as pt_FormattedTextControl
-        from prompt_toolkit.shortcuts import CompleteStyle as pt_CompleteStyle
-        from prompt_toolkit.styles import Style as pt_Style
-        _pt_prompt = pt_prompt
-        _pt_Application = pt_Application
-        _pt_PathCompleter = pt_PathCompleter
-        _pt_KeyBindings = pt_KeyBindings
-        _pt_Layout = pt_Layout
-        _pt_Window = pt_Window
-        _pt_FormattedTextControl = pt_FormattedTextControl
-        _pt_CompleteStyle = pt_CompleteStyle
-        _pt_Style = pt_Style
-        HAS_PROMPT_TOOLKIT = True
-    except Exception:  # pragma: no cover
-        _pt_prompt = None
-        _pt_Application = None
-        _pt_PathCompleter = None
-        _pt_KeyBindings = None
-        _pt_Layout = None
-        _pt_Window = None
-        _pt_FormattedTextControl = None
-        _pt_CompleteStyle = None
-        _pt_Style = None
-        HAS_PROMPT_TOOLKIT = False
-
-
-def _missing_required_ui_packages(ui_mode: str) -> list[str]:
-    mode = normalize_ui_mode(ui_mode)
-    if mode == "cursor":
-        return [] if HAS_PROMPT_TOOLKIT else ["prompt_toolkit"]
-    return []
-
-
-def install_optional_ui_packages(packages: list[str]) -> bool:
-    """Instaluje prompt_toolkit po zgodzie użytkownika."""
-    if not packages:
-        return True
-    command = [sys.executable, "-m", "pip", "install", *packages]
-    print("\nUruchamiam:")
-    print("  " + " ".join(command))
-    try:
-        subprocess.check_call(command)
-    except Exception as exc:
-        print(f"\nNie udało się doinstalować biblioteki UI: {exc}")
-        return False
-    _refresh_optional_ui_imports()
-    if not HAS_PROMPT_TOOLKIT:
-        print("\nInstalacja zakończona, ale nadal nie mogę zaimportować prompt_toolkit.")
-        return False
-    print("\nMenu kursorowe jest dostępne.")
-    return True
-
-
-
-def choose_ui_mode_interactively(ui_mode: str | None, state: WizardState | None = None) -> str:
-    """Wybiera tryb UI przy starcie.
-
-    Widoczny wybór ma tylko dwie pozycje: TXT albo Kursorowy.
-    Automatyczny start nie jest osobnym trybem, tylko flagą `ui_auto_start`:
-    kiedy jest włączona i ustawienia zawierają zapisany tryb, aplikacja startuje
-    bez ekranu wyboru.
-    """
-    explicit = ui_mode is not None and str(ui_mode).strip() != ""
-    if explicit:
-        mode = normalize_ui_mode(ui_mode or "plain")
-        return resolve_auto_ui_mode() if mode == "auto" else mode
-
-    saved = normalize_ui_mode(state.ui_mode) if state is not None and state.ui_mode else "plain"
-    if saved == "auto":
-        saved = resolve_auto_ui_mode()
-
-    if state is not None and state.settings_loaded_from is not None and state.ui_auto_start:
-        return "settings"
-
-    default_choice = "2" if saved == "cursor" else "1"
-
-    if not sys.stdin.isatty():
-        return saved
-
-    section("Wybór interfejsu")
-    print("Wybierz tryb pracy aplikacji:")
-    print("  1. TXT / tekstowy — najprostszy, działa bez dodatkowych bibliotek")
-    if HAS_PROMPT_TOOLKIT:
-        print("  2. Kursorowy — menu terminalowe ze strzałkami")
-    else:
-        print("  2. Kursorowy — wymaga prompt_toolkit; aplikacja zapyta o instalację albo wróci do tekstowego")
-    print()
-    print("Po wyborze zapiszę ten tryb i włączę automatyczne użycie zapisanego interfejsu przy następnym starcie.")
-    print(f"Enter = {default_choice}. Ctrl+X = zakończ.")
-
-    prompt_text = f"Tryb UI [1 TXT / 2 Kursorowy; Enter={default_choice}]: "
-    if HAS_PROMPT_TOOLKIT and _pt_prompt is not None:
-        try:
-            choice = _pt_prompt(
-                prompt_text,
-                default="",
-                key_bindings=startup_ui_key_bindings(),
-                wrap_lines=False,
-            ).strip().lower()
-        except UserCancelledInput:
-            return "plain"
-        except UserRequestedAppExit:
-            raise
-        except Exception:
-            choice = input(prompt_text).strip().lower()
-    else:
-        choice = input(prompt_text).strip().lower()
-
-    control = _plain_control_word(choice)
-    if control == "exit":
-        raise UserRequestedAppExit()
-    if not choice:
-        choice = default_choice
-    if choice in {"2", "k", "kursor", "kursorowy", "cursor"}:
-        return "cursor"
-    return "plain"
-
-def resolve_ui_mode_with_optional_install(ui_mode: str | None, state: WizardState | None = None) -> str:
-    """Ustala aktywny tryb interfejsu i zapisuje preferencję w stanie sesji."""
-    global ACTIVE_UI_MODE
-    preference_raw = choose_ui_mode_interactively(ui_mode, state)
-    preserve_saved_preference = preference_raw == "settings"
-
-    if preserve_saved_preference:
-        preference = normalize_ui_mode(state.ui_mode if state is not None else "plain")
-    else:
-        preference = normalize_ui_mode(preference_raw)
-
-    if preference == "auto":
-        preference = resolve_auto_ui_mode()
-    mode = preference
-
-    missing = _missing_required_ui_packages(mode)
-    if missing and not sys.stdin.isatty():
-        print("prompt_toolkit nie jest dostępny. Uruchamiam tryb tekstowy.")
-        mode = "plain"
-        if preference == "cursor":
-            preference = "plain"
-            preserve_saved_preference = False
-    elif missing:
-        section("Tryb kursorowy")
-        print("Tryb kursorowy wymaga biblioteki prompt_toolkit.")
-        print("Opcje:")
-        print("  1. Doinstaluj prompt_toolkit przez pip")
-        print("  2. Uruchom tryb tekstowy")
-        install_choice = ask_text("Wybór", "2").strip().lower()
-        if install_choice in {"1", "t", "tak", "y", "yes"} and install_optional_ui_packages(missing):
-            mode = "cursor"
-            preference = "cursor"
-        else:
-            print("Uruchamiam tryb tekstowy.")
-            mode = "plain"
-            if preference == "cursor":
-                preference = "plain"
-                preserve_saved_preference = False
-
-    ACTIVE_UI_MODE = mode
-    if state is not None and not preserve_saved_preference:
-        state.ui_mode = preference
-        # Każdy ręczny wybór TXT/Kursorowy przy starcie oznacza: od kolejnego
-        # uruchomienia używaj tego zapisanego trybu bez pytania.
-        state.ui_auto_start = True
-    return mode
-
-def menu_options(state: WizardState) -> list[tuple[str, str]]:
-    return [
-        ("1", f"1. Profil pakowania [{profile_menu_label(state)}]"),
-        ("2", f"2. Pokaż listę do spakowania [{pack_list_settings_label(state)}]"),
-        ("3", f"3. Folder do pakowania [{menu_value(state.source_folder)}]"),
-        ("4", f"4. Folder zapisu paczki [{menu_value(state.out_dir)}]"),
-        ("5", f"5. Zmień nazwę paczki [{state.archive_name or 'nie ustawiono'}]"),
-        ("6", "6. Ustawienia"),
-        ("7", "7. Pakuj teraz"),
-        ("0", "0. Wyjście"),
-    ]
-
-
-def default_menu_choice(state: WizardState) -> str:
-    """Ustawia sensowną domyślną akcję w menu."""
-    if state.source_folder is None:
-        return "3"
-    if state.out_dir is None:
-        return "4"
-    if not state.archive_name:
-        return "5"
-    if state.plan is not None:
-        return "7"
-    return "2"
-
-def print_menu_plain(state: WizardState) -> None:
-    print("\n" + "=" * 78)
-    print("  MENU GŁÓWNE")
-    print("=" * 78)
-    for _, label in menu_options(state):
-        print(f"  {label}")
-
-
-def _cursor_menu_lines(state: WizardState, selected_index: int) -> list[tuple[str, str]]:
-    """Buduje główne menu kursorowe."""
-    options = menu_options(state)
-    selected_index = max(0, min(selected_index, len(options) - 1))
-    width = 78
-    fragments: list[tuple[str, str]] = []
-
-    def part(style: str, text: str) -> None:
-        fragments.append((style, text))
-
-    def line(style: str, text: str = "") -> None:
-        part(style, text)
-        part("", "\n")
-
-    line("class:border", "=" * width)
-    line("class:title", f"  Jaźń / Łatka — generator paczki ZIP v{VERSION}")
-    line("class:border", "=" * width)
-    line("", "")
-
-    for label, value in (
-        ("Plan:     ", plan_status_label(state)),
-        ("Profil:   ", state.profile_label()),
-        ("Źródło:   ", menu_value(state.source_folder)),
-        ("Zapis:    ", menu_value(state.out_dir)),
-        ("ZIP:      ", state.archive_name or "(nie ustawiono)"),
-    ):
-        part("class:status.label", label)
-        line("class:status.value", value)
-
-    line("", "")
-    line("class:hint", "↑/↓ wybór | Enter OK | Esc odśwież | Ctrl+X zamknij bez zapisu | 0 wyjście")
-    line("", "")
-
-    for idx, (_, label) in enumerate(options):
-        marker = "▶" if idx == selected_index else " "
-        style = "class:latka.selected" if idx == selected_index else "class:latka.option"
-        line(style, f"  {marker} {label}")
-
-    return fragments
-
-
-def should_use_cursor_menu(ui_mode: str) -> bool:
-    """Czy bieżący terminal może użyć menu kursorowego."""
-    return normalize_ui_mode(ui_mode) == "cursor" and prompt_toolkit_parts() is not None
-
-
-def ask_menu_choice_cursor(state: WizardState, default: str) -> str:
-    """Główne menu kursorowe oparte o prompt_toolkit Application."""
-    parts = prompt_toolkit_parts()
-    if parts is None:
-        return ask_text("Wybór", default)
-    Application, KeyBindings, Layout, Window, FormattedTextControl, Style = parts
-
-    options = menu_options(state)
-    keys = [key for key, _ in options]
-    selected = {"index": keys.index(default) if default in keys else 0}
-
-    def get_text() -> list[tuple[str, str]]:
-        return _cursor_menu_lines(state, selected["index"])
-
-    control = FormattedTextControl(text=get_text, focusable=True)
-    window = Window(content=control, wrap_lines=False, dont_extend_height=True)
-    layout = Layout(window)
-    kb = KeyBindings()
-
-    def move(delta: int, event: Any) -> None:
-        selected["index"] = (selected["index"] + delta) % len(options)
-        event.app.invalidate()
-
-    @kb.add("up")
-    @kb.add("k")
-    def _up(event: Any) -> None:
-        move(-1, event)
-
-    @kb.add("down")
-    @kb.add("j")
-    def _down(event: Any) -> None:
-        move(1, event)
-
-    @kb.add("home")
-    def _home(event: Any) -> None:
-        selected["index"] = 0
-        event.app.invalidate()
-
-    @kb.add("end")
-    def _end(event: Any) -> None:
-        selected["index"] = len(options) - 1
-        event.app.invalidate()
-
-    @kb.add("enter")
-    def _enter(event: Any) -> None:
-        event.app.exit(result=options[selected["index"]][0])
-
-    @kb.add("escape")
-    def _escape_no_close(event: Any) -> None:
-        event.app.invalidate()
-
-    @kb.add("c-x", eager=True)
-    def _ctrl_x_exit(event: Any) -> None:
-        event.app.exit(exception=UserRequestedAppExit())
-
-    @kb.add("c-c", eager=True)
-    def _ctrl_c_noop(event: Any) -> None:
-        event.app.invalidate()
-
-    try:
-        @kb.add("<sigint>", eager=True)
-        def _sigint_noop(event: Any) -> None:
-            event.app.invalidate()
-    except Exception:
-        pass
-
-    for option_key in keys:
-        if len(option_key) == 1:
-            @kb.add(option_key, eager=True)
-            def _number(event: Any, option_key: str = option_key) -> None:
-                event.app.exit(result=option_key)
-
-    style = Style.from_dict({
-        "border": "ansicyan",
-        "title": "bold ansicyan",
-        "hint": "ansibrightblack",
-        "status.label": "bold",
-        "status.value": "",
-        "latka.option": "",
-        "latka.selected": "reverse bold",
-    })
-
-    app = Application(
-        layout=layout,
-        key_bindings=kb,
-        style=style,
-        full_screen=True,
-        mouse_support=False,
-    )
-    result = app.run()
-    return str(result or default)
-
-
-def ask_menu_choice(state: WizardState, default: str, ui_mode: str) -> str:
-    if should_use_cursor_menu(ui_mode):
-        try:
-            return ask_menu_choice_cursor(state, default)
-        except UserRequestedAppExit:
-            raise
-        except KeyboardInterrupt:
-            return default
-        except Exception as exc:
-            print(f"UWAGA: tryb kursorowy niedostępny ({exc}). Wracam do trybu tekstowego.")
-
-    print_menu_plain(state)
-    return ask_text("Wybór", default)
-
-
-def ask_cursor_choice(
-    *,
-    title: str,
-    options: list[tuple[str, str, str]],
-    default_key: str = "0",
-    header_lines: list[str] | None = None,
-) -> str | None:
-    """Małe podmenu kursorowe. ESC/Q zwraca None, Enter zwraca klucz opcji."""
-    parts = prompt_toolkit_parts()
-    if parts is None:
-        return None
-    Application, KeyBindings, Layout, Window, FormattedTextControl, Style = parts
-
-    keys = [key for key, _, _ in options]
-    selected = {"index": keys.index(default_key) if default_key in keys else 0}
-    width = 78
-
-    def get_text() -> list[tuple[str, str]]:
-        fragments: list[tuple[str, str]] = []
-
-        def line(style: str, value: str = "") -> None:
-            fragments.append((style, value))
-            fragments.append(("", "\n"))
-
-        line("class:border", "=" * width)
-        line("class:title", f"  {title}")
-        line("class:border", "=" * width)
-        line("", "")
-        for header in header_lines or []:
-            line("class:hint", header)
-        if header_lines:
-            line("", "")
-        line("class:hint", "↑/↓ wybór | Enter OK | Esc/Q wróć | Ctrl+X zamknij bez zapisu")
-        line("", "")
-        for idx, (key, label, description) in enumerate(options):
-            marker = "▶" if idx == selected["index"] else " "
-            style = "class:latka.selected" if idx == selected["index"] else "class:latka.option"
-            row = f"  {marker} {key}. {label}"
-            if len(row) > width:
-                row = row[: max(0, width - 1)] + "…"
-            line(style, row)
-            if description:
-                desc = f"      {description}"
-                if len(desc) > width:
-                    desc = desc[: max(0, width - 1)] + "…"
-                line("class:description", desc)
-        return fragments
-
-    control = FormattedTextControl(text=get_text, focusable=True)
-    window = Window(content=control, wrap_lines=False, dont_extend_height=True)
-    layout = Layout(window)
-    kb = KeyBindings()
-
-    def move(delta: int, event: Any) -> None:
-        selected["index"] = (selected["index"] + delta) % len(options)
-        event.app.invalidate()
-
-    @kb.add("up")
-    @kb.add("k")
-    def _up(event: Any) -> None:
-        move(-1, event)
-
-    @kb.add("down")
-    @kb.add("j")
-    def _down(event: Any) -> None:
-        move(1, event)
-
-    @kb.add("home")
-    def _home(event: Any) -> None:
-        selected["index"] = 0
-        event.app.invalidate()
-
-    @kb.add("end")
-    def _end(event: Any) -> None:
-        selected["index"] = len(options) - 1
-        event.app.invalidate()
-
-    @kb.add("enter")
-    def _enter(event: Any) -> None:
-        event.app.exit(result=options[selected["index"]][0])
-
-    @kb.add("escape")
-    @kb.add("q")
-    def _cancel(event: Any) -> None:
-        event.app.exit(result=None)
-
-    @kb.add("c-x", eager=True)
-    def _ctrl_x_exit(event: Any) -> None:
-        event.app.exit(exception=UserRequestedAppExit())
-
-    @kb.add("c-c", eager=True)
-    def _ctrl_c_noop(event: Any) -> None:
-        event.app.invalidate()
-
-    try:
-        @kb.add("<sigint>", eager=True)
-        def _sigint_noop(event: Any) -> None:
-            event.app.invalidate()
-    except Exception:
-        pass
-
-    for option_key in keys:
-        if len(option_key) == 1:
-            @kb.add(option_key)
-            def _number(event: Any, option_key: str = option_key) -> None:
-                event.app.exit(result=option_key)
-
-    style = Style.from_dict({
-        "border": "ansicyan",
-        "title": "bold ansicyan",
-        "hint": "ansibrightblack",
-        "description": "ansibrightblack",
-        "latka.option": "",
-        "latka.selected": "reverse bold",
-    })
-    app = Application(
-        layout=layout,
-        key_bindings=kb,
-        style=style,
-        full_screen=True,
-        mouse_support=False,
-    )
-    return app.run()
-
-
-def print_current_pack_settings_block(state: WizardState) -> None:
-    subsection("Aktualne ustawienia paczki")
-    print(f"Profil pakowania:           {state.profile_label()}")
-    print(f"Zakres include profilu:     {state.include_prefixes() or '(cały folder źródłowy)'}")
-    print(f"Rozmiar części ZIP:         {state.part_size_mb} MiB")
-    print(f"Poziom kompresji:           {state.compression_level}")
-    print(f"Zapisywać puste katalogi:   {'tak' if state.include_empty_dirs else 'nie'}")
-    print(f"Nadpisywać istniejące:      {'tak' if state.force else 'nie'}")
-
-
-def ask_int_edit(prompt: str, default: int, *, minimum: int | None = None, maximum: int | None = None) -> int | None:
-    """Liczba z promptem, gdzie ESC wraca bez zmiany."""
-    while True:
-        try:
-            raw = ask_edit_text(prompt, str(default), bottom_toolbar="Esc = wróć bez zmiany; Ctrl+X = zamknij bez zapisu; Enter = zatwierdź")
-        except UserCancelledInput:
-            return None
-        try:
-            value = int(raw)
-        except ValueError:
-            print("Podaj liczbę całkowitą.")
-            continue
-        if minimum is not None and value < minimum:
-            print(f"Wartość musi być >= {minimum}.")
-            continue
-        if maximum is not None and value > maximum:
-            print(f"Wartość musi być <= {maximum}.")
-            continue
-        return value
-
-
-def ask_bool_cursor(title: str, current: bool, *, yes_label: str = "Tak", no_label: str = "Nie") -> bool | None:
-    """Tak/Nie w trybie kursorowym; ESC wraca bez zmiany."""
-    options = [
-        ("1", f"{yes_label}" + ("  *" if current else ""), "Włącz / ustaw Tak."),
-        ("2", f"{no_label}" + ("  *" if not current else ""), "Wyłącz / ustaw Nie."),
-        ("0", "Wróć", "Bez zmiany."),
-    ]
-    choice = ask_cursor_choice(title=title, options=options, default_key="1" if current else "2")
-    if choice == APP_EXIT_MARKER:
-        raise UserRequestedAppExit()
-    if choice in {None, "0"}:
-        return None
-    return choice == "1"
-
-
-def configure_pack_settings(state: WizardState, ui_mode: str = "plain") -> None:
-    while True:
-        if should_use_cursor_menu(ui_mode):
-            options = [
-                ("1", f"Zmień rozmiar jednej części ZIP [{state.part_size_mb} MiB]", "Wpisz liczbę MiB; minimum 1."),
-                ("2", f"Zmień poziom kompresji [{state.compression_level}]", "Zakres 0-9; 6 jest rozsądnym domyślnym poziomem."),
-                ("3", f"Zapisywać puste katalogi [{'tak' if state.include_empty_dirs else 'nie'}]", "Przełącz Tak/Nie."),
-                ("4", f"Nadpisywać istniejące pliki [{'tak' if state.force else 'nie'}]", "Przełącz Tak/Nie."),
-                ("5", "Ustaw wszystko krok po kroku", "Rozmiar, kompresja, puste katalogi i nadpisywanie."),
-                ("0", "Wróć", "Powrót do menu głównego."),
-            ]
-            choice = ask_cursor_choice(
-                title="Ustawienia paczki",
-                options=options,
-                default_key="0",
-                header_lines=[
-                    f"Profil: {state.profile_label()}",
-                    f"Zakres include: {state.include_prefixes() or '(cały folder źródłowy)'}",
-                    "ESC wraca do menu głównego, nie zamyka aplikacji.",
-                ],
-            )
-            if choice == APP_EXIT_MARKER:
-                raise UserRequestedAppExit()
-            if choice in {None, "0"}:
-                return
-            if choice == "1":
-                value = ask_int_edit("Rozmiar części ZIP w MiB", state.part_size_mb, minimum=1)
-                if value is not None:
-                    state.part_size_mb = value
-                    state.plan = None
-            elif choice == "2":
-                value = ask_int_edit("Poziom kompresji 0-9", state.compression_level, minimum=0, maximum=9)
-                if value is not None:
-                    state.compression_level = value
-                    state.plan = None
-            elif choice == "3":
-                value = ask_bool_cursor("Zapisywać puste katalogi", state.include_empty_dirs)
-                if value is not None:
-                    state.include_empty_dirs = value
-                    state.plan = None
-            elif choice == "4":
-                value = ask_bool_cursor("Nadpisywać istniejące pliki", state.force)
-                if value is not None:
-                    state.force = value
-                    state.plan = None
-            elif choice == "5":
-                value = ask_int_edit("Rozmiar części ZIP w MiB", state.part_size_mb, minimum=1)
-                if value is None:
-                    continue
-                compression = ask_int_edit("Poziom kompresji 0-9", state.compression_level, minimum=0, maximum=9)
-                if compression is None:
-                    continue
-                include_dirs = ask_bool_cursor("Zapisywać puste katalogi", state.include_empty_dirs)
-                if include_dirs is None:
-                    continue
-                force = ask_bool_cursor("Nadpisywać istniejące pliki", state.force)
-                if force is None:
-                    continue
-                state.part_size_mb = value
-                state.compression_level = compression
-                state.include_empty_dirs = include_dirs
-                state.force = force
-                state.plan = None
-            continue
-
-        section("Ustawienia paczki")
-        print_current_pack_settings_block(state)
-        print("\nOpcje:")
-        print("  1. Zmień rozmiar jednej części ZIP")
-        print("  2. Zmień poziom kompresji")
-        print("  3. Włącz/wyłącz zapisywanie pustych katalogów")
-        print("  4. Włącz/wyłącz nadpisywanie istniejących plików")
-        print("  5. Ustaw wszystko krok po kroku")
-        print("  0. Wróć")
-        choice = ask_text("Wybór", "0")
-        if choice == "1":
-            state.part_size_mb = ask_int("Rozmiar części ZIP w MiB", state.part_size_mb, minimum=1)
-            state.plan = None
-        elif choice == "2":
-            state.compression_level = ask_int("Poziom kompresji 0-9", state.compression_level, minimum=0, maximum=9)
-            state.plan = None
-        elif choice == "3":
-            state.include_empty_dirs = not state.include_empty_dirs
-            state.plan = None
-            print(f"Zapisywanie pustych katalogów: {'tak' if state.include_empty_dirs else 'nie'}")
-        elif choice == "4":
-            state.force = not state.force
-            state.plan = None
-            print(f"Nadpisywanie istniejących plików: {'tak' if state.force else 'nie'}")
-        elif choice == "5":
-            state.part_size_mb = ask_int("Rozmiar części ZIP w MiB", state.part_size_mb, minimum=1)
-            state.compression_level = ask_int("Poziom kompresji 0-9", state.compression_level, minimum=0, maximum=9)
-            state.include_empty_dirs = ask_bool("Zapisywać puste katalogi", state.include_empty_dirs)
-            state.force = ask_bool("Nadpisywać istniejące pliki", state.force)
-            state.plan = None
-        elif choice == "0":
-            return
-        else:
-            print("Nieznana opcja.")
-
-def terminal_page_size(default: int = 24) -> int:
-    """Rozmiar strony dla długich list w terminalu."""
-    try:
-        size = shutil.get_terminal_size(fallback=(80, default))
-        return max(8, min(40, int(size.lines) - 8))
-    except Exception:
-        return default
-
-
-
-
-def print_lines_paged(title: str, lines: list[str], *, page_size: int | None = None) -> None:
-    """Drukuje długą listę stronami w stylu prostego pagera.
-
-    Od v5.9 nagłówek listy jest oddzielony liniami `====`, żeby podgląd
-    pakowania był czytelny po długim skanowaniu i po wyjściu z pagera.
-    Enter przechodzi dalej, `p` cofa, `q`/`0` kończy.
-    """
-    def header(label: str) -> None:
-        print("\n" + "=" * 78)
-        print(f"  {label}:")
-        print("=" * 78)
-
-    if not lines:
-        header(title)
-        print("  (brak)")
-        print("(END)")
-        return
-
-    page_size = page_size or terminal_page_size()
-    page_size = max(1, int(page_size))
-    total_pages = (len(lines) + page_size - 1) // page_size
-
-    if total_pages <= 1 or not sys.stdin.isatty():
-        header(title)
-        for line in lines:
-            print(line)
-        print("(END)")
-        return
-
-    page = 0
-    while True:
-        start = page * page_size
-        end = min(start + page_size, len(lines))
-        header(f"{title} — strona {page + 1}/{total_pages} ({start + 1}-{end} z {len(lines)})")
-        for line in lines[start:end]:
-            print(line)
-
-        if page >= total_pages - 1:
-            print("(END)")
-            return
-
-        try:
-            choice = input(": ").strip().lower()
-        except (EOFError, KeyboardInterrupt):
-            print()
-            return
-
-        if choice in {"q", "0", "k", "koniec", "esc", "w", "wroc", "wróć"}:
-            print("(END)")
-            return
-        if choice in {"p", "poprzednia", "prev", "b"}:
-            page = max(0, page - 1)
-            continue
-        page += 1
-
-
-def format_numbered_lines(items: list[str], *, start: int = 1) -> list[str]:
-    return [f"  {index:>4}. {item}" for index, item in enumerate(items, start=start)]
-
-
-def rebuild_plan(state: WizardState) -> PackPlan:
-    require_ready_state(state)
-    assert state.source_folder is not None
-    section("4. Informacje co będzie spakowane — podstawa pakowania")
-    plan = discover_pack_plan(state.source_folder, state.include_empty_dirs, state.effective_excludes(), state.include_prefixes())
-    state.plan = plan
-    print_pack_plan_summary(state)
-    return plan
-
-
-def collect_included_folder_paths(plan: PackPlan, root: Path) -> list[str]:
-    """Zwraca pełną listę folderów widocznych w planie pakowania.
-
-    Nie wypisuje plików. Uwzględnia foldery dodane jako puste katalogi oraz
-    foldery rodzicielskie plików, więc lista działa również wtedy, gdy
-    include_empty_dirs=False.
-    """
-    root = root.resolve()
-    folders: set[str] = set()
-
-    for directory in plan.dirs:
-        rel = rel_posix(directory, root).rstrip("/")
-        if rel and rel != ".":
-            folders.add(rel + "/")
-
-    for file_path in plan.files:
-        parent = file_path.parent
-        try:
-            rel_parent = rel_posix(parent, root).rstrip("/")
-        except ValueError:
-            continue
-        if not rel_parent or rel_parent == ".":
-            continue
-        parts = PurePosixPath(rel_parent).parts
-        for index in range(1, len(parts) + 1):
-            folders.add(PurePosixPath(*parts[:index]).as_posix().rstrip("/") + "/")
-
-    return sorted(folders, key=lambda value: value.lower())
-
-
-def print_folder_paths_for_plan(state: WizardState, *, paged: bool = True) -> None:
-    assert state.plan is not None
-    assert state.source_folder is not None
-    folders = collect_included_folder_paths(state.plan, state.source_folder)
-    if not folders:
-        print("\nFoldery/katalogi obecne w planie pakowania:")
-        print("  (brak folderów podrzędnych — pliki są bezpośrednio w katalogu źródłowym albo plan jest pusty)")
-        return
-    lines = format_numbered_lines(folders)
-    if paged:
-        print_lines_paged("Foldery/katalogi obecne w planie pakowania", lines)
-    else:
-        print("\nFoldery/katalogi obecne w planie pakowania:")
-        for line in lines:
-            print(line)
-
-
-def print_pack_plan_summary(state: WizardState, *, paged: bool = True) -> None:
-    require_ready_state(state)
-    if state.plan is None:
-        print("Brak aktualnego planu. Wybierz opcję podglądu, żeby przeskanować źródło.")
-        return
-    assert state.source_folder is not None
-    assert state.out_dir is not None
-    plan = state.plan
-    print("\nPodstawa pakowania została wyliczona z aktualnych ustawień.")
-    print(f"Źródło: {state.source_folder}")
-    print(f"Wyjście: {state.out_dir}")
-    print(f"Nazwa ZIP: {state.archive_name}")
-    print(f"Profil: {state.profile_label()}")
-    print(f"Pliki do spakowania: {plan.file_count}")
-    print(f"Katalogi do zapisania bezpośrednio w ZIP: {plan.dir_count}")
-    print(f"Rozmiar źródłowy: {human_size(plan.source_total_size)}")
-    print(f"Wykluczone wpisy: {len(plan.excluded)}")
-    print(f"Część ZIP: {state.part_size_mb} MiB; kompresja: {state.compression_level}; force: {state.force}")
-
-    top_lines = [
-        f"  {name:<32} {count:>6} plików  {human_size(size):>12}"
-        for name, count, size in summarize_top_level(plan, state.source_folder)
-    ]
-    print_lines_paged("Największe grupy top-level według liczby plików", top_lines, page_size=terminal_page_size())
-    print_folder_paths_for_plan(state, paged=paged)
-    if plan.excluded:
-        print("\nWykluczenia: szczegóły są w menu wykluczeń oraz w pełnym podglądzie JSON.")
-
-def configure_profile(state: WizardState, ui_mode: str = "plain") -> None:
-    keys = list(PACK_PROFILES.keys())
-
-    if should_use_cursor_menu(ui_mode):
-        options: list[tuple[str, str, str]] = []
-        for idx, key in enumerate(keys, start=1):
-            profile = PACK_PROFILES[key]
-            label = str(profile["label"])
-            if key == state.pack_profile:
-                label = "* " + label
-            options.append((str(idx), label, str(profile["description"])))
-        options.append(("0", "Wróć", "Bez zmiany profilu."))
-        default_key = str(keys.index(state.pack_profile) + 1) if state.pack_profile in keys else "1"
-        choice = ask_cursor_choice(
-            title="Profil pakowania",
-            options=options,
-            default_key=default_key,
-            header_lines=[
-                "Profil ustawia bazową listę pakowania i domyślne wykluczenia.",
-                "Później możesz wyłączyć pojedyncze wzorce albo dodać własne.",
-            ],
-        )
-        if choice == APP_EXIT_MARKER:
-            raise UserRequestedAppExit()
-        if choice is None or choice == "0":
-            print("Powrót bez zmiany profilu.")
-            return
-        try:
-            new_profile = keys[int(choice) - 1]
-        except Exception:
-            print("Nieznany wybór profilu.")
-            return
-        if new_profile != state.pack_profile:
-            state.pack_profile = new_profile
-            state.disabled_default_excludes.clear()
-            state.plan = None
-            print(f"Ustawiono profil: {state.profile_label()}")
-        return
-
-    section("Profil pakowania")
-    print("Wybierz profil. Profil ustawia bazową listę pakowania i domyślne wykluczenia.")
-    print("Później możesz jeszcze ręcznie wyłączyć pojedyncze wzorce albo dodać własne.")
-    for idx, key in enumerate(keys, start=1):
-        profile = PACK_PROFILES[key]
-        marker = "*" if key == state.pack_profile else " "
-        print(f"  {idx}. {marker} {profile['label']}")
-        print(f"       {profile['description']}")
-        prefixes = as_str_list(profile.get("include_prefixes"))
-        if prefixes:
-            print(f"       Zakres include: {', '.join(prefixes)}")
-    print("  0. Wróć")
-    choice = ask_int("Numer profilu", 0, minimum=0, maximum=len(keys))
-    if choice == 0:
-        return
-    new_profile = keys[choice - 1]
-    if new_profile != state.pack_profile:
-        state.pack_profile = new_profile
-        state.disabled_default_excludes.clear()
-        state.plan = None
-        print(f"Ustawiono profil: {state.profile_label()}")
-
-def print_default_exclusions_table(state: WizardState) -> None:
-    """Pokazuje tabelę domyślnych wykluczeń profilu z ON/OFF."""
-    profile_excludes = state.profile_default_excludes()
-    disabled = set(state.disabled_default_excludes)
-    section("Domyślne wykluczenia — tabela ON/OFF")
-    print(f"Profil:                    {state.profile_label()}")
-    print(f"Użycie listy domyślnej:     {on_off_label(state.use_default_excludes)}")
-    print(f"Aktywne domyślne wzorce:    {len(state.active_default_excludes())} / {len(profile_excludes)}")
-    print()
-    print(f"{'Nr':>4}  {'Stan':<3}  Wzorzec")
-    print("-" * 78)
-    for idx, pat in enumerate(profile_excludes, start=1):
-        status = "OFF" if pat in disabled else "ON"
-        print(f"{idx:>4}  {status:<3}  {pat}")
-    print("-" * 78)
-
-
-def reset_default_exclusions(state: WizardState) -> None:
-    """Włącza wszystkie domyślne wykluczenia bieżącego profilu."""
-    if state.disabled_default_excludes:
-        state.disabled_default_excludes.clear()
-        state.plan = None
-    state.use_default_excludes = True
-    print("Włączono całą domyślną listę i wyczyszczono indywidualne wyłączenia.")
-
-
-def set_all_default_exclusions(state: WizardState, enabled: bool) -> None:
-    """Włącza albo wyłącza wszystkie pojedyncze wzorce domyślne."""
-    profile_excludes = state.profile_default_excludes()
-    if enabled:
-        state.disabled_default_excludes.clear()
-        state.use_default_excludes = True
-        print("Włączono wszystkie pojedyncze domyślne wykluczenia.")
-    else:
-        state.disabled_default_excludes = list(profile_excludes)
-        state.use_default_excludes = True
-        print("Wyłączono wszystkie pojedyncze domyślne wykluczenia, ale lista domyślna pozostaje dostępna.")
-    state.plan = None
-
-
-def toggle_default_exclusion_by_index(state: WizardState, index: int) -> bool:
-    """Przełącza pojedynczy wzorzec domyślny po indeksie 0-based."""
-    profile_excludes = state.profile_default_excludes()
-    if not (0 <= index < len(profile_excludes)):
-        return False
-    pat = profile_excludes[index]
-    if pat in state.disabled_default_excludes:
-        state.disabled_default_excludes = [x for x in state.disabled_default_excludes if x != pat]
-        print(f"ON:  {pat}")
-    else:
-        state.disabled_default_excludes.append(pat)
-        print(f"OFF: {pat}")
-    state.plan = None
-    return True
-
-
-def default_exclusions_cursor_table_menu(state: WizardState) -> None:
-    """Przewijana tabela ON/OFF dla domyślnych wykluczeń w trybie kursorowym.
-
-    Zwykłe menu kursorowe dobrze działa dla krótkich list, ale domyślne
-    wykluczenia potrafią mieć kilkadziesiąt pozycji. Dlatego tutaj tabela ma
-    własny widok: nagłówek i stopka są stałe, a środek przewija się razem z
-    zaznaczonym wierszem.
-    """
-    parts = prompt_toolkit_parts()
-    if parts is None:
-        return
-    Application, KeyBindings, Layout, Window, FormattedTextControl, Style = parts
-
-    profile_excludes = state.profile_default_excludes()
-    selected = {"index": 0, "top": 0}
-    width = 100
-
-    def clamp_selection() -> None:
-        count = len(profile_excludes)
-        if count <= 0:
-            selected["index"] = 0
-            selected["top"] = 0
-            return
-        selected["index"] = max(0, min(selected["index"], count - 1))
-        visible = visible_row_count()
-        if selected["index"] < selected["top"]:
-            selected["top"] = selected["index"]
-        elif selected["index"] >= selected["top"] + visible:
-            selected["top"] = selected["index"] - visible + 1
-        selected["top"] = max(0, min(selected["top"], max(0, count - visible)))
-
-    def visible_row_count() -> int:
-        try:
-            lines = shutil.get_terminal_size(fallback=(100, 24)).lines
-        except Exception:
-            lines = 24
-        # Tytuł, status, podpowiedzi, nagłówek tabeli i stopka zajmują zwykle
-        # 10-12 wierszy. Resztę oddajemy na przewijaną tabelę.
-        return max(4, min(len(profile_excludes), lines - 12))
-
-    def move(delta: int) -> None:
-        if not profile_excludes:
-            return
-        selected["index"] = max(0, min(len(profile_excludes) - 1, selected["index"] + delta))
-        clamp_selection()
-
-    def current_pattern() -> str | None:
-        if not profile_excludes:
-            return None
-        clamp_selection()
-        return profile_excludes[selected["index"]]
-
-    def toggle_current() -> None:
-        pat = current_pattern()
-        if pat is None:
-            return
-        if pat in state.disabled_default_excludes:
-            state.disabled_default_excludes = [x for x in state.disabled_default_excludes if x != pat]
-        else:
-            state.disabled_default_excludes.append(pat)
-        state.plan = None
-
-    def get_text() -> list[tuple[str, str]]:
-        clamp_selection()
-        disabled = set(state.disabled_default_excludes)
-        visible = visible_row_count()
-        top = selected["top"]
-        bottom = min(top + visible, len(profile_excludes))
-        active_count = len(state.active_default_excludes())
-        fragments: list[tuple[str, str]] = []
-
-        def line(style: str, value: str = "") -> None:
-            fragments.append((style, value[:width]))
-            fragments.append(("", "\n"))
-
-        line("class:border", "=" * 78)
-        line("class:title", "  Domyślne wykluczenia — tabela ON/OFF")
-        line("class:border", "=" * 78)
-        line("class:hint", f"Profil: {state.profile_label()}")
-        line("class:hint", f"Lista domyślna: {on_off_label(state.use_default_excludes)} | aktywne: {active_count}/{len(profile_excludes)}")
-        line("class:hint", "↑/↓ przewiń | PgUp/PgDn strona | Home/End | Enter przełącz")
-        line("class:hint", "A wszystkie ON | X wszystkie OFF | R reset | G lista ON/OFF | Esc/Q/0 wróć")
-        line("", "")
-        line("class:table.header", f"{'Nr':>4}  {'Stan':<3}  Wzorzec")
-        line("class:border", "-" * 78)
-
-        for idx in range(top, bottom):
-            pat = profile_excludes[idx]
-            status = "OFF" if pat in disabled else "ON"
-            marker = "▶" if idx == selected["index"] else " "
-            style = "class:latka.selected" if idx == selected["index"] else "class:latka.option"
-            line(style, f" {marker} {idx + 1:>4}  {status:<3}  {pat}")
-
-        if bottom < top + visible:
-            for _ in range(top + visible - bottom):
-                line("", "")
-
-        line("class:border", "-" * 78)
-        line("class:hint", f"Widok: {top + 1 if profile_excludes else 0}-{bottom} z {len(profile_excludes)} | zaznaczone: {selected['index'] + 1 if profile_excludes else 0}")
-        return fragments
-
-    control = FormattedTextControl(text=get_text, focusable=True)
-    window = Window(content=control, wrap_lines=False, dont_extend_height=False)
-    layout = Layout(window)
-    kb = KeyBindings()
-
-    @kb.add("up")
-    @kb.add("k")
-    def _up(event: Any) -> None:
-        move(-1)
-        event.app.invalidate()
-
-    @kb.add("down")
-    @kb.add("j")
-    def _down(event: Any) -> None:
-        move(1)
-        event.app.invalidate()
-
-    @kb.add("pageup")
-    @kb.add("c-u")
-    def _page_up(event: Any) -> None:
-        move(-visible_row_count())
-        event.app.invalidate()
-
-    @kb.add("pagedown")
-    @kb.add("c-d")
-    def _page_down(event: Any) -> None:
-        move(visible_row_count())
-        event.app.invalidate()
-
-    @kb.add("home")
-    def _home(event: Any) -> None:
-        selected["index"] = 0
-        selected["top"] = 0
-        event.app.invalidate()
-
-    @kb.add("end")
-    def _end(event: Any) -> None:
-        selected["index"] = max(0, len(profile_excludes) - 1)
-        clamp_selection()
-        event.app.invalidate()
-
-    @kb.add("enter")
-    @kb.add("space")
-    def _toggle(event: Any) -> None:
-        toggle_current()
-        event.app.invalidate()
-
-    @kb.add("a")
-    def _all_on(event: Any) -> None:
-        state.disabled_default_excludes.clear()
-        state.use_default_excludes = True
-        state.plan = None
-        event.app.invalidate()
-
-    @kb.add("x")
-    def _all_off(event: Any) -> None:
-        state.disabled_default_excludes = list(profile_excludes)
-        state.use_default_excludes = True
-        state.plan = None
-        event.app.invalidate()
-
-    @kb.add("r")
-    def _reset(event: Any) -> None:
-        state.disabled_default_excludes.clear()
-        state.use_default_excludes = True
-        state.plan = None
-        event.app.invalidate()
-
-    @kb.add("g")
-    def _global_toggle(event: Any) -> None:
-        state.use_default_excludes = not state.use_default_excludes
-        state.plan = None
-        event.app.invalidate()
-
-    @kb.add("escape")
-    @kb.add("q")
-    @kb.add("0")
-    def _cancel(event: Any) -> None:
-        event.app.exit(result=None)
-
-    @kb.add("c-x", eager=True)
-    def _ctrl_x_exit(event: Any) -> None:
-        event.app.exit(exception=UserRequestedAppExit())
-
-    @kb.add("c-c", eager=True)
-    def _ctrl_c_noop(event: Any) -> None:
-        event.app.invalidate()
-
-    try:
-        @kb.add("<sigint>", eager=True)
-        def _sigint_noop(event: Any) -> None:
-            event.app.invalidate()
-    except Exception:
-        pass
-
-    style = Style.from_dict({
-        "border": "ansicyan",
-        "title": "bold ansicyan",
-        "hint": "ansibrightblack",
-        "table.header": "bold",
-        "latka.option": "",
-        "latka.selected": "reverse bold",
-    })
-    app = Application(
-        layout=layout,
-        key_bindings=kb,
-        style=style,
-        full_screen=True,
-        mouse_support=False,
-        enable_page_navigation_bindings=True,
-    )
-    app.run()
-
-
-def default_exclusions_table_menu(state: WizardState, ui_mode: str = "plain") -> None:
-    """Edytuje domyślne wykluczenia profilu jako tabelę ON/OFF."""
-    profile_excludes = state.profile_default_excludes()
-    if not profile_excludes:
-        print("Ten profil nie ma domyślnych wykluczeń.")
-        pause()
-        return
-
-    if should_use_cursor_menu(ui_mode):
-        default_exclusions_cursor_table_menu(state)
-        return
-
-    while True:
-        print_default_exclusions_table(state)
-        print("Wpisz numer, żeby przełączyć ON/OFF.")
-        print("a = wszystkie ON | x = wszystkie OFF | r = reset profilu | g = lista domyślna ON/OFF | 0 = wróć")
-        choice = ask_text("Wybór", "0").strip().lower()
-        if choice == "0":
-            return
-
-        normalized = str(choice).strip().lower()
-        if normalized in {"a", "all", "on", "włącz", "wlacz"}:
-            set_all_default_exclusions(state, True)
-            continue
-        if normalized in {"x", "off", "wyłącz", "wylacz"}:
-            set_all_default_exclusions(state, False)
-            continue
-        if normalized in {"r", "reset"}:
-            reset_default_exclusions(state)
-            continue
-        if normalized in {"g", "global"}:
-            state.use_default_excludes = not state.use_default_excludes
-            state.plan = None
-            print(f"Domyślna lista wykluczeń: {on_off_label(state.use_default_excludes)}")
-            continue
-        try:
-            num = int(normalized)
-        except ValueError:
-            print("Nieznana opcja.")
-            continue
-        if not toggle_default_exclusion_by_index(state, num - 1):
-            print("Numer poza zakresem.")
-
-
-def toggle_single_default_exclusion(state: WizardState, ui_mode: str = "plain") -> None:
-    """Zachowany alias kompatybilności — otwiera pełną tabelę ON/OFF."""
-    default_exclusions_table_menu(state, ui_mode)
-
-
-def choose_custom_exclusion_index(state: WizardState, ui_mode: str = "plain", *, title: str = "Manualne wykluczenia") -> int | None:
-    if not state.custom_excludes:
-        print("Brak manualnych wykluczeń.")
-        pause()
-        return None
-
-    if should_use_cursor_menu(ui_mode):
-        options = [(str(idx), pat, "") for idx, pat in enumerate(state.custom_excludes, start=1)]
-        options.append(("0", "Wróć", "Bez zmiany."))
-        choice = ask_cursor_choice(
-            title=title,
-            options=options,
-            default_key="0",
-            header_lines=["ESC wraca do menu manualnych wykluczeń."],
-        )
-        if choice in {None, "0"}:
-            return None
-        try:
-            num = int(str(choice))
-        except ValueError:
-            return None
-    else:
-        lines = [f"  {idx}. {pat}" for idx, pat in enumerate(state.custom_excludes, start=1)]
-        print_lines_paged(title, lines)
-        num = ask_int("Numer manualnego wykluczenia", 0, minimum=0, maximum=len(state.custom_excludes))
-        if num == 0:
-            return None
-
-    if 1 <= num <= len(state.custom_excludes):
-        return num - 1
-    return None
-
-
-def remove_custom_exclusion(state: WizardState, ui_mode: str = "plain") -> None:
-    index = choose_custom_exclusion_index(state, ui_mode, title="Usuń manualne wykluczenie")
-    if index is None:
-        return
-    removed = state.custom_excludes.pop(index)
-    state.plan = None
-    print(f"Usunięto: {removed}")
-
-
-def add_custom_exclusion(state: WizardState, ui_mode: str = "plain") -> None:
-    try:
-        if should_use_cursor_menu(ui_mode):
-            pat = ask_edit_text(
-                "Wzorzec wykluczenia, np. docs/ albo *.log",
-                "",
-                bottom_toolbar="Esc = wróć; Ctrl+X = zamknij bez zapisu; Enter = zatwierdź",
-            )
-        else:
-            pat = ask_text("Wzorzec, np. docs/ albo *.log")
-    except UserCancelledInput:
-        return
-    if pat.strip():
-        state.custom_excludes.append(pat.strip())
-        state.plan = None
-        print(f"Dodano manualne wykluczenie: {pat.strip()}")
-
-
-def edit_custom_exclusion(state: WizardState, ui_mode: str = "plain") -> None:
-    index = choose_custom_exclusion_index(state, ui_mode, title="Edytuj manualne wykluczenie")
-    if index is None:
-        return
-    current = state.custom_excludes[index]
-    try:
-        if should_use_cursor_menu(ui_mode):
-            new_value = ask_edit_text(
-                "Nowy wzorzec wykluczenia",
-                current,
-                bottom_toolbar="Esc = wróć bez zmiany; Ctrl+X = zamknij bez zapisu; Enter = zatwierdź",
-            )
-        else:
-            new_value = ask_text("Nowy wzorzec wykluczenia", current)
-    except UserCancelledInput:
-        return
-    new_value = new_value.strip()
-    if not new_value:
-        print("Pusty wzorzec pominięty. Bez zmiany.")
-        return
-    state.custom_excludes[index] = new_value
-    state.plan = None
-    print(f"Zmieniono: {current} -> {new_value}")
-
-
-def manual_exclusion_submenu(state: WizardState, ui_mode: str = "plain") -> None:
-    while True:
-        if should_use_cursor_menu(ui_mode):
-            choice = ask_cursor_choice(
-                title="Manualne wykluczenie",
-                options=[
-                    ("1", "Dodaj", "Dodaj nowy ręczny wzorzec."),
-                    ("2", "Edytuj", "Zmień wybrany ręczny wzorzec."),
-                    ("3", "Usuń pojedyncze", "Usuń jeden wybrany wzorzec."),
-                    ("4", "Wyczyść wszystkie", "Usuń wszystkie ręczne wzorce."),
-                    ("0", "Wróć", "Powrót do ustawień wykluczeń."),
-                ],
-                default_key="0",
-                header_lines=[f"Manualne wykluczenia: {manual_exclusions_label(state)}"],
-            )
-            if choice in {None, "0"}:
-                return
-        else:
-            section("Manualne wykluczenie")
-            print(f"Manualne wykluczenia: {manual_exclusions_label(state)}")
-            print("Opcje:")
-            print("  1. Dodaj")
-            print("  2. Edytuj")
-            print("  3. Usuń pojedyncze")
-            print("  4. Wyczyść wszystkie")
-            print("  0. Wróć")
-            choice = ask_text("Wybór", "0")
-            if choice == "0":
-                return
-
-        if choice == "1":
-            add_custom_exclusion(state, ui_mode)
-        elif choice == "2":
-            edit_custom_exclusion(state, ui_mode)
-        elif choice == "3":
-            remove_custom_exclusion(state, ui_mode)
-        elif choice == "4":
-            if state.custom_excludes:
-                state.custom_excludes.clear()
-                state.plan = None
-                print("Wyczyszczono wszystkie manualne wykluczenia.")
-            else:
-                print("Brak manualnych wykluczeń do wyczyszczenia.")
-        else:
-            print("Nieznana opcja.")
-
-
-def print_exclusion_status(state: WizardState) -> None:
-    section("Ustawienia wykluczeń")
-    active_defaults = state.active_default_excludes()
-    profile_excludes = state.profile_default_excludes()
-    print(f"Profil pakowania:             {state.profile_label()}")
-    print(f"Zakres include profilu:       {state.include_prefixes() or '(cały folder źródłowy)'}")
-    print(f"Domyślna lista wykluczeń:     {on_off_label(state.use_default_excludes)}")
-    print(f"Domyślne aktywne:             {len(active_defaults)} / {len(profile_excludes)}")
-    print(f"Manualne wykluczenia:         {on_off_label(state.use_custom_excludes)}")
-    print(f"Manualne wzorce:              {len(state.custom_excludes)}")
-
-
-def exclusion_menu(state: WizardState, ui_mode: str = "plain") -> None:
-    while True:
-        if should_use_cursor_menu(ui_mode):
-            choice = ask_cursor_choice(
-                title="Ustawienia wykluczeń",
-                options=[
-                    ("1", f"Profil pakowania [{state.profile_label()}]", "Zmień profil i bazową listę pakowania."),
-                    ("2", f"Użycie domyślnej listy [{on_off_label(state.use_default_excludes)}]", "Globalnie włącz/wyłącz całą listę domyślną profilu."),
-                    ("3", f"Edytuj domyślne wykluczenia ON/OFF [{len(state.active_default_excludes())}/{len(state.profile_default_excludes())}]", "Tabela pojedynczych wzorców domyślnych."),
-                    ("4", f"Manualne wykluczenia [{on_off_label(state.use_custom_excludes)}]", "Włącz/wyłącz użycie ręcznych wzorców."),
-                    ("5", f"Manualne wykluczenie [{len(state.custom_excludes)}]", "Dodaj, edytuj, usuń pojedyncze albo wyczyść wszystkie."),
-                    ("6", "Przeskanuj ponownie i pokaż wpływ", "Buduje aktualny plan pakowania i pokazuje go stronami."),
-                    ("0", "Wróć", "Powrót do menu głównego."),
-                ],
-                default_key="0",
-                header_lines=[
-                    f"Domyślne aktywne: {len(state.active_default_excludes())} / {len(state.profile_default_excludes())}",
-                    f"Manualne: {manual_exclusions_label(state)}",
-                    "ESC wraca do menu głównego, Ctrl+X zamyka bez zapisu.",
-                ],
-            )
-            if choice in {None, "0"}:
-                return
-        else:
-            print_exclusion_status(state)
-            print("\nOpcje:")
-            print(f"  1. Profil pakowania [{state.profile_label()}]")
-            print(f"  2. Użycie domyślnej listy [{on_off_label(state.use_default_excludes)}]")
-            print(f"  3. Edytuj domyślne wykluczenia ON/OFF [{len(state.active_default_excludes())}/{len(state.profile_default_excludes())}]")
-            print(f"  4. Manualne wykluczenia [{on_off_label(state.use_custom_excludes)}]")
-            print("  5. Manualne wykluczenie")
-            print("     5.1 Dodaj")
-            print("     5.2 Edytuj")
-            print("     5.3 Usuń pojedyncze")
-            print("     5.4 Wyczyść wszystkie")
-            print("  6. Przeskanuj ponownie i pokaż wpływ")
-            print("  0. Wróć")
-            choice = ask_text("Wybór", "0")
-            if choice == "0":
-                return
-
-        normalized_choice = str(choice).strip().replace(",", ".")
-        if normalized_choice == "1":
-            configure_profile(state, ui_mode)
-        elif normalized_choice == "2":
-            state.use_default_excludes = not state.use_default_excludes
-            state.plan = None
-            print(f"Domyślna lista wykluczeń: {on_off_label(state.use_default_excludes)}")
-        elif normalized_choice == "3":
-            default_exclusions_table_menu(state, ui_mode)
-        elif normalized_choice == "4":
-            state.use_custom_excludes = not state.use_custom_excludes
-            state.plan = None
-            print(f"Manualne wykluczenia: {on_off_label(state.use_custom_excludes)}")
-        elif normalized_choice == "5":
-            manual_exclusion_submenu(state, ui_mode)
-        elif normalized_choice in {"5.1", "51"}:
-            add_custom_exclusion(state, ui_mode)
-        elif normalized_choice in {"5.2", "52"}:
-            edit_custom_exclusion(state, ui_mode)
-        elif normalized_choice in {"5.3", "53"}:
-            remove_custom_exclusion(state, ui_mode)
-        elif normalized_choice in {"5.4", "54"}:
-            if state.custom_excludes:
-                state.custom_excludes.clear()
-                state.plan = None
-                print("Wyczyszczono wszystkie manualne wykluczenia.")
-            else:
-                print("Brak manualnych wykluczeń do wyczyszczenia.")
-        elif normalized_choice == "6":
-            rebuild_plan(state)
-            pause()
-        else:
-            print("Nieznana opcja.")
-
-
-
-
-def settings_submenu(state: WizardState, ui_mode: str = "plain") -> str:
-    """Podmenu ustawień: paczka, nazwa, wykluczenia, podgląd JSON i UI."""
-    options = [
-        ("1", f"Ustawienia paczki [{pack_settings_menu_label(state)}]", "Rozmiar części, kompresja, puste katalogi, nadpisywanie."),
-        ("2", "Reset/odśwież nazwę paczki wg version.py", "Czyści ręczną nazwę i tworzy nazwę z wersji/release."),
-        ("3", f"Ustawienia wykluczeń [{exclusions_menu_label(state)}]", "Domyślne i ręczne wzorce wykluczeń."),
-        ("4", "Zapisz pełny podgląd listy pakowania do JSON", "Tworzy plik .pack_preview.json w folderze zapisu."),
-        ("5", f"Zmień interfejs TXT/Kursorowy [{ui_mode_setting_label(state, ui_mode)}]", "Wybierz TXT/Kursorowy i włącz/wyłącz auto-start zapisanego trybu."),
-        ("0", "Wróć", "Powrót do menu głównego."),
-    ]
-    if should_use_cursor_menu(ui_mode):
-        choice = ask_cursor_choice(
-            title="Ustawienia",
-            options=options,
-            default_key="0",
-            header_lines=["ESC wraca do menu głównego. Ctrl+X zamyka bez zapisu."],
-        )
-        if choice in {None, "0"}:
-            return "cancel"
-        return str(choice)
-
-    section("Ustawienia")
-    print(f"  1. Ustawienia paczki [{pack_settings_menu_label(state)}]")
-    print("  2. Reset/odśwież nazwę paczki wg version.py")
-    print(f"  3. Ustawienia wykluczeń [{exclusions_menu_label(state)}]")
-    print("  4. Zapisz pełny podgląd listy pakowania do JSON")
-    print(f"  5. Zmień interfejs TXT/Kursorowy [{ui_mode_setting_label(state, ui_mode)}]")
-    print("  0. Wróć")
-    return ask_text("Wybór", "0").strip()
-
-
-def reset_archive_name_from_version(state: WizardState) -> bool:
-    """Resetuje ręczną nazwę ZIP i generuje ją od nowa z latka_jazn/version.py."""
-    if state.source_folder is None:
-        section("Najpierw folder do pakowania")
-        print("Reset nazwy wymaga folderu źródłowego z .\\latka_jazn\\version.py.")
-        configure_source(state)
-        if state.source_folder is None:
-            print("Nie ustawiono folderu do pakowania. Nazwa bez zmian.")
-            return False
-    try:
-        old_name = state.archive_name or "(brak)"
-        refresh_version_and_default_name(state, keep_custom_name=False)
-    except Exception as exc:
-        print(f"BŁĄD: nie udało się odświeżyć nazwy z version.py: {exc}")
-        return False
-    print(f"Poprzednia nazwa: {old_name}")
-    print(f"Nowa nazwa:       {state.archive_name}")
-    if state.resolved_version_file:
-        print(f"Plik version.py:  {state.resolved_version_file}")
-    return True
-
-
-
-def _apply_ui_mode_choice(state: WizardState, active_ui_mode: str, choice: str) -> str:
-    """Stosuje pojedynczy wybór w podmenu interfejsu i zwraca aktywny tryb."""
-    normalized = str(choice).strip().lower()
-    if normalized in {"a", "auto", "automat", "3"}:
-        state.ui_auto_start = not state.ui_auto_start
-        print(f"Automatyczne użycie zapisanego interfejsu przy starcie: {on_off_label(state.ui_auto_start)}")
-        return active_ui_mode
-
-    if normalized in {"1", "tekst", "tekstowy", "plain", "txt", "lista"}:
-        preference = "plain"
-    elif normalized in {"2", "kursor", "kursorowy", "cursor"}:
-        preference = "cursor"
-    else:
-        print("Nieznany wybór trybu UI. Bez zmiany.")
-        return active_ui_mode
-
-    new_active = preference
-    missing = _missing_required_ui_packages(new_active)
-    if missing:
-        if sys.stdin.isatty():
-            section("Tryb kursorowy")
-            print("Tryb kursorowy wymaga biblioteki prompt_toolkit.")
-            if ask_bool("Doinstalować prompt_toolkit przez pip", False):
-                if install_optional_ui_packages(missing):
-                    new_active = "cursor"
-                else:
-                    print("Nie udało się uruchomić trybu kursorowego. Zostawiam tekstowy.")
-                    new_active = "plain"
-                    preference = "plain"
-            else:
-                new_active = "plain"
-                preference = "plain"
-        else:
-            new_active = "plain"
-            preference = "plain"
-
-    state.ui_mode = preference
-    state.ui_auto_start = True
-    global ACTIVE_UI_MODE
-    ACTIVE_UI_MODE = new_active
-    print(f"Ustawiono interfejs: {ui_mode_label(preference)}. Auto-start zapisanego trybu: {on_off_label(state.ui_auto_start)}")
-    return new_active
-
-
-def configure_ui_mode_preference(state: WizardState, active_ui_mode: str = "plain") -> str:
-    """Zmienia zapisany interfejs TXT/Kursorowy i pozostaje w tym podmenu.
-
-    Od v5.9 zatwierdzenie TXT/Kursorowy albo auto-startu nie wyrzuca do menu
-    głównego ani do głównego ekranu Ustawień. Użytkownik wraca ręcznie przez
-    ESC/Q/0, czyli o jeden poziom.
-    """
-    current_active = normalize_ui_mode(active_ui_mode or state.ui_mode or "plain")
-    if current_active == "auto":
-        current_active = resolve_auto_ui_mode()
-
-    while True:
-        current_pref = normalize_ui_mode(state.ui_mode or current_active or "plain")
-        if current_pref == "auto":
-            current_pref = resolve_auto_ui_mode()
-
-        if should_use_cursor_menu(current_active):
-            choice = ask_cursor_choice(
-                title="Zmień interfejs TXT/Kursorowy",
-                options=[
-                    ("1", "TXT / tekstowy" + ("  *" if current_pref == "plain" else ""), "Ustaw tekstowy i włącz automatyczne użycie tego zapisanego trybu."),
-                    ("2", "Kursorowy" + ("  *" if current_pref == "cursor" else ""), "Ustaw kursorowy i włącz automatyczne użycie tego zapisanego trybu."),
-                    ("a", f"Automatycznie używaj zapisanego trybu [{on_off_label(state.ui_auto_start)}]", "ON = start bez pytania; OFF = pytaj przy starcie, tylko TXT/Kursorowy."),
-                    ("0", "Wróć", "Powrót do Ustawień."),
-                ],
-                default_key={"plain": "1", "cursor": "2"}.get(current_pref, "1"),
-                header_lines=[f"Aktualnie: {ui_mode_setting_label(state, current_active)}"],
-            )
-            if choice in {None, "0"}:
-                return current_active
-        else:
-            section("Zmień interfejs TXT/Kursorowy")
-            print(f"Aktualnie: {ui_mode_setting_label(state, current_active)}")
-            print("  1. TXT / tekstowy")
-            print("  2. Kursorowy")
-            print(f"  A. Automatycznie używaj zapisanego trybu [{on_off_label(state.ui_auto_start)}]")
-            print("  0. Wróć")
-            choice = ask_text("Wybór", "0").strip().lower()
-            if choice == "0":
-                return current_active
-
-        current_active = _apply_ui_mode_choice(state, current_active, str(choice))
-        save_settings(state, quiet=True)
-
-
-def exit_menu(ui_mode: str = "plain") -> str:
-    """Połączone menu wyjścia: zapisz, wyjdź bez zapisu albo wróć."""
-    if should_use_cursor_menu(ui_mode):
-        choice = ask_cursor_choice(
-            title="Wyjście",
-            options=[
-                ("1", "Wyjdź i zapisz nowe ustawienia", "Zapisuje __jazn_pack_generator_settings.json."),
-                ("2", "Wyjdź bez zapisywania", "Przywraca ustawienia z początku sesji."),
-                ("3", "Powrót do menu", "Nie zamyka aplikacji."),
-            ],
-            default_key="3",
-            header_lines=["ESC wraca do menu głównego. Ctrl+X zamyka bez zapisu."],
-        )
-        if choice == APP_EXIT_MARKER:
-            raise UserRequestedAppExit()
-        if choice == "1":
-            return "save"
-        if choice == "2":
-            return "nosave"
-        return "cancel"
-
-    section("Wyjście")
-    print("  1. Wyjdź i zapisz nowe ustawienia")
-    print("  2. Wyjdź bez zapisywania")
-    print("  3. Powrót do menu")
-    choice = ask_text("Wybór", "3").strip().lower()
-    if choice == "1":
-        return "save"
-    if choice == "2":
-        return "nosave"
-    return "cancel"
-
-
-def show_current_state(state: WizardState) -> None:
-    section("Status")
-    print(f"Plan pakowania:             {plan_status_label(state)}")
-    print(f"Folder do pakowania:        {menu_value(state.source_folder)}")
-    print(f"Folder zapisu paczki:       {menu_value(state.out_dir)}")
-    print(f"Nazwa ZIP po złożeniu:      {state.archive_name or '(nie ustawiono)'}")
-    print(f"Wersja / release:           {state.package_version or '(nie odczytano)'}"
-          f"{('-' + state.package_release_name) if state.package_release_name else ''}")
-    print(f"Plik ustawień:              {SETTINGS_FILE_NAME}")
-
-
-def initialize_state(initial_source: str | None = None) -> WizardState:
-    state = WizardState()
-
-    # Pierwsze uruchomienie ma startować bez narzuconych ścieżek.
-    # Folder źródłowy i folder zapisu są wczytywane dopiero z JSON-a
-    # użytkownika albo z argumentu CLI. Stałe SOURCE_FOLDER/OUTPUT_DIR
-    # zostają jako opcjonalne wartości awaryjne dla osób, które świadomie
-    # wpiszą je w kodzie, ale domyślnie są puste.
-    if SOURCE_FOLDER:
-        state.source_folder = Path(SOURCE_FOLDER).expanduser()
-    if OUTPUT_DIR:
-        state.out_dir = Path(OUTPUT_DIR).expanduser()
-
-    # Potem ustawienia użytkownika obok skryptu.
-    load_settings(state)
-
-    # Argument/parametr startowy ma najwyższy priorytet.
-    if initial_source:
-        state.source_folder = Path(initial_source).expanduser()
-
-    if state.source_folder is not None:
-        try:
-            if not state.source_folder.exists() or not state.source_folder.is_dir():
-                raise NotADirectoryError(f"folder nie istnieje albo nie jest folderem: {state.source_folder}")
-            state.source_folder = state.source_folder.resolve()
-            if state.out_dir is not None:
-                state.out_dir = state.out_dir.resolve()
-            resolved_version_file, package_version, package_release_name = read_source_version_info(
-                state.source_folder,
-                state.version_file,
-            )
-            state.resolved_version_file = resolved_version_file
-            state.package_version = package_version
-            state.package_release_name = package_release_name
-            if not state.archive_name:
-                state.archive_name = apply_version_to_archive_name(
-                    state.archive_basename_requested or ARCHIVE_BASENAME,
-                    state.package_version,
-                    package_release_name=state.package_release_name,
-                    enabled=True,
-                )
-        except Exception as exc:
-            bad_source = str(state.source_folder)
-            state.startup_warnings.append(
-                "Zapisany folder do pakowania został pominięty i usunięty z ustawień: "
-                f"{bad_source}\nPowód: {exc}"
-            )
-            state.settings_needs_cleanup = True
-            state.source_folder = None
-            state.resolved_version_file = None
-            state.package_version = ""
-            state.package_release_name = ""
-            state.archive_name = ""
-            state.plan = None
-    return state
-
-
-def prepare_plan_on_startup_if_possible(state: WizardState) -> None:
-    """Przygotowuje listę pakowania przy starcie, ale jej nie wyświetla.
-
-    Warunek: musi być ustawiony poprawny folder do pakowania. Przy pierwszym
-    uruchomieniu, gdy nie ma JSON-a ani wybranego folderu, nie skanujemy niczego.
-    Lista jest tylko gotowym stanem programu; szczegóły pokazuje dopiero opcja 1
-    w menu głównym.
-    """
-    if state.source_folder is None:
-        return
-    try:
-        source = state.source_folder.expanduser().resolve()
-    except Exception:
-        return
-    if not source.exists() or not source.is_dir():
-        return
-
-    section("Przygotowanie listy pakowania")
-    print("Folder do pakowania jest ustawiony, więc przygotowuję listę w tle.")
-    print("Szczegóły nie zostaną pokazane automatycznie — użyj opcji 1 w menu.")
-    state.plan = discover_pack_plan(
-        source,
-        state.include_empty_dirs,
-        state.effective_excludes(),
-        state.include_prefixes(),
-    )
-
-
-def show_startup_warnings(state: WizardState) -> None:
-    """Pokazuje ostrzeżenia startowe dopiero po nagłówku aplikacji."""
-    if not state.startup_warnings:
-        return
-    section("Uwagi startowe")
-    for warning in state.startup_warnings:
-        print("UWAGA: " + warning.replace("\n", "\n       "))
-    if state.settings_needs_cleanup:
-        print("Niepoprawne zapisane źródło zostało wyczyszczone z __jazn_pack_generator_settings.json.")
-
-
-def ensure_ready_for_pack_plan(state: WizardState, *, ui_mode: str = "plain") -> bool:
-    """Prowadzi użytkownika przez brakujące ustawienia potrzebne do planu/pakowania.
-
-    Opcje 1, 8 i 9 w menu nie powinny kończyć się twardym błędem, gdy
-    brakuje źródła lub folderu zapisu. Zamiast tego aplikacja krok po kroku
-    otwiera właściwe ustawienia. Jeśli użytkownik anuluje zmianę ESC,
-    funkcja zwraca False i menu wraca do stanu głównego.
-    """
-    if state.source_folder is None:
-        section("Najpierw folder do pakowania")
-        print("Ta opcja wymaga folderu źródłowego Jaźni.")
-        print("Wymagany plik: .\\latka_jazn\\version.py")
-        configure_source(state)
-        if state.source_folder is None:
-            print("Nie ustawiono folderu do pakowania. Wracam do menu głównego.")
-            return False
-
-    if state.out_dir is None:
-        section("Następnie folder zapisu")
-        print("Do podglądu JSON i pakowania potrzebny jest folder zapisu paczki.")
-        configure_output(state)
-        if state.out_dir is None:
-            print("Nie ustawiono folderu zapisu paczki. Wracam do menu głównego.")
-            return False
-
-    if not state.archive_name:
-        section("Następnie nazwa paczki ZIP")
-        configure_name(state)
-        if not state.archive_name:
-            print("Nie ustawiono nazwy paczki ZIP. Wracam do menu głównego.")
-            return False
-
-    return True
-
-
-def run_wizard(initial_source: str | None = None, *, ui_mode: str | None = None) -> int:
-    settings_snapshot = snapshot_settings_file()
-    state: WizardState | None = None
-    try:
-        activate_process_guard(prompt_user=True)
-        state = initialize_state(initial_source)
-
-        section(f"Jaźń / Łatka — generator paczki ZIP v{VERSION}")
-        print_bar(100, 100, label="Ładowanie")
-        if state.settings_needs_cleanup:
-            save_settings(state, quiet=True)
-            # Po automatycznym czyszczeniu niepoprawnego źródła traktujemy
-            # oczyszczony plik jako nowy punkt bazowy. Dzięki temu opcja
-            # "Wyjdź bez zapisywania zmian" nie przywróci starego, błędnego
-            # `source_folder` i ostrzeżenie nie będzie wracać przy każdym starcie.
-            settings_snapshot = snapshot_settings_file()
-        show_startup_warnings(state)
-        ui_mode = resolve_ui_mode_with_optional_install(ui_mode, state)
-        # Wybór TXT/Kursorowy przy starcie jest preferencją aplikacji, więc zapisujemy
-        # go od razu jako nowy punkt bazowy. Dzięki temu kolejne uruchomienie nie pyta
-        # ponownie, chyba że użytkownik wyłączy auto-start w ustawieniach.
-        save_settings(state, quiet=True)
-        settings_snapshot = snapshot_settings_file()
-        prepare_plan_on_startup_if_possible(state)
-    except UserRequestedAppExit:
-        restore_settings_file(settings_snapshot)
-        print("\nZamknięto skrótem Ctrl+X bez zapisywania zmian.")
-        return 130
-    except KeyboardInterrupt:
-        restore_settings_file(settings_snapshot)
-        print("\nPrzerwano przez Ctrl+C. Start aplikacji został anulowany bez tracebacka.")
-        return 130
-    except EOFError:
-        restore_settings_file(settings_snapshot)
-        print("\nWejście terminala zostało zamknięte. Start aplikacji został anulowany bez tracebacka.")
-        return 130
-
-    while True:
-        try:
-            if not should_use_cursor_menu(ui_mode):
-                show_current_state(state)
-                print(f"Tryb UI:                    {ui_mode_label(ui_mode)}; auto-start: {on_off_label(state.ui_auto_start)}")
-            current_default_choice = default_menu_choice(state)
-            choice = ask_menu_choice(state, current_default_choice, ui_mode)
-
-            control_word = _plain_control_word(choice)
-            if control_word == "exit":
-                raise UserRequestedAppExit()
-            if control_word == "cancel":
-                continue
-
-            known_menu_choices = {"0", "1", "2", "3", "4", "5", "6", "7"}
-            if choice not in known_menu_choices:
-                # W trybie tekstowym użytkownik może wpisać ścieżkę od razu przy domyślnej opcji 2/3.
-                if current_default_choice == "3" and state.source_folder is None:
-                    if apply_source_path_text(state, choice):
-                        save_settings(state, quiet=True)
-                    continue
-                if current_default_choice == "4" and state.out_dir is None:
-                    if apply_output_path_text(state, choice):
-                        save_settings(state, quiet=True)
-                    continue
-
-            if choice == APP_EXIT_MARKER:
-                restore_settings_file(settings_snapshot)
-                print("Zamknięto skrótem Ctrl+X bez zapisywania zmian.")
-                return 130
-            if choice == "1":
-                configure_profile(state, ui_mode)
-                save_settings(state, quiet=True)
-            elif choice == "2":
-                if not ensure_ready_for_pack_plan(state, ui_mode=ui_mode):
-                    save_settings(state, quiet=True)
-                    continue
-                if state.plan is None:
-                    rebuild_plan(state)
-                else:
-                    section("Lista do spakowania z ustawieniami")
-                    print_pack_plan_summary(state)
-                save_settings(state, quiet=True)
-                pause()
-            elif choice == "3":
-                configure_source(state)
-                save_settings(state, quiet=True)
-            elif choice == "4":
-                configure_output(state)
-                save_settings(state, quiet=True)
-            elif choice == "5":
-                configure_name(state)
-                save_settings(state, quiet=True)
-            elif choice == "6":
-                settings_choice = settings_submenu(state, ui_mode)
-                ui_mode = normalize_ui_mode(state.ui_mode or ui_mode)
-                if ui_mode == "auto":
-                    ui_mode = resolve_auto_ui_mode()
-                if settings_choice == "1":
-                    configure_pack_settings(state, ui_mode)
-                    save_settings(state, quiet=True)
-                elif settings_choice == "2":
-                    reset_archive_name_from_version(state)
-                    save_settings(state, quiet=True)
-                elif settings_choice == "3":
-                    exclusion_menu(state, ui_mode)
-                    save_settings(state, quiet=True)
-                elif settings_choice == "4":
-                    if not ensure_ready_for_pack_plan(state, ui_mode=ui_mode):
-                        save_settings(state, quiet=True)
-                        continue
-                    if state.plan is None:
-                        rebuild_plan(state)
-                    preview = save_preview_json(state)
-                    save_settings(state, quiet=True)
-                    print(f"Zapisano podgląd: {preview}")
-                    pause()
-                elif settings_choice == "5":
-                    ui_mode = configure_ui_mode_preference(state, ui_mode)
-                    save_settings(state, quiet=True)
-                else:
-                    continue
-            elif choice == "7":
-                if not ensure_ready_for_pack_plan(state, ui_mode=ui_mode):
-                    save_settings(state, quiet=True)
-                    continue
-                if state.plan is None:
-                    rebuild_plan(state)
-                print("\nTo zostanie użyte jako podstawa pakowania.")
-                print_pack_plan_compact_summary(state)
-                if ask_bool("Pokazać listę katalogów i plików przed pakowaniem", False, require_explicit=True):
-                    print_pack_items_for_plan(state)
-                if not ask_bool("Rozpocząć pakowanie", True, require_explicit=True):
-                    continue
-                assert state.source_folder is not None
-                assert state.out_dir is not None
-                assert state.plan is not None
-                create_split_zip_from_plan(
-                    source_folder=state.source_folder,
-                    out_dir=state.out_dir,
-                    archive_name=state.archive_name,
-                    plan=state.plan,
-                    part_size_mb=state.part_size_mb,
-                    compression_level=state.compression_level,
-                    force=state.force,
-                    include_empty_dirs=state.include_empty_dirs,
-                    exclude_patterns=state.effective_excludes(),
-                    package_version=state.package_version,
-                    package_release_name=state.package_release_name,
-                    resolved_version_file=state.resolved_version_file,
-                    archive_basename_requested=state.archive_basename_requested,
-                    append_version_to_name=False,
-                    disabled_default_excludes=state.disabled_default_excludes,
-                    pack_profile=state.pack_profile,
-                    include_prefixes=state.include_prefixes(),
-                )
-                save_settings(state, quiet=True)
-                return 0
-            elif choice == "0":
-                exit_action = exit_menu(ui_mode)
-                if exit_action == "save":
-                    save_settings(state, quiet=False)
-                    print("Zakończono bez pakowania.")
-                    return 0
-                if exit_action == "nosave":
-                    restore_settings_file(settings_snapshot)
-                    print("Zakończono bez zapisywania zmian.")
-                    return 0
-                continue
-            else:
-                print("Nieznana opcja.")
-        except UserRequestedAppExit:
-            restore_settings_file(settings_snapshot)
-            print("\nZamknięto skrótem Ctrl+X bez zapisywania zmian.")
-            return 130
-        except KeyboardInterrupt:
-            restore_settings_file(settings_snapshot)
-            print("\nPrzerwano przez Ctrl+C. W trybie kursorowym skrótem zamknięcia aplikacji jest Ctrl+X. Zakończono bez zapisywania zmian.")
-            return 130
-        except EOFError:
-            restore_settings_file(settings_snapshot)
-            print("\nWejście terminala zostało zamknięte. Zamknięto bez zapisywania zmian.")
-            return 130
-        except Exception as exc:
-            save_settings(state, quiet=True)
-            print(f"BŁĄD: {exc}")
-            try:
-                pause()
-            except KeyboardInterrupt:
-                restore_settings_file(settings_snapshot)
-                print("\nPrzerwano przez Ctrl+C. Zakończono bez zapisywania zmian.")
-                return 130
-            except EOFError:
-                restore_settings_file(settings_snapshot)
-                print("\nWejście terminala zostało zamknięte. Zamknięto bez zapisywania zmian.")
-                return 130
-
-
-# =============================================================================
-# NADPISANIA UI v5.8-v5.10 — inline edit, klawisze tekstu, podmenu i układ separatorów
-# =============================================================================
-
-
-def _inline_edit_field_for_key(key: str) -> str:
-    return {"3": "source", "4": "output", "5": "name"}.get(str(key), "")
-
-
-def _inline_edit_initial_text(state: WizardState, field: str) -> str:
-    if field == "source":
-        return str(state.source_folder or "")
-    if field == "output":
-        return str(state.out_dir or "")
-    if field == "name":
-        return str(state.archive_name or "")
-    return ""
-
-
-def _inline_edit_label_for_field(field: str) -> str:
-    return {"source": "Folder do pakowania", "output": "Folder zapisu paczki", "name": "Nazwa paczki ZIP"}.get(field, "Edycja")
-
-
-def _text_with_cursor_marker(text: str, cursor: int) -> str:
-    cursor = max(0, min(int(cursor), len(text)))
-    return text[:cursor] + "▌" + text[cursor:]
-
-
-def _inline_autocomplete_path(text: str, *, only_directories: bool = True) -> tuple[str, str]:
-    raw = str(text or "")
-    stripped = raw.strip().strip('"').strip("'")
-    if not stripped:
-        return raw, "Wpisz początek ścieżki, potem użyj Tab."
-    sep_pos = max(stripped.rfind("/"), stripped.rfind("\\"))
-    if sep_pos >= 0:
-        head = stripped[:sep_pos + 1]
-        prefix = stripped[sep_pos + 1:]
-    else:
-        head = ""
-        prefix = stripped
-    expanded = os.path.expandvars(os.path.expanduser(stripped))
-    if stripped.endswith(("/", "\\")):
-        base_text = expanded
-        prefix = ""
-        head = stripped
-    else:
-        base_text = os.path.dirname(expanded) or "."
-    try:
-        base = Path(base_text).expanduser()
-        if not base.is_absolute():
-            base = (Path.cwd() / base).resolve()
-        if not base.exists() or not base.is_dir():
-            return raw, f"Brak katalogu do autouzupełniania: {base}"
-        prefix_lower = prefix.lower()
-        candidates: list[Path] = []
-        for child in base.iterdir():
-            try:
-                if only_directories and not child.is_dir():
-                    continue
-            except OSError:
-                continue
-            if child.name.lower().startswith(prefix_lower):
-                candidates.append(child)
-        candidates.sort(key=lambda p: p.name.lower())
-    except Exception as exc:
-        return raw, f"Tab: {exc}"
-    if not candidates:
-        return raw, "Brak pasujących ścieżek."
-    names = [candidate.name for candidate in candidates]
-    common = os.path.commonprefix(names)
-    if common and common != prefix:
-        new_text = head + common
-        if len(candidates) == 1 and candidates[0].is_dir() and not new_text.endswith(("/", "\\")):
-            new_text += os.sep
-        return new_text, f"Tab: {len(candidates)} pasujących."
-    if len(candidates) == 1:
-        new_text = head + candidates[0].name
-        if candidates[0].is_dir() and not new_text.endswith(("/", "\\")):
-            new_text += os.sep
-        return new_text, "Tab: uzupełniono."
-    preview = ", ".join(names[:5])
-    if len(names) > 5:
-        preview += f", … +{len(names) - 5}"
-    return raw, "Pasujące: " + preview
-
-
-def _apply_inline_source_path(state: WizardState, raw: str) -> tuple[bool, str]:
-    try:
-        value = normalize_path_text(raw)
-    except Exception as exc:
-        return False, f"BŁĄD: {exc}"
-    if not value:
-        return False, "BŁĄD: ścieżka źródłowa nie może być pusta."
-    path = Path(value).expanduser()
-    if not path.exists() or not path.is_dir():
-        return False, f"BŁĄD: folder nie istnieje albo nie jest folderem: {path}"
-    candidate = path.resolve()
-    try:
-        resolved_version_file, package_version, package_release_name = read_source_version_info(candidate, state.version_file)
-    except Exception as exc:
-        return False, f"BŁĄD: {exc}"
-    state.source_folder = candidate
-    state.resolved_version_file = resolved_version_file
-    state.package_version = package_version
-    state.package_release_name = package_release_name
-    state.archive_name = apply_version_to_archive_name(
-        state.archive_basename_requested or ARCHIVE_BASENAME,
-        state.package_version,
-        package_release_name=state.package_release_name,
-        enabled=True,
-    )
-    state.archive_name_manual = False
-    state.plan = None
-    return True, f"Ustawiono folder do pakowania: {state.source_folder}"
-
-
-def _apply_inline_output_path(state: WizardState, raw: str) -> tuple[bool, str]:
-    try:
-        value = normalize_path_text(raw)
-    except Exception as exc:
-        return False, f"BŁĄD: {exc}"
-    if not value:
-        return False, "BŁĄD: folder zapisu nie może być pusty."
-    path = Path(value).expanduser()
-    if not path.is_absolute():
-        path = Path.cwd() / path
-    path = path.resolve()
-    if state.source_folder is not None and is_relative_to(path, state.source_folder):
-        return False, "BŁĄD: folder wyjściowy nie może być wewnątrz folderu źródłowego."
-    state.out_dir = path
-    state.plan = None
-    return True, f"Ustawiono folder zapisu: {state.out_dir}"
-
-
-def _apply_inline_archive_name(state: WizardState, raw: str) -> tuple[bool, str]:
-    value = str(raw or "").strip()
-    if not value:
-        return False, "BŁĄD: nazwa ZIP nie może być pusta."
-    try:
-        normalized = sanitize_zip_name(value)
-    except Exception as exc:
-        return False, f"BŁĄD: {exc}"
-    generated_name = ""
-    if state.source_folder is not None and state.package_version:
-        try:
-            generated_name = apply_version_to_archive_name(
-                state.archive_basename_requested or ARCHIVE_BASENAME,
-                state.package_version,
-                package_release_name=state.package_release_name,
-                enabled=True,
-            )
-        except Exception:
-            generated_name = ""
-    state.archive_name = normalized
-    state.archive_name_manual = bool(not generated_name or normalized != generated_name)
-    state.plan = None
-    return True, f"Ustawiono nazwę ZIP: {state.archive_name}"
-
-
-def _apply_inline_edit_value(state: WizardState, field: str, value: str) -> tuple[bool, str]:
-    if field == "source":
-        return _apply_inline_source_path(state, value)
-    if field == "output":
-        return _apply_inline_output_path(state, value)
-    if field == "name":
-        return _apply_inline_archive_name(state, value)
-    return False, "Nieznane pole edycji."
-
-
-def _cursor_menu_lines(state: WizardState, selected_index: int, inline_editor: dict[str, object] | None = None) -> list[tuple[str, str]]:
-    options = menu_options(state)
-    selected_index = max(0, min(selected_index, len(options) - 1))
-    width = 78
-    inline_editor = inline_editor or {}
-    editing_field = str(inline_editor.get("field") or "")
-    editing_text = str(inline_editor.get("text") or "")
-    editing_cursor = as_int(inline_editor.get("cursor"), len(editing_text))
-    message = str(inline_editor.get("message") or "")
-    fragments: list[tuple[str, str]] = []
-
-    def part(style: str, value: str) -> None:
-        fragments.append((style, value))
-
-    def line(style: str, value: str = "") -> None:
-        part(style, value[:width])
-        part("", "\n")
-
-    line("class:border", "=" * width)
-    line("class:title", f"  Jaźń / Łatka — generator paczki ZIP v{VERSION}")
-    line("class:border", "=" * width)
-    line("", "")
-    for label, value in (
-        ("Plan:     ", plan_status_label(state)),
-        ("Profil:   ", state.profile_label()),
-        ("Źródło:   ", menu_value(state.source_folder)),
-        ("Zapis:    ", menu_value(state.out_dir)),
-        ("ZIP:      ", state.archive_name or "(nie ustawiono)"),
-    ):
-        part("class:status.label", label)
-        line("class:status.value", value)
-    line("", "")
-    line("class:border", "=" * width)
-    for idx, (key, label) in enumerate(options):
-        field = _inline_edit_field_for_key(key)
-        if editing_field and field == editing_field:
-            edited = _text_with_cursor_marker(editing_text, editing_cursor)
-            if key == "3":
-                label = f"3. Folder do pakowania [{edited}]"
-            elif key == "4":
-                label = f"4. Folder zapisu paczki [{edited}]"
-            elif key == "5":
-                label = f"5. Zmień nazwę paczki [{edited}]"
-        marker = "▶" if idx == selected_index else " "
-        style = "class:latka.selected" if idx == selected_index else "class:latka.option"
-        line(style, f"  {marker} {label}")
-    line("class:border", "=" * width)
-    if editing_field:
-        line("class:hint", "Edycja pola []: wpisuj tekst | Tab autouzupełnij ścieżkę | Enter zapisz | Esc anuluj | Ctrl+X zamknij bez zapisu")
-    else:
-        line("class:hint", "↑/↓ wybór | Enter OK | Esc/Q wróć | Ctrl+X zamknij bez zapisu")
-    if message:
-        line("class:message", message)
-    return fragments
-
-
-def ask_menu_choice_cursor(state: WizardState, default: str) -> str:
-    parts = prompt_toolkit_parts()
-    if parts is None:
-        return ask_text("Wybór", default)
-    Application, KeyBindings, Layout, Window, FormattedTextControl, Style = parts
-    options = menu_options(state)
-    keys = [key for key, _ in options]
-    selected = {"index": keys.index(default) if default in keys else 0}
-    editor: dict[str, object] = {"field": "", "text": "", "cursor": 0, "message": ""}
-
-    def is_editing() -> bool:
-        return bool(editor.get("field"))
-
-    def start_edit(key: str) -> bool:
-        field = _inline_edit_field_for_key(key)
-        if not field:
-            return False
-        text = _inline_edit_initial_text(state, field)
-        editor.update({"field": field, "text": text, "cursor": len(text), "message": f"Edytujesz: {_inline_edit_label_for_field(field)}. Wpisuj bezpośrednio w nawiasach []."})
-        return True
-
-    def stop_edit(message: str = "") -> None:
-        editor.update({"field": "", "text": "", "cursor": 0, "message": message})
-
-    def insert(value: str) -> None:
-        text_value = str(editor.get("text") or "")
-        cursor = as_int(editor.get("cursor"), len(text_value))
-        editor["text"] = text_value[:cursor] + value + text_value[cursor:]
-        editor["cursor"] = cursor + len(value)
-
-    def get_text() -> list[tuple[str, str]]:
-        return _cursor_menu_lines(state, selected["index"], editor)
-
-    control = FormattedTextControl(text=get_text, focusable=True)
-    window = Window(content=control, wrap_lines=False, dont_extend_height=True)
-    layout = Layout(window)
-    kb = KeyBindings()
-
-    def move(delta: int, event: Any) -> None:
-        if not is_editing():
-            selected["index"] = (selected["index"] + delta) % len(options)
-            editor["message"] = ""
-            event.app.invalidate()
-
-    @kb.add("up")
-    def _up(event: Any) -> None:
-        move(-1, event)
-
-    @kb.add("down")
-    def _down(event: Any) -> None:
-        move(1, event)
-
-    @kb.add("k")
-    def _k(event: Any) -> None:
-        if is_editing():
-            insert("k")
-            event.app.invalidate()
-        else:
-            move(-1, event)
-
-    @kb.add("j")
-    def _j(event: Any) -> None:
-        if is_editing():
-            insert("j")
-            event.app.invalidate()
-        else:
-            move(1, event)
-
-    @kb.add("home")
-    def _home(event: Any) -> None:
-        if is_editing():
-            editor["cursor"] = 0
-        else:
-            selected["index"] = 0
-        event.app.invalidate()
-
-    @kb.add("end")
-    def _end(event: Any) -> None:
-        if is_editing():
-            editor["cursor"] = len(str(editor.get("text") or ""))
-        else:
-            selected["index"] = len(options) - 1
-        event.app.invalidate()
-
-    @kb.add("left")
-    def _left(event: Any) -> None:
-        if is_editing():
-            editor["cursor"] = max(0, as_int(editor.get("cursor"), 0) - 1)
-            event.app.invalidate()
-
-    @kb.add("right")
-    def _right(event: Any) -> None:
-        if is_editing():
-            value = str(editor.get("text") or "")
-            editor["cursor"] = min(len(value), as_int(editor.get("cursor"), len(value)) + 1)
-            event.app.invalidate()
-
-    @kb.add("backspace")
-    @kb.add("c-h")
-    def _backspace(event: Any) -> None:
-        if is_editing():
-            value = str(editor.get("text") or "")
-            cursor = as_int(editor.get("cursor"), len(value))
-            if cursor > 0:
-                editor["text"] = value[:cursor - 1] + value[cursor:]
-                editor["cursor"] = cursor - 1
-            event.app.invalidate()
-
-    @kb.add("delete")
-    def _delete(event: Any) -> None:
-        if is_editing():
-            value = str(editor.get("text") or "")
-            cursor = as_int(editor.get("cursor"), len(value))
-            if cursor < len(value):
-                editor["text"] = value[:cursor] + value[cursor + 1:]
-            event.app.invalidate()
-
-    @kb.add("tab")
-    def _tab(event: Any) -> None:
-        if not is_editing():
-            return
-        field = str(editor.get("field") or "")
-        if field not in {"source", "output"}:
-            editor["message"] = "Tab działa dla ścieżek folderów."
-        else:
-            new_text, msg = _inline_autocomplete_path(str(editor.get("text") or ""), only_directories=True)
-            editor["text"] = new_text
-            editor["cursor"] = len(new_text)
-            editor["message"] = msg
-        event.app.invalidate()
-
-    @kb.add("enter")
-    def _enter(event: Any) -> None:
-        if is_editing():
-            ok, msg = _apply_inline_edit_value(state, str(editor.get("field") or ""), str(editor.get("text") or ""))
-            if ok:
-                save_settings(state, quiet=True)
-                stop_edit(msg)
-            else:
-                editor["message"] = msg
-            event.app.invalidate()
-            return
-        key = options[selected["index"]][0]
-        if start_edit(key):
-            event.app.invalidate()
-            return
-        event.app.exit(result=key)
-
-    @kb.add("escape")
-    def _escape(event: Any) -> None:
-        if is_editing():
-            stop_edit("Anulowano edycję pola.")
-            event.app.invalidate()
-        else:
-            event.app.exit(result="0")
-
-    @kb.add("q")
-    def _q(event: Any) -> None:
-        if is_editing():
-            insert("q")
-            event.app.invalidate()
-        else:
-            event.app.exit(result="0")
-
-    @kb.add("c-x", eager=True)
-    def _ctrl_x_exit(event: Any) -> None:
-        event.app.exit(exception=UserRequestedAppExit())
-
-    @kb.add("c-c", eager=True)
-    def _ctrl_c_noop(event: Any) -> None:
-        event.app.invalidate()
-
-    try:
-        @kb.add("<sigint>", eager=True)
-        def _sigint_noop(event: Any) -> None:
-            event.app.invalidate()
-    except Exception:
-        pass
-
-    for option_key in keys:
-        if len(option_key) == 1:
-            @kb.add(option_key, eager=True)
-            def _number(event: Any, option_key: str = option_key) -> None:
-                if is_editing():
-                    insert(option_key)
-                    event.app.invalidate()
-                    return
-                selected["index"] = keys.index(option_key)
-                if start_edit(option_key):
-                    event.app.invalidate()
-                    return
-                event.app.exit(result=option_key)
-
-    @kb.add("<any>")
-    def _insert_any(event: Any) -> None:
-        if is_editing():
-            data = getattr(event, "data", "") or ""
-            if data and data not in {"\r", "\n", "\t"}:
-                insert(data)
-                event.app.invalidate()
-
-    style = Style.from_dict({
-        "border": "ansicyan", "title": "bold ansicyan", "hint": "ansibrightblack",
-        "message": "ansiyellow", "status.label": "bold", "status.value": "",
-        "latka.option": "", "latka.selected": "reverse bold",
-    })
-    app = Application(layout=layout, key_bindings=kb, style=style, full_screen=True, mouse_support=False)
-    result = app.run()
-    return str(result or default)
-
-
-def ask_cursor_choice(
-    *,
-    title: str,
-    options: list[tuple[str, str, str]],
-    default_key: str = "0",
-    header_lines: list[str] | None = None,
-) -> str | None:
-    parts = prompt_toolkit_parts()
-    if parts is None:
-        return None
-    Application, KeyBindings, Layout, Window, FormattedTextControl, Style = parts
-    keys = [key for key, _, _ in options]
-    selected = {"index": keys.index(default_key) if default_key in keys else 0}
-    width = 78
-
-    def get_text() -> list[tuple[str, str]]:
-        fragments: list[tuple[str, str]] = []
-        def line(style: str, value: str = "") -> None:
-            fragments.append((style, value[:width])); fragments.append(("", "\n"))
-        line("class:border", "=" * width)
-        line("class:title", f"  {title}")
-        line("class:border", "=" * width)
-        line("", "")
-        for header in header_lines or []:
-            line("class:hint", header)
-        if header_lines:
-            line("", "")
-        line("class:border", "=" * width)
-        for idx, (key, label, description) in enumerate(options):
-            marker = "▶" if idx == selected["index"] else " "
-            style = "class:latka.selected" if idx == selected["index"] else "class:latka.option"
-            row = f"  {marker} {key}. {label}"
-            if len(row) > width:
-                row = row[: max(0, width - 1)] + "…"
-            line(style, row)
-            if description:
-                desc = f"      {description}"
-                if len(desc) > width:
-                    desc = desc[: max(0, width - 1)] + "…"
-                line("class:description", desc)
-        line("class:border", "=" * width)
-        line("class:hint", "↑/↓ wybór | Enter OK | Esc/Q wróć | Ctrl+X zamknij bez zapisu")
-        return fragments
-
-    control = FormattedTextControl(text=get_text, focusable=True)
-    window = Window(content=control, wrap_lines=False, dont_extend_height=True)
-    layout = Layout(window)
-    kb = KeyBindings()
-    def move(delta: int, event: Any) -> None:
-        selected["index"] = (selected["index"] + delta) % len(options); event.app.invalidate()
-    @kb.add("up")
-    @kb.add("k")
-    def _up(event: Any) -> None: move(-1, event)
-    @kb.add("down")
-    @kb.add("j")
-    def _down(event: Any) -> None: move(1, event)
-    @kb.add("home")
-    def _home(event: Any) -> None: selected["index"] = 0; event.app.invalidate()
-    @kb.add("end")
-    def _end(event: Any) -> None: selected["index"] = len(options) - 1; event.app.invalidate()
-    @kb.add("enter")
-    def _enter(event: Any) -> None: event.app.exit(result=options[selected["index"]][0])
-    @kb.add("escape")
-    @kb.add("q")
-    def _cancel(event: Any) -> None: event.app.exit(result=None)
-    @kb.add("c-x", eager=True)
-    def _ctrl_x_exit(event: Any) -> None: event.app.exit(exception=UserRequestedAppExit())
-    @kb.add("c-c", eager=True)
-    def _ctrl_c_noop(event: Any) -> None: event.app.invalidate()
-    try:
-        @kb.add("<sigint>", eager=True)
-        def _sigint_noop(event: Any) -> None: event.app.invalidate()
-    except Exception:
-        pass
-    for option_key in keys:
-        if len(option_key) == 1:
-            @kb.add(option_key)
-            def _number(event: Any, option_key: str = option_key) -> None:
-                event.app.exit(result=option_key)
-    style = Style.from_dict({"border": "ansicyan", "title": "bold ansicyan", "hint": "ansibrightblack", "description": "ansibrightblack", "latka.option": "", "latka.selected": "reverse bold"})
-    return Application(layout=layout, key_bindings=kb, style=style, full_screen=True, mouse_support=False).run()
-
-
-def exclusion_menu(state: WizardState, ui_mode: str = "plain") -> None:
-    while True:
-        if should_use_cursor_menu(ui_mode):
-            choice = ask_cursor_choice(
-                title="Ustawienia wykluczeń",
-                options=[
-                    ("1", f"Użycie domyślnej listy [{on_off_label(state.use_default_excludes)}]", "Globalnie włącz/wyłącz całą listę domyślną profilu."),
-                    ("2", f"Edytuj domyślne wykluczenia ON/OFF [{len(state.active_default_excludes())}/{len(state.profile_default_excludes())}]", "Tabela pojedynczych wzorców domyślnych."),
-                    ("3", f"Manualne wykluczenia [{on_off_label(state.use_custom_excludes)}]", "Włącz/wyłącz użycie ręcznych wzorców."),
-                    ("4", f"Manualne wykluczenie [{len(state.custom_excludes)}]", "Dodaj, edytuj, usuń pojedyncze albo wyczyść wszystkie."),
-                    ("0", "Wróć", "Powrót do ustawień."),
-                ],
-                default_key="0",
-                header_lines=[f"Profil: {state.profile_label()}", f"Domyślne aktywne: {len(state.active_default_excludes())} / {len(state.profile_default_excludes())}", f"Manualne: {manual_exclusions_label(state)}"],
-            )
-            if choice in {None, "0"}: return
-        else:
-            print_exclusion_status(state)
-            print("\nOpcje:")
-            print(f"  1. Użycie domyślnej listy [{on_off_label(state.use_default_excludes)}]")
-            print(f"  2. Edytuj domyślne wykluczenia ON/OFF [{len(state.active_default_excludes())}/{len(state.profile_default_excludes())}]")
-            print(f"  3. Manualne wykluczenia [{on_off_label(state.use_custom_excludes)}]")
-            print("  4. Manualne wykluczenie")
-            print("     4.1 Dodaj")
-            print("     4.2 Edytuj")
-            print("     4.3 Usuń pojedyncze")
-            print("     4.4 Wyczyść wszystkie")
-            print("  0. Wróć")
-            choice = ask_text("Wybór", "0")
-            if choice == "0": return
-        normalized_choice = str(choice).strip().replace(",", ".")
-        if normalized_choice == "1":
-            state.use_default_excludes = not state.use_default_excludes; state.plan = None
-            print(f"Domyślna lista wykluczeń: {on_off_label(state.use_default_excludes)}")
-        elif normalized_choice == "2":
-            default_exclusions_table_menu(state, ui_mode)
-        elif normalized_choice == "3":
-            state.use_custom_excludes = not state.use_custom_excludes; state.plan = None
-            print(f"Manualne wykluczenia: {on_off_label(state.use_custom_excludes)}")
-        elif normalized_choice == "4":
-            manual_exclusion_submenu(state, ui_mode)
-        elif normalized_choice in {"4.1", "41", "5.1", "51"}:
-            add_custom_exclusion(state, ui_mode)
-        elif normalized_choice in {"4.2", "42", "5.2", "52"}:
-            edit_custom_exclusion(state, ui_mode)
-        elif normalized_choice in {"4.3", "43", "5.3", "53"}:
-            remove_custom_exclusion(state, ui_mode)
-        elif normalized_choice in {"4.4", "44", "5.4", "54"}:
-            if state.custom_excludes:
-                state.custom_excludes.clear(); state.plan = None; print("Wyczyszczono wszystkie manualne wykluczenia.")
-            else:
-                print("Brak manualnych wykluczeń do wyczyszczenia.")
-        else:
-            print("Nieznana opcja.")
-
-
-
-def _settings_cursor_choice(state: WizardState, ui_mode: str) -> str | None:
-    """Kursorowe Ustawienia z grupami i bez pustego separatora nad listą."""
-    parts = prompt_toolkit_parts()
-    if parts is None:
-        return None
-    Application, KeyBindings, Layout, Window, FormattedTextControl, Style = parts
-    width = 78
-    rows: list[tuple[str, str, str, str]] = [
-        ("item", "1", f"Profil pakowania [{state.profile_label()}]", ""),
-        ("sep", "", "-----", ""),
-        ("item", "2", "Odśwież nazwę paczki z aktualnej wersji", ""),
-        ("item", "3", "Zapisz pełny podgląd listy pakowania do JSON", ""),
-        ("sep", "", "-----", ""),
-        ("item", "4", f"Ustawienia paczki [{pack_settings_menu_label(state)}]", ""),
-        ("item", "5", f"Ustawienia wykluczeń [{exclusions_menu_label(state)}]", ""),
-        ("item", "6", "Przeskanuj ponownie i pokaż wpływ", ""),
-        ("sep", "", "-----", ""),
-        ("item", "7", f"Zmień interfejs TXT/Kursorowy [{ui_mode_setting_label(state, ui_mode)}]", ""),
-        ("item", "0", "Wróć", ""),
-    ]
-    item_rows = [index for index, row in enumerate(rows) if row[0] == "item"]
-    keys = [rows[index][1] for index in item_rows]
-    selected = {"row_index": item_rows[0]}
-
-    def selected_item_pos() -> int:
-        try:
-            return item_rows.index(selected["row_index"])
-        except ValueError:
-            selected["row_index"] = item_rows[0]
-            return 0
-
-    def get_text() -> list[tuple[str, str]]:
-        fragments: list[tuple[str, str]] = []
-        def line(style: str, value: str = "") -> None:
-            fragments.append((style, value[:width])); fragments.append(("", "\n"))
-        line("class:border", "=" * width)
-        line("class:title", "  Ustawienia")
-        line("class:border", "=" * width)
-        line("", "")
-        for index, (kind, key, label, _description) in enumerate(rows):
-            if kind == "sep":
-                line("class:separator", "  " + label)
-                continue
-            marker = "▶" if index == selected["row_index"] else " "
-            style = "class:latka.selected" if index == selected["row_index"] else "class:latka.option"
-            if key == "0":
-                row = f"  {marker} 0. Wróć"
-            else:
-                row = f"  {marker} {key}. {label}"
-            line(style, row)
-        line("class:border", "=" * width)
-        line("class:hint", "↑/↓ wybór | Enter OK | Esc/Q wróć o 1 poziom | Ctrl+X zamknij bez zapisu")
-        return fragments
-
-    control = FormattedTextControl(text=get_text, focusable=True)
-    window = Window(content=control, wrap_lines=False, dont_extend_height=True)
-    layout = Layout(window)
-    kb = KeyBindings()
-
-    def move(delta: int, event: Any) -> None:
-        pos = (selected_item_pos() + delta) % len(item_rows)
-        selected["row_index"] = item_rows[pos]
-        event.app.invalidate()
-
-    @kb.add("up")
-    @kb.add("k")
-    def _up(event: Any) -> None: move(-1, event)
-    @kb.add("down")
-    @kb.add("j")
-    def _down(event: Any) -> None: move(1, event)
-    @kb.add("home")
-    def _home(event: Any) -> None: selected["row_index"] = item_rows[0]; event.app.invalidate()
-    @kb.add("end")
-    def _end(event: Any) -> None: selected["row_index"] = item_rows[-1]; event.app.invalidate()
-    @kb.add("enter")
-    def _enter(event: Any) -> None:
-        _kind, key, _label, _description = rows[selected["row_index"]]
-        event.app.exit(result=key)
-    @kb.add("escape")
-    @kb.add("q")
-    def _cancel(event: Any) -> None: event.app.exit(result=None)
-    @kb.add("c-x", eager=True)
-    def _ctrl_x_exit(event: Any) -> None: event.app.exit(exception=UserRequestedAppExit())
-    @kb.add("c-c", eager=True)
-    def _ctrl_c_noop(event: Any) -> None: event.app.invalidate()
-    try:
-        @kb.add("<sigint>", eager=True)
-        def _sigint_noop(event: Any) -> None: event.app.invalidate()
-    except Exception:
-        pass
-    for option_key in keys:
-        if len(option_key) == 1:
-            @kb.add(option_key)
-            def _number(event: Any, option_key: str = option_key) -> None:
-                event.app.exit(result=option_key)
-    style = Style.from_dict({
-        "border": "ansicyan", "title": "bold ansicyan", "hint": "ansibrightblack",
-        "separator": "ansicyan", "latka.option": "", "latka.selected": "reverse bold",
-    })
-    return Application(layout=layout, key_bindings=kb, style=style, full_screen=True, mouse_support=False).run()
-
-
-def _print_settings_menu_plain(state: WizardState, ui_mode: str) -> None:
-    section("Ustawienia")
-    print(f"  1. Profil pakowania [{state.profile_label()}]")
-    print("     -----")
-    print("  2. Odśwież nazwę paczki z aktualnej wersji")
-    print("  3. Zapisz pełny podgląd listy pakowania do JSON")
-    print("     -----")
-    print(f"  4. Ustawienia paczki [{pack_settings_menu_label(state)}]")
-    print(f"  5. Ustawienia wykluczeń [{exclusions_menu_label(state)}]")
-    print("  6. Przeskanuj ponownie i pokaż wpływ")
-    print("     -----")
-    print(f"  7. Zmień interfejs TXT/Kursorowy [{ui_mode_setting_label(state, ui_mode)}]")
-    print("  0. Wróć")
-
-
-def settings_submenu(state: WizardState, ui_mode: str = "plain") -> str:
-    """Ustawienia jako prawdziwe podmenu z kolejnością v5.9."""
-    while True:
-        if should_use_cursor_menu(ui_mode):
-            choice = _settings_cursor_choice(state, ui_mode)
-            if choice in {None, "0"}:
-                return "cancel"
-        else:
-            _print_settings_menu_plain(state, ui_mode)
-            choice = ask_text("Wybór", "0").strip()
-            if choice == "0":
-                return "cancel"
-
-        normalized = str(choice).strip()
-        if normalized == "1":
-            configure_profile(state, ui_mode)
-            save_settings(state, quiet=True)
-        elif normalized == "2":
-            reset_archive_name_from_version(state)
-            save_settings(state, quiet=True)
-        elif normalized == "3":
-            if ensure_ready_for_pack_plan(state, ui_mode=ui_mode):
-                if state.plan is None:
-                    rebuild_plan(state)
-                preview = save_preview_json(state)
-                save_settings(state, quiet=True)
-                print(f"Zapisano podgląd: {preview}")
-                pause()
-        elif normalized == "4":
-            configure_pack_settings(state, ui_mode)
-            save_settings(state, quiet=True)
-        elif normalized == "5":
-            exclusion_menu(state, ui_mode)
-            save_settings(state, quiet=True)
-        elif normalized == "6":
-            if ensure_ready_for_pack_plan(state, ui_mode=ui_mode):
-                rebuild_plan(state)
-                save_settings(state, quiet=True)
-                pause()
-        elif normalized == "7":
-            ui_mode = configure_ui_mode_preference(state, ui_mode)
-            save_settings(state, quiet=True)
-        else:
-            print("Nieznana opcja.")
-
-
-def print_pack_items_for_plan(state: WizardState) -> None:
-    require_ready_state(state)
-    if state.plan is None:
-        print("Brak aktualnego planu pakowania."); return
-    assert state.source_folder is not None
-    folders = collect_included_folder_paths(state.plan, state.source_folder)
-    folder_lines = format_numbered_lines(folders) if folders else ["  (brak katalogów podrzędnych)"]
-    file_lines = format_numbered_lines([rel_posix(path, state.source_folder.resolve()) for path in state.plan.files]) if state.plan.files else ["  (brak plików)"]
-    print_lines_paged("Katalogi w planie pakowania", folder_lines)
-    print_lines_paged("Pliki w planie pakowania", file_lines)
-
-
-def print_pack_plan_compact_summary(state: WizardState) -> None:
-    require_ready_state(state)
-    if state.plan is None:
-        print("Brak aktualnego planu. Wybierz opcję podglądu, żeby przeskanować źródło."); return
-    assert state.source_folder is not None
-    assert state.out_dir is not None
-    plan = state.plan
-    print("\nPodstawa pakowania została wyliczona z aktualnych ustawień.")
-    print(f"Źródło: {state.source_folder}")
-    print(f"Wyjście: {state.out_dir}")
-    print(f"Nazwa ZIP: {state.archive_name}")
-    print(f"Profil: {state.profile_label()}")
-    print(f"Pliki do spakowania: {plan.file_count}")
-    print(f"Katalogi do zapisania bezpośrednio w ZIP: {plan.dir_count}")
-    print(f"Rozmiar źródłowy: {human_size(plan.source_total_size)}")
-    print(f"Wykluczone wpisy: {len(plan.excluded)}")
-    print(f"Część ZIP: {state.part_size_mb} MiB; kompresja: {state.compression_level}; force: {state.force}")
-
-
-# =============================================================================
-# NADPISANIA UI v5.10 — separatory menu głównego, powroty i Ctrl+X
-# =============================================================================
-
-
-def _plain_control_word(value: str) -> str:
-    """Rozpoznaje tekstowe i kontrolne skróty w promptach liniowych.
-
-    W zwykłym input() terminal nie zawsze przerywa od razu po Ctrl+X; często
-    znak kontrolny trafia do bufora dopiero po Enter. Dlatego rozpoznajemy też
-    surowy znak \x18 i jego widoczne warianty.
-    """
-    raw = str(value or "").strip().strip("\x00").lower()
-    if "\x18" in raw or "^x" in raw or "ctrl+x" in raw or "ctrlx" in raw:
-        return "exit"
-    if "latka_exit_app" in raw:
-        return "exit"
-    if "latka_cancel_input" in raw:
-        return "cancel"
-    if raw in PLAIN_EXIT_WORDS or raw.startswith("^x") or raw.startswith("ctrl+x"):
-        return "exit"
-    if raw in PLAIN_CANCEL_WORDS:
-        return "cancel"
-    return ""
-
-
-def _main_menu_separator_before(key: str) -> bool:
-    """Układ grup w menu głównym zgodny z v5.10."""
-    return str(key) in {"3", "6", "7"}
-
-
-def _should_separate_return_option(key: str, label: str) -> bool:
-    """Separator przed powrotem/wyjściem z podmenu.
-
-    Nie rozdzielamy głównego menu przed `0. Wyjście`, bo tam 7/0 są jedną grupą.
-    W podmenu oddzielamy natomiast `0. Wróć` albo `Powrót do menu` od akcji.
-    """
-    raw = f"{key} {label}".lower()
-    return str(key) == "0" or "wróć" in raw or "wroc" in raw or "powrót" in raw or "powrot" in raw
-
-
-def print_menu_plain(state: WizardState) -> None:
-    print("\n" + "=" * 78)
-    print("  MENU GŁÓWNE")
-    print("=" * 78)
-    for key, label in menu_options(state):
-        if _main_menu_separator_before(key):
-            print("  -----")
-        print(f"  {label}")
-
-
-def _cursor_menu_lines(state: WizardState, selected_index: int, inline_editor: dict[str, object] | None = None) -> list[tuple[str, str]]:
-    options = menu_options(state)
-    selected_index = max(0, min(selected_index, len(options) - 1))
-    width = 78
-    inline_editor = inline_editor or {}
-    editing_field = str(inline_editor.get("field") or "")
-    editing_text = str(inline_editor.get("text") or "")
-    editing_cursor = as_int(inline_editor.get("cursor"), len(editing_text))
-    message = str(inline_editor.get("message") or "")
-    fragments: list[tuple[str, str]] = []
-
-    def part(style: str, value: str) -> None:
-        fragments.append((style, value))
-
-    def line(style: str, value: str = "") -> None:
-        part(style, value[:width])
-        part("", "\n")
-
-    line("class:border", "=" * width)
-    line("class:title", f"  Jaźń / Łatka — generator paczki ZIP v{VERSION}")
-    line("class:border", "=" * width)
-    line("", "")
-    for label, value in (
-        ("Plan:     ", plan_status_label(state)),
-        ("Profil:   ", state.profile_label()),
-        ("Źródło:   ", menu_value(state.source_folder)),
-        ("Zapis:    ", menu_value(state.out_dir)),
-        ("ZIP:      ", state.archive_name or "(nie ustawiono)"),
-    ):
-        part("class:status.label", label)
-        line("class:status.value", value)
-    line("", "")
-    line("class:border", "=" * width)
-    for idx, (key, label) in enumerate(options):
-        if _main_menu_separator_before(key):
-            line("class:separator", "  -----")
-        field = _inline_edit_field_for_key(key)
-        if editing_field and field == editing_field:
-            edited = _text_with_cursor_marker(editing_text, editing_cursor)
-            if key == "3":
-                label = f"3. Folder do pakowania [{edited}]"
-            elif key == "4":
-                label = f"4. Folder zapisu paczki [{edited}]"
-            elif key == "5":
-                label = f"5. Zmień nazwę paczki [{edited}]"
-        marker = "▶" if idx == selected_index else " "
-        style = "class:latka.selected" if idx == selected_index else "class:latka.option"
-        line(style, f"  {marker} {label}")
-    line("class:border", "=" * width)
-    if editing_field:
-        line("class:hint", "Edycja pola []: wpisuj tekst | Tab autouzupełnij ścieżkę | Enter zapisz | Esc anuluj | Ctrl+X zamknij bez zapisu")
-    else:
-        line("class:hint", "↑/↓ wybór | Enter OK | Esc/Q wróć | Ctrl+X zamknij bez zapisu")
-    if message:
-        line("class:message", message)
-    return fragments
-
-
-def ask_cursor_choice(
-    *,
-    title: str,
-    options: list[tuple[str, str, str]],
-    default_key: str = "0",
-    header_lines: list[str] | None = None,
-) -> str | None:
-    """Małe podmenu kursorowe z separatorem przed Wróć/Powrót.
-
-    Ta wersja utrzymuje Ctrl+X jako globalne wyjście awaryjne we wszystkich
-    podmenu opartych na prompt_toolkit.
-    """
-    parts = prompt_toolkit_parts()
-    if parts is None:
-        return None
-    Application, KeyBindings, Layout, Window, FormattedTextControl, Style = parts
-    keys = [key for key, _, _ in options]
-    selected = {"index": keys.index(default_key) if default_key in keys else 0}
-    width = 78
-
-    def get_text() -> list[tuple[str, str]]:
-        fragments: list[tuple[str, str]] = []
-        def line(style: str, value: str = "") -> None:
-            fragments.append((style, value[:width])); fragments.append(("", "\n"))
-        line("class:border", "=" * width)
-        line("class:title", f"  {title}")
-        line("class:border", "=" * width)
-        line("", "")
-        for header in header_lines or []:
-            line("class:hint", header)
-        if header_lines:
-            line("", "")
-            line("class:border", "=" * width)
-        for idx, (key, label, description) in enumerate(options):
-            if idx > 0 and _should_separate_return_option(key, label):
-                line("class:separator", "  -----")
-            marker = "▶" if idx == selected["index"] else " "
-            style = "class:latka.selected" if idx == selected["index"] else "class:latka.option"
-            row = f"  {marker} {key}. {label}"
-            if len(row) > width:
-                row = row[: max(0, width - 1)] + "…"
-            line(style, row)
-            if description:
-                desc = f"      {description}"
-                if len(desc) > width:
-                    desc = desc[: max(0, width - 1)] + "…"
-                line("class:description", desc)
-        line("class:border", "=" * width)
-        line("class:hint", "↑/↓ wybór | Enter OK | Esc/Q wróć o 1 poziom | Ctrl+X zamknij bez zapisu")
-        return fragments
-
-    control = FormattedTextControl(text=get_text, focusable=True)
-    window = Window(content=control, wrap_lines=False, dont_extend_height=True)
-    layout = Layout(window)
-    kb = KeyBindings()
-    def move(delta: int, event: Any) -> None:
-        selected["index"] = (selected["index"] + delta) % len(options); event.app.invalidate()
-    @kb.add("up")
-    @kb.add("k")
-    def _up(event: Any) -> None: move(-1, event)
-    @kb.add("down")
-    @kb.add("j")
-    def _down(event: Any) -> None: move(1, event)
-    @kb.add("home")
-    def _home(event: Any) -> None: selected["index"] = 0; event.app.invalidate()
-    @kb.add("end")
-    def _end(event: Any) -> None: selected["index"] = len(options) - 1; event.app.invalidate()
-    @kb.add("enter")
-    def _enter(event: Any) -> None: event.app.exit(result=options[selected["index"]][0])
-    @kb.add("escape")
-    @kb.add("q")
-    def _cancel(event: Any) -> None: event.app.exit(result=None)
-    @kb.add("c-x", eager=True)
-    def _ctrl_x_exit(event: Any) -> None: event.app.exit(exception=UserRequestedAppExit())
-    @kb.add("c-c", eager=True)
-    def _ctrl_c_noop(event: Any) -> None: event.app.invalidate()
-    try:
-        @kb.add("<sigint>", eager=True)
-        def _sigint_noop(event: Any) -> None: event.app.invalidate()
-    except Exception:
-        pass
-    for option_key in keys:
-        if len(option_key) == 1:
-            @kb.add(option_key)
-            def _number(event: Any, option_key: str = option_key) -> None:
-                event.app.exit(result=option_key)
-    style = Style.from_dict({
-        "border": "ansicyan", "title": "bold ansicyan", "hint": "ansibrightblack",
-        "description": "ansibrightblack", "separator": "ansicyan",
-        "latka.option": "", "latka.selected": "reverse bold",
-    })
-    return Application(layout=layout, key_bindings=kb, style=style, full_screen=True, mouse_support=False).run()
-
-
-def _settings_cursor_choice(state: WizardState, ui_mode: str) -> str | None:
-    """Kursorowe Ustawienia z separatorem także przed `0. Wróć`."""
-    parts = prompt_toolkit_parts()
-    if parts is None:
-        return None
-    Application, KeyBindings, Layout, Window, FormattedTextControl, Style = parts
-    width = 78
-    rows: list[tuple[str, str, str, str]] = [
-        ("item", "1", f"Profil pakowania [{state.profile_label()}]", ""),
-        ("sep", "", "-----", ""),
-        ("item", "2", "Odśwież nazwę paczki z aktualnej wersji", ""),
-        ("item", "3", "Zapisz pełny podgląd listy pakowania do JSON", ""),
-        ("sep", "", "-----", ""),
-        ("item", "4", f"Ustawienia paczki [{pack_settings_menu_label(state)}]", ""),
-        ("item", "5", f"Ustawienia wykluczeń [{exclusions_menu_label(state)}]", ""),
-        ("item", "6", "Przeskanuj ponownie i pokaż wpływ", ""),
-        ("sep", "", "-----", ""),
-        ("item", "7", f"Zmień interfejs TXT/Kursorowy [{ui_mode_setting_label(state, ui_mode)}]", ""),
-        ("sep", "", "-----", ""),
-        ("item", "0", "Wróć", ""),
-    ]
-    item_rows = [index for index, row in enumerate(rows) if row[0] == "item"]
-    keys = [rows[index][1] for index in item_rows]
-    selected = {"row_index": item_rows[0]}
-
-    def selected_item_pos() -> int:
-        try:
-            return item_rows.index(selected["row_index"])
-        except ValueError:
-            selected["row_index"] = item_rows[0]
-            return 0
-
-    def get_text() -> list[tuple[str, str]]:
-        fragments: list[tuple[str, str]] = []
-        def line(style: str, value: str = "") -> None:
-            fragments.append((style, value[:width])); fragments.append(("", "\n"))
-        line("class:border", "=" * width)
-        line("class:title", "  Ustawienia")
-        line("class:border", "=" * width)
-        line("", "")
-        for index, (kind, key, label, _description) in enumerate(rows):
-            if kind == "sep":
-                line("class:separator", "  " + label)
-                continue
-            marker = "▶" if index == selected["row_index"] else " "
-            style = "class:latka.selected" if index == selected["row_index"] else "class:latka.option"
-            row = f"  {marker} {key}. {label}"
-            line(style, row)
-        line("class:border", "=" * width)
-        line("class:hint", "↑/↓ wybór | Enter OK | Esc/Q wróć o 1 poziom | Ctrl+X zamknij bez zapisu")
-        return fragments
-
-    control = FormattedTextControl(text=get_text, focusable=True)
-    window = Window(content=control, wrap_lines=False, dont_extend_height=True)
-    layout = Layout(window)
-    kb = KeyBindings()
-
-    def move(delta: int, event: Any) -> None:
-        pos = (selected_item_pos() + delta) % len(item_rows)
-        selected["row_index"] = item_rows[pos]
-        event.app.invalidate()
-
-    @kb.add("up")
-    @kb.add("k")
-    def _up(event: Any) -> None: move(-1, event)
-    @kb.add("down")
-    @kb.add("j")
-    def _down(event: Any) -> None: move(1, event)
-    @kb.add("home")
-    def _home(event: Any) -> None: selected["row_index"] = item_rows[0]; event.app.invalidate()
-    @kb.add("end")
-    def _end(event: Any) -> None: selected["row_index"] = item_rows[-1]; event.app.invalidate()
-    @kb.add("enter")
-    def _enter(event: Any) -> None:
-        _kind, key, _label, _description = rows[selected["row_index"]]
-        event.app.exit(result=key)
-    @kb.add("escape")
-    @kb.add("q")
-    def _cancel(event: Any) -> None: event.app.exit(result=None)
-    @kb.add("c-x", eager=True)
-    def _ctrl_x_exit(event: Any) -> None: event.app.exit(exception=UserRequestedAppExit())
-    @kb.add("c-c", eager=True)
-    def _ctrl_c_noop(event: Any) -> None: event.app.invalidate()
-    try:
-        @kb.add("<sigint>", eager=True)
-        def _sigint_noop(event: Any) -> None: event.app.invalidate()
-    except Exception:
-        pass
-    for option_key in keys:
-        if len(option_key) == 1:
-            @kb.add(option_key)
-            def _number(event: Any, option_key: str = option_key) -> None:
-                event.app.exit(result=option_key)
-    style = Style.from_dict({
-        "border": "ansicyan", "title": "bold ansicyan", "hint": "ansibrightblack",
-        "separator": "ansicyan", "latka.option": "", "latka.selected": "reverse bold",
-    })
-    return Application(layout=layout, key_bindings=kb, style=style, full_screen=True, mouse_support=False).run()
-
-
-def _print_settings_menu_plain(state: WizardState, ui_mode: str) -> None:
-    section("Ustawienia")
-    print(f"  1. Profil pakowania [{state.profile_label()}]")
-    print("     -----")
-    print("  2. Odśwież nazwę paczki z aktualnej wersji")
-    print("  3. Zapisz pełny podgląd listy pakowania do JSON")
-    print("     -----")
-    print(f"  4. Ustawienia paczki [{pack_settings_menu_label(state)}]")
-    print(f"  5. Ustawienia wykluczeń [{exclusions_menu_label(state)}]")
-    print("  6. Przeskanuj ponownie i pokaż wpływ")
-    print("     -----")
-    print(f"  7. Zmień interfejs TXT/Kursorowy [{ui_mode_setting_label(state, ui_mode)}]")
-    print("     -----")
-    print("  0. Wróć")
-
-
-
-# =============================================================================
-# NADPISANIA UI v5.11 — wykluczenia, ręczne listy, separatory cyan i T/N bez reakcji Enter
-# =============================================================================
-
-
-def _ansi_cyan_text(text: str) -> str:
-    """Cyan dla separatorów w trybie tekstowym, jeśli terminal obsługuje ANSI."""
-    try:
-        if sys.stdout.isatty():
-            return "\033[36m" + text + "\033[0m"
-    except Exception:
-        pass
-    return text
-
-
-def _manual_excludes_enabled_for_label(state: WizardState) -> bool:
-    """Manualne pokazujemy jako ON tylko wtedy, gdy są aktywne i faktycznie istnieją wpisy."""
-    return bool(state.use_custom_excludes and state.custom_excludes)
-
-
-def manual_exclusions_label(state: WizardState) -> str:
-    return f"{on_off_label(_manual_excludes_enabled_for_label(state))}, wpisów {len(state.custom_excludes)}"
-
-
-def exclusions_menu_label(state: WizardState) -> str:
-    default_total = len(state.profile_default_excludes())
-    default_active = len(state.active_default_excludes())
-    custom_total = len(state.custom_excludes)
-    custom_state = on_off_label(_manual_excludes_enabled_for_label(state))
-    return (
-        f"domyślne {on_off_label(state.use_default_excludes)} {default_active}/{default_total}, "
-        f"manualne {custom_state} {custom_total}"
-    )
-
-
-def _cursor_separator_row() -> tuple[str, str, str, str]:
-    return ("sep", "", "-----", "")
-
-
-def _line_style_append(fragments: list[tuple[str, str]], style: str, value: str, width: int = 78) -> None:
-    fragments.append((style, str(value)[:width]))
-    fragments.append(("", "\n"))
-
-
-def _explicit_bool_cursor(prompt: str) -> bool | None:
-    """Jawne T/N w prompt_toolkit: pusty Enter nie drukuje nowej linii i nic nie robi."""
-    parts = prompt_toolkit_parts()
-    if parts is None:
-        return None
-    Application, KeyBindings, Layout, Window, FormattedTextControl, Style = parts
-    width = 100
-    buffer = {"text": "", "message": ""}
-
-    def normalized() -> str:
-        return str(buffer.get("text") or "").strip().lower()
-
-    def get_text() -> list[tuple[str, str]]:
-        text = str(buffer.get("text") or "")
-        shown = _text_with_cursor_marker(text, len(text))
-        fragments: list[tuple[str, str]] = []
-        _line_style_append(fragments, "class:prompt", f"{prompt} [T/N]: {shown}", width)
-        if buffer.get("message"):
-            _line_style_append(fragments, "class:hint", str(buffer.get("message")), width)
-        else:
-            _line_style_append(fragments, "class:hint", "Wpisz T/Tak albo N/Nie. Enter bez odpowiedzi nic nie robi. Ctrl+X zamyka bez zapisu.", width)
-        return fragments
-
-    control = FormattedTextControl(text=get_text, focusable=True)
-    window = Window(content=control, wrap_lines=False, dont_extend_height=True)
-    layout = Layout(window)
-    kb = KeyBindings()
-
-    def accept_if_valid(event: Any) -> None:
-        raw = normalized()
-        if raw in {"t", "tak", "y", "yes", "1", "true"}:
-            event.app.exit(result=True)
-            return
-        if raw in {"n", "nie", "no", "0", "false"}:
-            event.app.exit(result=False)
-            return
-        buffer["message"] = "Wymagany jawny wybór: T/Tak albo N/Nie."
-        event.app.invalidate()
-
-    def append_text(data: str, event: Any) -> None:
-        if not data:
-            return
-        buffer["text"] = str(buffer.get("text") or "") + data
-        buffer["message"] = ""
-        event.app.invalidate()
-
-    @kb.add("enter")
-    def _enter(event: Any) -> None:
-        accept_if_valid(event)
-
-    @kb.add("backspace")
-    @kb.add("c-h")
-    def _backspace(event: Any) -> None:
-        value = str(buffer.get("text") or "")
-        buffer["text"] = value[:-1]
-        buffer["message"] = ""
-        event.app.invalidate()
-
-    @kb.add("escape")
-    @kb.add("q")
-    def _cancel(event: Any) -> None:
-        event.app.exit(result=False)
-
-    @kb.add("c-x", eager=True)
-    def _ctrl_x_exit(event: Any) -> None:
-        event.app.exit(exception=UserRequestedAppExit())
-
-    @kb.add("c-c", eager=True)
-    def _ctrl_c_noop(event: Any) -> None:
-        event.app.invalidate()
-
-    try:
-        @kb.add("<sigint>", eager=True)
-        def _sigint_noop(event: Any) -> None:
-            event.app.invalidate()
-    except Exception:
-        pass
-
-    @kb.add("<any>")
-    def _any(event: Any) -> None:
-        data = getattr(event, "data", "") or ""
-        if data in {"\r", "\n", "\t"}:
-            return
-        if "\x18" in data:
-            event.app.exit(exception=UserRequestedAppExit())
-            return
-        append_text(data, event)
-
-    style = Style.from_dict({
-        "prompt": "bold",
-        "hint": "ansibrightblack",
-    })
-    return Application(layout=layout, key_bindings=kb, style=style, full_screen=False, mouse_support=False).run()
-
-
-def ask_bool(prompt: str, default: bool = False, *, require_explicit: bool = False) -> bool:
-    """Tak/Nie. W trybie jawnego potwierdzenia pusty Enter nie wywołuje żadnej akcji."""
-    yes_values = {"t", "tak", "y", "yes", "1", "true"}
-    no_values = {"n", "nie", "no", "0", "false"}
-    if require_explicit:
-        result = _explicit_bool_cursor(prompt)
-        if result is not None:
-            return bool(result)
-        suffix = "T/N"
-    else:
-        suffix = "T/n" if default else "t/N"
-    while True:
-        value = input(f"{prompt} [{suffix}]: ").strip().lower()
-        control = _plain_control_word(value)
-        if control == "exit":
-            raise UserRequestedAppExit()
-        if control == "cancel":
-            raise UserCancelledInput()
-        if not value:
-            if require_explicit:
-                # Fallback line-input: nie zatwierdza i nie drukuje komentarza.
-                # W zwykłym input() terminal sam przechodzi do następnej linii,
-                # ale logicznie nie wykonujemy żadnej akcji bez T/N.
-                continue
-            return default
-        if value in yes_values:
-            return True
-        if value in no_values:
-            return False
-        print("Wpisz T/Tak albo N/Nie.")
-
-
-def _option_rows_cursor_app(
-    *,
-    title: str,
-    rows: list[tuple[str, str, str, str]],
-    default_key: str = "0",
-    header_lines: list[str] | None = None,
-) -> str | None:
-    """Wspólny widok menu z wierszami item/sep i separatorami cyan."""
-    parts = prompt_toolkit_parts()
-    if parts is None:
-        return None
-    Application, KeyBindings, Layout, Window, FormattedTextControl, Style = parts
-    width = 78
-    item_rows = [index for index, row in enumerate(rows) if row[0] == "item"]
-    if not item_rows:
-        return None
-    keys = [rows[index][1] for index in item_rows]
-    default_row = next((idx for idx in item_rows if rows[idx][1] == default_key), item_rows[0])
-    selected = {"row_index": default_row}
-
-    def selected_item_pos() -> int:
-        try:
-            return item_rows.index(selected["row_index"])
-        except ValueError:
-            selected["row_index"] = item_rows[0]
-            return 0
-
-    def get_text() -> list[tuple[str, str]]:
-        fragments: list[tuple[str, str]] = []
-        _line_style_append(fragments, "class:border", "=" * width, width)
-        _line_style_append(fragments, "class:title", f"  {title}", width)
-        _line_style_append(fragments, "class:border", "=" * width, width)
-        _line_style_append(fragments, "", "", width)
-        for header in header_lines or []:
-            _line_style_append(fragments, "class:hint", header, width)
-        if header_lines:
-            _line_style_append(fragments, "", "", width)
-            _line_style_append(fragments, "class:border", "=" * width, width)
-        for index, (kind, key, label, description) in enumerate(rows):
-            if kind == "sep":
-                _line_style_append(fragments, "class:separator", "  -----", width)
-                continue
-            marker = "▶" if index == selected["row_index"] else " "
-            style = "class:latka.selected" if index == selected["row_index"] else "class:latka.option"
-            row = f"  {marker} {key}. {label}"
-            _line_style_append(fragments, style, row, width)
-            if description:
-                _line_style_append(fragments, "class:description", "      " + description, width)
-        _line_style_append(fragments, "class:border", "=" * width, width)
-        _line_style_append(fragments, "class:hint", "↑/↓ wybór | Enter OK | Esc/Q wróć o 1 poziom | Ctrl+X zamknij bez zapisu", width)
-        return fragments
-
-    control = FormattedTextControl(text=get_text, focusable=True)
-    window = Window(content=control, wrap_lines=False, dont_extend_height=True)
-    layout = Layout(window)
-    kb = KeyBindings()
-
-    def move(delta: int, event: Any) -> None:
-        pos = (selected_item_pos() + delta) % len(item_rows)
-        selected["row_index"] = item_rows[pos]
-        event.app.invalidate()
-
-    @kb.add("up")
-    @kb.add("k")
-    def _up(event: Any) -> None: move(-1, event)
-
-    @kb.add("down")
-    @kb.add("j")
-    def _down(event: Any) -> None: move(1, event)
-
-    @kb.add("home")
-    def _home(event: Any) -> None:
-        selected["row_index"] = item_rows[0]
-        event.app.invalidate()
-
-    @kb.add("end")
-    def _end(event: Any) -> None:
-        selected["row_index"] = item_rows[-1]
-        event.app.invalidate()
-
-    @kb.add("enter")
-    def _enter(event: Any) -> None:
-        _kind, key, _label, _description = rows[selected["row_index"]]
-        event.app.exit(result=key)
-
-    @kb.add("escape")
-    @kb.add("q")
-    def _cancel(event: Any) -> None:
-        event.app.exit(result=None)
-
-    @kb.add("c-x", eager=True)
-    def _ctrl_x_exit(event: Any) -> None:
-        event.app.exit(exception=UserRequestedAppExit())
-
-    @kb.add("c-c", eager=True)
-    def _ctrl_c_noop(event: Any) -> None:
-        event.app.invalidate()
-
-    try:
-        @kb.add("<sigint>", eager=True)
-        def _sigint_noop(event: Any) -> None:
-            event.app.invalidate()
-    except Exception:
-        pass
-
-    for option_key in keys:
-        if len(str(option_key)) == 1:
-            @kb.add(str(option_key))
-            def _number(event: Any, option_key: str = str(option_key)) -> None:
-                event.app.exit(result=option_key)
-
-    style = Style.from_dict({
-        "border": "ansicyan",
-        "title": "bold ansicyan",
-        "hint": "ansibrightblack",
-        "description": "ansibrightblack",
-        "separator": "ansicyan",
-        "latka.option": "",
-        "latka.selected": "reverse bold",
-    })
-    return Application(layout=layout, key_bindings=kb, style=style, full_screen=True, mouse_support=False).run()
-
-
-def _settings_cursor_choice(state: WizardState, ui_mode: str) -> str | None:
-    rows: list[tuple[str, str, str, str]] = [
-        ("item", "1", f"Profil pakowania [{state.profile_label()}]", ""),
-        _cursor_separator_row(),
-        ("item", "2", "Odśwież nazwę paczki z aktualnej wersji", ""),
-        ("item", "3", "Zapisz pełny podgląd listy pakowania do JSON", ""),
-        _cursor_separator_row(),
-        ("item", "4", f"Ustawienia paczki [{pack_settings_menu_label(state)}]", ""),
-        ("item", "5", f"Ustawienia wykluczeń [{exclusions_menu_label(state)}]", ""),
-        ("item", "6", "Przeskanuj ponownie i pokaż wpływ", ""),
-        _cursor_separator_row(),
-        ("item", "7", f"Zmień interfejs TXT/Kursorowy [{ui_mode_setting_label(state, ui_mode)}]", ""),
-        _cursor_separator_row(),
-        ("item", "0", "Wróć", ""),
-    ]
-    return _option_rows_cursor_app(title="Ustawienia", rows=rows, default_key="0")
-
-
-def _print_settings_menu_plain(state: WizardState, ui_mode: str) -> None:
-    section("Ustawienia")
-    sep = _ansi_cyan_text("  -----")
-    print(f"  1. Profil pakowania [{state.profile_label()}]")
-    print(sep)
-    print("  2. Odśwież nazwę paczki z aktualnej wersji")
-    print("  3. Zapisz pełny podgląd listy pakowania do JSON")
-    print(sep)
-    print(f"  4. Ustawienia paczki [{pack_settings_menu_label(state)}]")
-    print(f"  5. Ustawienia wykluczeń [{exclusions_menu_label(state)}]")
-    print("  6. Przeskanuj ponownie i pokaż wpływ")
-    print(sep)
-    print(f"  7. Zmień interfejs TXT/Kursorowy [{ui_mode_setting_label(state, ui_mode)}]")
-    print(sep)
-    print("  0. Wróć")
-
-
-def _exclusion_cursor_choice(state: WizardState) -> str | None:
-    rows: list[tuple[str, str, str, str]] = [
-        ("item", "1", f"Domyślne [{on_off_label(state.use_default_excludes)}]", "Globalnie włącz/wyłącz całą listę domyślną."),
-        ("item", "2", f"Edytuj domyślne [{len(state.active_default_excludes())}/{len(state.profile_default_excludes())}]", "Tabela pojedynczych wzorców domyślnych."),
-        _cursor_separator_row(),
-        ("item", "3", f"Manualne [{on_off_label(_manual_excludes_enabled_for_label(state))}]", "Włącz/wyłącz użycie ręcznych wzorców."),
-        ("item", "4", f"Zarządzaj [{len(state.custom_excludes)}]", "Dodaj, edytuj, usuń pojedyncze albo wyczyść wszystkie."),
-        _cursor_separator_row(),
-        ("item", "0", "Wróć", "Powrót do ustawień."),
-    ]
-    return _option_rows_cursor_app(
-        title="Ustawienia wykluczeń",
-        rows=rows,
-        default_key="0",
-        header_lines=[
-            f"Profil: {state.profile_label()}",
-            f"Domyślne aktywne: {len(state.active_default_excludes())} / {len(state.profile_default_excludes())}",
-            f"Manualne: {manual_exclusions_label(state)}",
-        ],
-    )
-
-
-def exclusion_menu(state: WizardState, ui_mode: str = "plain") -> None:
-    while True:
-        if should_use_cursor_menu(ui_mode):
-            choice = _exclusion_cursor_choice(state)
-            if choice in {None, "0"}:
-                return
-        else:
-            print_exclusion_status(state)
-            sep = _ansi_cyan_text("  -----")
-            print("\nOpcje:")
-            print(f"  1. Domyślne [{on_off_label(state.use_default_excludes)}]")
-            print("     Globalnie włącz/wyłącz całą listę domyślną.")
-            print(f"  2. Edytuj domyślne [{len(state.active_default_excludes())}/{len(state.profile_default_excludes())}]")
-            print("     Tabela pojedynczych wzorców domyślnych.")
-            print(sep)
-            print(f"  3. Manualne [{on_off_label(_manual_excludes_enabled_for_label(state))}]")
-            print("     Włącz/wyłącz użycie ręcznych wzorców.")
-            print(f"  4. Zarządzaj [{len(state.custom_excludes)}]")
-            print("     Dodaj, edytuj, usuń pojedyncze albo wyczyść wszystkie.")
-            print(sep)
-            print("  0. Wróć")
-            choice = ask_text("Wybór", "0")
-            if choice == "0":
-                return
-
-        normalized_choice = str(choice).strip().replace(",", ".")
-        if normalized_choice == "1":
-            state.use_default_excludes = not state.use_default_excludes
-            state.plan = None
-            print(f"Domyślna lista wykluczeń: {on_off_label(state.use_default_excludes)}")
-        elif normalized_choice == "2":
-            default_exclusions_table_menu(state, ui_mode)
-        elif normalized_choice == "3":
-            state.use_custom_excludes = not state.use_custom_excludes
-            state.plan = None
-            print(f"Manualne wykluczenia: {manual_exclusions_label(state)}")
-        elif normalized_choice == "4":
-            manual_exclusion_submenu(state, ui_mode)
-        else:
-            print("Nieznana opcja.")
-
-
-def _custom_exclusion_list_cursor(state: WizardState, *, mode: str) -> None:
-    """Przewijana lista ręcznych wykluczeń dla edycji/usuwania; działa też przy długich listach."""
-    parts = prompt_toolkit_parts()
-    if parts is None:
-        return
-    Application, KeyBindings, Layout, Window, FormattedTextControl, Style = parts
-    width = 100
-    selected = {"index": 0, "top": 0}
-    editor = {"active": False, "text": "", "cursor": 0, "message": ""}
-    title = "Edytuj manualne wykluczenie" if mode == "edit" else "Usuń manualne wykluczenie"
-
-    def visible_row_count() -> int:
-        try:
-            lines = shutil.get_terminal_size(fallback=(100, 24)).lines
-        except Exception:
-            lines = 24
-        return max(4, min(max(1, len(state.custom_excludes)), lines - 12))
-
-    def clamp() -> None:
-        count = len(state.custom_excludes)
-        if count <= 0:
-            selected["index"] = 0
-            selected["top"] = 0
-            return
-        selected["index"] = max(0, min(selected["index"], count - 1))
-        visible = visible_row_count()
-        if selected["index"] < selected["top"]:
-            selected["top"] = selected["index"]
-        elif selected["index"] >= selected["top"] + visible:
-            selected["top"] = selected["index"] - visible + 1
-        selected["top"] = max(0, min(selected["top"], max(0, count - visible)))
-
-    def is_editing() -> bool:
-        return bool(editor.get("active"))
-
-    def move(delta: int) -> None:
-        if is_editing() or not state.custom_excludes:
-            return
-        selected["index"] = max(0, min(len(state.custom_excludes) - 1, selected["index"] + delta))
-        clamp()
-
-    def start_edit() -> None:
-        if not state.custom_excludes:
-            return
-        clamp()
-        value = state.custom_excludes[selected["index"]]
-        editor.update({"active": True, "text": value, "cursor": len(value), "message": ""})
-
-    def stop_edit(message: str = "") -> None:
-        editor.update({"active": False, "text": "", "cursor": 0, "message": message})
-
-    def insert(data: str) -> None:
-        value = str(editor.get("text") or "")
-        cursor = as_int(editor.get("cursor"), len(value))
-        editor["text"] = value[:cursor] + data + value[cursor:]
-        editor["cursor"] = cursor + len(data)
-
-    def apply_edit() -> None:
-        if not state.custom_excludes:
-            stop_edit("Brak wpisów do edycji.")
-            return
-        value = str(editor.get("text") or "").strip()
-        if not value:
-            editor["message"] = "Wzorzec nie może być pusty."
-            return
-        clamp()
-        old = state.custom_excludes[selected["index"]]
-        state.custom_excludes[selected["index"]] = value
-        state.use_custom_excludes = True
-        state.plan = None
-        stop_edit(f"Zmieniono: {old} → {value}")
-
-    def remove_current() -> None:
-        if not state.custom_excludes:
-            editor["message"] = "Brak wpisów do usunięcia."
-            return
-        clamp()
-        old = state.custom_excludes.pop(selected["index"])
-        state.plan = None
-        if selected["index"] >= len(state.custom_excludes):
-            selected["index"] = max(0, len(state.custom_excludes) - 1)
-        clamp()
-        editor["message"] = f"Usunięto: {old}"
-
-    def get_text() -> list[tuple[str, str]]:
-        clamp()
-        fragments: list[tuple[str, str]] = []
-        _line_style_append(fragments, "class:border", "=" * 78, width)
-        _line_style_append(fragments, "class:title", f"  {title}", width)
-        _line_style_append(fragments, "class:border", "=" * 78, width)
-        _line_style_append(fragments, "", "", width)
-        hint = "ESC wraca do menu manualnych wykluczeń."
-        _line_style_append(fragments, "class:hint", hint, width)
-        _line_style_append(fragments, "", "", width)
-        _line_style_append(fragments, "class:border", "=" * 78, width)
-        if not state.custom_excludes:
-            _line_style_append(fragments, "class:hint", "  (brak manualnych wykluczeń)", width)
-        else:
-            visible = visible_row_count()
-            top = selected["top"]
-            bottom = min(top + visible, len(state.custom_excludes))
-            for idx in range(top, bottom):
-                value = state.custom_excludes[idx]
-                if is_editing() and idx == selected["index"]:
-                    value = _text_with_cursor_marker(str(editor.get("text") or ""), as_int(editor.get("cursor"), 0))
-                marker = "▶" if idx == selected["index"] else " "
-                style = "class:latka.selected" if idx == selected["index"] else "class:latka.option"
-                _line_style_append(fragments, style, f"  {marker} {idx + 1}. [{value}]", width)
-            if bottom < top + visible:
-                for _ in range(top + visible - bottom):
-                    _line_style_append(fragments, "", "", width)
-        _line_style_append(fragments, "class:separator", "  -----", width)
-        marker = " " if state.custom_excludes else "▶"
-        _line_style_append(fragments, "class:latka.option", f"  {marker} 0. Wróć", width)
-        _line_style_append(fragments, "class:description", "      Bez zmiany.", width)
-        _line_style_append(fragments, "class:border", "=" * 78, width)
-        if is_editing():
-            footer = "Edycja []: wpisuj tekst | Tab autouzupełnij | Enter zapisz | Esc anuluj | Ctrl+X zamknij bez zapisu"
-        else:
-            footer = "↑/↓ wybór | Enter OK | Esc/Q wróć o 1 poziom | Ctrl+X zamknij bez zapisu"
-        _line_style_append(fragments, "class:hint", footer, width)
-        if editor.get("message"):
-            _line_style_append(fragments, "class:message", str(editor.get("message")), width)
-        return fragments
-
-    control = FormattedTextControl(text=get_text, focusable=True)
-    window = Window(content=control, wrap_lines=False, dont_extend_height=False)
-    layout = Layout(window)
-    kb = KeyBindings()
-
-    @kb.add("up")
-    def _up(event: Any) -> None:
-        move(-1)
-        event.app.invalidate()
-
-    @kb.add("down")
-    def _down(event: Any) -> None:
-        move(1)
-        event.app.invalidate()
-
-    @kb.add("k")
-    def _k(event: Any) -> None:
-        if is_editing():
-            insert("k")
-        else:
-            move(-1)
-        event.app.invalidate()
-
-    @kb.add("j")
-    def _j(event: Any) -> None:
-        if is_editing():
-            insert("j")
-        else:
-            move(1)
-        event.app.invalidate()
-
-    @kb.add("pageup")
-    @kb.add("c-u")
-    def _page_up(event: Any) -> None:
-        move(-visible_row_count())
-        event.app.invalidate()
-
-    @kb.add("pagedown")
-    @kb.add("c-d")
-    def _page_down(event: Any) -> None:
-        move(visible_row_count())
-        event.app.invalidate()
-
-    @kb.add("home")
-    def _home(event: Any) -> None:
-        if is_editing():
-            editor["cursor"] = 0
-        else:
-            selected["index"] = 0
-            selected["top"] = 0
-        event.app.invalidate()
-
-    @kb.add("end")
-    def _end(event: Any) -> None:
-        if is_editing():
-            editor["cursor"] = len(str(editor.get("text") or ""))
-        else:
-            selected["index"] = max(0, len(state.custom_excludes) - 1)
-            clamp()
-        event.app.invalidate()
-
-    @kb.add("left")
-    def _left(event: Any) -> None:
-        if is_editing():
-            editor["cursor"] = max(0, as_int(editor.get("cursor"), 0) - 1)
-            event.app.invalidate()
-
-    @kb.add("right")
-    def _right(event: Any) -> None:
-        if is_editing():
-            value = str(editor.get("text") or "")
-            editor["cursor"] = min(len(value), as_int(editor.get("cursor"), len(value)) + 1)
-            event.app.invalidate()
-
-    @kb.add("backspace")
-    @kb.add("c-h")
-    def _backspace(event: Any) -> None:
-        if is_editing():
-            value = str(editor.get("text") or "")
-            cursor = as_int(editor.get("cursor"), len(value))
-            if cursor > 0:
-                editor["text"] = value[:cursor - 1] + value[cursor:]
-                editor["cursor"] = cursor - 1
-            event.app.invalidate()
-
-    @kb.add("delete")
-    def _delete(event: Any) -> None:
-        if is_editing():
-            value = str(editor.get("text") or "")
-            cursor = as_int(editor.get("cursor"), len(value))
-            if cursor < len(value):
-                editor["text"] = value[:cursor] + value[cursor + 1:]
-            event.app.invalidate()
-
-    @kb.add("tab")
-    def _tab(event: Any) -> None:
-        if is_editing():
-            new_text, msg = _inline_autocomplete_path(str(editor.get("text") or ""), only_directories=False)
-            editor["text"] = new_text
-            editor["cursor"] = len(new_text)
-            editor["message"] = msg
-            event.app.invalidate()
-
-    @kb.add("enter")
-    def _enter(event: Any) -> None:
-        if is_editing():
-            apply_edit()
-        elif mode == "edit":
-            start_edit()
-        else:
-            remove_current()
-        event.app.invalidate()
-
-    @kb.add("escape")
-    def _escape(event: Any) -> None:
-        if is_editing():
-            stop_edit("Anulowano edycję pola.")
-            event.app.invalidate()
-        else:
-            event.app.exit(result=None)
-
-    @kb.add("q")
-    def _q(event: Any) -> None:
-        if is_editing():
-            insert("q")
-            event.app.invalidate()
-        else:
-            event.app.exit(result=None)
-
-    @kb.add("0")
-    def _zero(event: Any) -> None:
-        if is_editing():
-            insert("0")
-            event.app.invalidate()
-        else:
-            event.app.exit(result=None)
-
-    @kb.add("c-x", eager=True)
-    def _ctrl_x_exit(event: Any) -> None:
-        event.app.exit(exception=UserRequestedAppExit())
-
-    @kb.add("c-c", eager=True)
-    def _ctrl_c_noop(event: Any) -> None:
-        event.app.invalidate()
-
-    try:
-        @kb.add("<sigint>", eager=True)
-        def _sigint_noop(event: Any) -> None:
-            event.app.invalidate()
-    except Exception:
-        pass
-
-    @kb.add("<any>")
-    def _any(event: Any) -> None:
-        if is_editing():
-            data = getattr(event, "data", "") or ""
-            if data and data not in {"\r", "\n", "\t"}:
-                insert(data)
-                event.app.invalidate()
-
-    style = Style.from_dict({
-        "border": "ansicyan", "title": "bold ansicyan", "hint": "ansibrightblack",
-        "description": "ansibrightblack", "separator": "ansicyan", "message": "ansiyellow",
-        "latka.option": "", "latka.selected": "reverse bold",
-    })
-    Application(layout=layout, key_bindings=kb, style=style, full_screen=True, mouse_support=False).run()
-
-
-def _manual_exclusion_cursor_menu(state: WizardState) -> None:
-    parts = prompt_toolkit_parts()
-    if parts is None:
-        return
-    Application, KeyBindings, Layout, Window, FormattedTextControl, Style = parts
-    width = 78
-    rows: list[tuple[str, str, str, str]] = [
-        ("item", "1", "Dodaj", "Dodaj nowy ręczny wzorzec."),
-        ("item", "2", "Edytuj", "Zmień wybrany ręczny wzorzec."),
-        ("item", "3", "Usuń pojedyncze", "Usuń jeden wybrany wzorzec."),
-        ("item", "4", "Wyczyść wszystkie", "Usuń wszystkie ręczne wzorce."),
-        _cursor_separator_row(),
-        ("item", "0", "Wróć", "Powrót do ustawień wykluczeń."),
-    ]
-    item_rows = [idx for idx, row in enumerate(rows) if row[0] == "item"]
-    keys = [rows[idx][1] for idx in item_rows]
-    selected = {"row_index": item_rows[0]}
-    editor = {"active": False, "text": "", "cursor": 0, "message": ""}
-
-    def selected_item_pos() -> int:
-        try:
-            return item_rows.index(selected["row_index"])
-        except ValueError:
-            selected["row_index"] = item_rows[0]
-            return 0
-
-    def is_editing_add() -> bool:
-        return bool(editor.get("active"))
-
-    def start_add() -> None:
-        selected["row_index"] = item_rows[0]
-        editor.update({"active": True, "text": "", "cursor": 0, "message": ""})
-
-    def stop_add(message: str = "") -> None:
-        editor.update({"active": False, "text": "", "cursor": 0, "message": message})
-
-    def insert(data: str) -> None:
-        value = str(editor.get("text") or "")
-        cursor = as_int(editor.get("cursor"), len(value))
-        editor["text"] = value[:cursor] + data + value[cursor:]
-        editor["cursor"] = cursor + len(data)
-
-    def apply_add() -> None:
-        value = str(editor.get("text") or "").strip()
-        if not value:
-            editor["message"] = "Wzorzec nie może być pusty."
-            return
-        state.custom_excludes.append(value)
-        state.use_custom_excludes = True
-        state.plan = None
-        stop_add(f"Dodano: {value}")
-        selected["row_index"] = item_rows[0]
-
-    def get_text() -> list[tuple[str, str]]:
-        fragments: list[tuple[str, str]] = []
-        _line_style_append(fragments, "class:border", "=" * width, width)
-        _line_style_append(fragments, "class:title", "  Manualne wykluczenie", width)
-        _line_style_append(fragments, "class:border", "=" * width, width)
-        _line_style_append(fragments, "", "", width)
-        _line_style_append(fragments, "class:hint", f"Manualne wykluczenia: {manual_exclusions_label(state)}", width)
-        _line_style_append(fragments, "", "", width)
-        _line_style_append(fragments, "class:border", "=" * width, width)
-        for index, (kind, key, label, description) in enumerate(rows):
-            if kind == "sep":
-                _line_style_append(fragments, "class:separator", "  -----", width)
-                continue
-            shown_label = label
-            if key == "1":
-                value = _text_with_cursor_marker(str(editor.get("text") or ""), as_int(editor.get("cursor"), 0)) if is_editing_add() else "ścieżka"
-                shown_label = f"Dodaj [{value}]"
-            marker = "▶" if index == selected["row_index"] else " "
-            style = "class:latka.selected" if index == selected["row_index"] else "class:latka.option"
-            _line_style_append(fragments, style, f"  {marker} {key}. {shown_label}", width)
-            if description:
-                _line_style_append(fragments, "class:description", "      " + description, width)
-        _line_style_append(fragments, "class:border", "=" * width, width)
-        if is_editing_add():
-            footer = "Edycja []: wpisuj tekst | Tab autouzupełnij | Enter dodaj | Esc anuluj | Ctrl+X zamknij bez zapisu"
-        else:
-            footer = "↑/↓ wybór | Enter OK | Esc/Q wróć o 1 poziom | Ctrl+X zamknij bez zapisu"
-        _line_style_append(fragments, "class:hint", footer, width)
-        if editor.get("message"):
-            _line_style_append(fragments, "class:message", str(editor.get("message")), width)
-        return fragments
-
-    control = FormattedTextControl(text=get_text, focusable=True)
-    window = Window(content=control, wrap_lines=False, dont_extend_height=True)
-    layout = Layout(window)
-    kb = KeyBindings()
-
-    def move(delta: int, event: Any) -> None:
-        if is_editing_add():
-            return
-        pos = (selected_item_pos() + delta) % len(item_rows)
-        selected["row_index"] = item_rows[pos]
-        event.app.invalidate()
-
-    @kb.add("up")
-    def _up(event: Any) -> None: move(-1, event)
-    @kb.add("down")
-    def _down(event: Any) -> None: move(1, event)
-    @kb.add("k")
-    def _k(event: Any) -> None:
-        if is_editing_add(): insert("k")
-        else: move(-1, event)
-        event.app.invalidate()
-    @kb.add("j")
-    def _j(event: Any) -> None:
-        if is_editing_add(): insert("j")
-        else: move(1, event)
-        event.app.invalidate()
-    @kb.add("home")
-    def _home(event: Any) -> None:
-        if is_editing_add(): editor["cursor"] = 0
-        else: selected["row_index"] = item_rows[0]
-        event.app.invalidate()
-    @kb.add("end")
-    def _end(event: Any) -> None:
-        if is_editing_add(): editor["cursor"] = len(str(editor.get("text") or ""))
-        else: selected["row_index"] = item_rows[-1]
-        event.app.invalidate()
-    @kb.add("left")
-    def _left(event: Any) -> None:
-        if is_editing_add(): editor["cursor"] = max(0, as_int(editor.get("cursor"), 0) - 1); event.app.invalidate()
-    @kb.add("right")
-    def _right(event: Any) -> None:
-        if is_editing_add():
-            value = str(editor.get("text") or "")
-            editor["cursor"] = min(len(value), as_int(editor.get("cursor"), len(value)) + 1)
-            event.app.invalidate()
-    @kb.add("backspace")
-    @kb.add("c-h")
-    def _backspace(event: Any) -> None:
-        if is_editing_add():
-            value = str(editor.get("text") or "")
-            cursor = as_int(editor.get("cursor"), len(value))
-            if cursor > 0:
-                editor["text"] = value[:cursor - 1] + value[cursor:]
-                editor["cursor"] = cursor - 1
-            event.app.invalidate()
-    @kb.add("delete")
-    def _delete(event: Any) -> None:
-        if is_editing_add():
-            value = str(editor.get("text") or "")
-            cursor = as_int(editor.get("cursor"), len(value))
-            if cursor < len(value):
-                editor["text"] = value[:cursor] + value[cursor + 1:]
-            event.app.invalidate()
-    @kb.add("tab")
-    def _tab(event: Any) -> None:
-        if is_editing_add():
-            new_text, msg = _inline_autocomplete_path(str(editor.get("text") or ""), only_directories=False)
-            editor["text"] = new_text
-            editor["cursor"] = len(new_text)
-            editor["message"] = msg
-            event.app.invalidate()
-    @kb.add("enter")
-    def _enter(event: Any) -> None:
-        if is_editing_add():
-            apply_add()
-            event.app.invalidate()
-            return
-        _kind, key, _label, _description = rows[selected["row_index"]]
-        if key == "1":
-            start_add()
-        elif key == "2":
-            _custom_exclusion_list_cursor(state, mode="edit")
-        elif key == "3":
-            _custom_exclusion_list_cursor(state, mode="remove")
-        elif key == "4":
-            state.custom_excludes.clear()
-            state.plan = None
-            editor["message"] = "Wyczyszczono wszystkie manualne wykluczenia."
-        elif key == "0":
-            event.app.exit(result=None)
-        event.app.invalidate()
-    @kb.add("escape")
-    def _escape(event: Any) -> None:
-        if is_editing_add():
-            stop_add("Anulowano dodawanie.")
-            event.app.invalidate()
-        else:
-            event.app.exit(result=None)
-    @kb.add("q")
-    def _q(event: Any) -> None:
-        if is_editing_add(): insert("q"); event.app.invalidate()
-        else: event.app.exit(result=None)
-    @kb.add("c-x", eager=True)
-    def _ctrl_x_exit(event: Any) -> None: event.app.exit(exception=UserRequestedAppExit())
-    @kb.add("c-c", eager=True)
-    def _ctrl_c_noop(event: Any) -> None: event.app.invalidate()
-    try:
-        @kb.add("<sigint>", eager=True)
-        def _sigint_noop(event: Any) -> None: event.app.invalidate()
-    except Exception:
-        pass
-    for option_key in keys:
-        if len(option_key) == 1:
-            @kb.add(option_key)
-            def _number(event: Any, option_key: str = option_key) -> None:
-                if is_editing_add():
-                    insert(option_key)
-                    event.app.invalidate()
-                    return
-                # Akcja jak Enter na wskazanym numerze.
-                row_index = next((idx for idx, row in enumerate(rows) if row[0] == "item" and row[1] == option_key), selected["row_index"])
-                selected["row_index"] = row_index
-                _kind, key, _label, _description = rows[row_index]
-                if key == "1": start_add()
-                elif key == "2": _custom_exclusion_list_cursor(state, mode="edit")
-                elif key == "3": _custom_exclusion_list_cursor(state, mode="remove")
-                elif key == "4":
-                    state.custom_excludes.clear(); state.plan = None; editor["message"] = "Wyczyszczono wszystkie manualne wykluczenia."
-                elif key == "0": event.app.exit(result=None)
-                event.app.invalidate()
-    @kb.add("<any>")
-    def _any(event: Any) -> None:
-        if is_editing_add():
-            data = getattr(event, "data", "") or ""
-            if data and data not in {"\r", "\n", "\t"}:
-                insert(data)
-                event.app.invalidate()
-
-    style = Style.from_dict({
-        "border": "ansicyan", "title": "bold ansicyan", "hint": "ansibrightblack",
-        "description": "ansibrightblack", "separator": "ansicyan", "message": "ansiyellow",
-        "latka.option": "", "latka.selected": "reverse bold",
-    })
-    Application(layout=layout, key_bindings=kb, style=style, full_screen=True, mouse_support=False).run()
-
-
-def manual_exclusion_submenu(state: WizardState, ui_mode: str = "plain") -> None:
-    if should_use_cursor_menu(ui_mode):
-        _manual_exclusion_cursor_menu(state)
-        return
-    while True:
-        section("Manualne wykluczenie")
-        print(f"Manualne wykluczenia: {manual_exclusions_label(state)}")
-        sep = _ansi_cyan_text("  -----")
-        print("Opcje:")
-        print("  1. Dodaj [ścieżka]")
-        print("  2. Edytuj")
-        print("  3. Usuń pojedyncze")
-        print("  4. Wyczyść wszystkie")
-        print(sep)
-        print("  0. Wróć")
-        choice = ask_text("Wybór", "0")
-        if choice == "0":
-            return
-        if choice == "1":
-            add_custom_exclusion(state, ui_mode)
-        elif choice == "2":
-            edit_custom_exclusion(state, ui_mode)
-        elif choice == "3":
-            remove_custom_exclusion(state, ui_mode)
-        elif choice == "4":
-            state.custom_excludes.clear()
-            state.plan = None
-            print("Wyczyszczono wszystkie manualne wykluczenia.")
-        else:
-            print("Nieznana opcja.")
-
-
-def print_menu_plain(state: WizardState) -> None:
-    print("\n" + "=" * 78)
-    print("  MENU GŁÓWNE")
-    print("=" * 78)
-    sep = _ansi_cyan_text("  -----")
-    for key, label in menu_options(state):
-        if _main_menu_separator_before(key):
-            print(sep)
-        print(f"  {label}")
-
-
-
-# =============================================================================
-# NADPISANIA UI v5.12 — odśwież nazwę w menu głównym, dynamiczna szerokość i cyan
-# =============================================================================
-
-
-def _terminal_ui_width(*, minimum: int = 60, maximum: int = 160, fallback: int = 100) -> int:
-    """Szerokość widoku dopasowana do terminala.
-
-    prompt_toolkit rysuje w terminalu przez Window/FormattedTextControl. Window
-    odpowiada za widok i przy wrap_lines=False trzeba samemu pilnować długości
-    tekstu, dlatego menu używa aktualnej szerokości terminala zamiast stałych 78.
-    """
-    try:
-        cols = int(shutil.get_terminal_size(fallback=(fallback, 24)).columns)
-    except Exception:
-        cols = fallback
-    return max(minimum, min(maximum, max(20, cols - 2)))
-
-
-def _clip_cell(text: object, width: int | None = None) -> str:
-    value = str(text)
-    width = int(width or _terminal_ui_width())
-    if len(value) <= width:
-        return value
-    if width <= 1:
-        return value[:width]
-    return value[: max(0, width - 1)] + "…"
-
-
-def _cyan_enabled() -> bool:
-    try:
-        if not sys.stdout.isatty():
-            return False
-        if os.name != "nt":
-            return True
-        # Windows Terminal/PowerShell zwykle rozumie ANSI. Jeżeli środowisko go
-        # nie zgłasza, zostawiamy tekst bez kodów, żeby nie zaśmiecać konsoli.
-        return bool(os.environ.get("WT_SESSION") or os.environ.get("ANSICON") or os.environ.get("TERM"))
-    except Exception:
-        return False
-
-
-def _ansi_cyan_text(text: str) -> str:
-    return "\033[36m" + text + "\033[0m" if _cyan_enabled() else text
-
-
-def _cyan_line_text(width: int | None = None, char: str = "=") -> str:
-    return _ansi_cyan_text(str(char) * int(width or _terminal_ui_width()))
-
-
-def section(title: str) -> None:
-    width = _terminal_ui_width(fallback=78)
-    print("\n" + _cyan_line_text(width))
-    print(f"  {title}")
-    print(_cyan_line_text(width))
-
-
-def subsection(title: str) -> None:
-    width = _terminal_ui_width(fallback=78)
-    print("\n" + _cyan_line_text(width, "-"))
-    print(f"  {title}")
-    print(_cyan_line_text(width, "-"))
-
-
-def _line_style_append(fragments: list[tuple[str, str]], style: str, value: str, width: int = 0) -> None:
-    # Nadpisuje wcześniejszy helper: stałe 78/100 z dawnych widoków traktujemy
-    # jako prośbę o szerokość dynamiczną, ale gdy nowy widok przekazuje już
-    # obliczoną szerokość, nie pomniejszamy jej drugi raz.
-    if width in (0, 78, 100):
-        real_width = _terminal_ui_width(fallback=width or 100)
-    else:
-        real_width = int(width)
-    fragments.append((style, _clip_cell(value, real_width)))
-    fragments.append(("", "\n"))
-
-
-def _cursor_separator_row() -> tuple[str, str, str, str]:
-    return ("sep", "", "-----", "")
-
-
-def _print_plain_separator(indent: str = "  ") -> None:
-    print(_ansi_cyan_text(f"{indent}-----"))
-
-
-def _print_cyan_border(width: int | None = None) -> None:
-    print(_cyan_line_text(width or _terminal_ui_width()))
-
-
-def print_lines_paged(title: str, lines: list[str], *, page_size: int | None = None) -> None:
-    """Pager tekstowy z dynamicznym/cyan nagłówkiem."""
-    def header(label: str) -> None:
-        width = _terminal_ui_width(fallback=78)
-        print("\n" + _cyan_line_text(width))
-        print(f"  {label}:")
-        print(_cyan_line_text(width))
-
-    if not lines:
-        header(title)
-        print("  (brak)")
-        print("(END)")
-        return
-
-    page_size_value = page_size or terminal_page_size()
-    page_size_value = max(1, int(page_size_value))
-    total_pages = (len(lines) + page_size_value - 1) // page_size_value
-
-    if total_pages <= 1 or not sys.stdin.isatty():
-        header(title)
-        width = _terminal_ui_width(fallback=120)
-        for line_value in lines:
-            print(_clip_cell(line_value, width))
-        print("(END)")
-        return
-
-    page = 0
-    while True:
-        start = page * page_size_value
-        end = min(start + page_size_value, len(lines))
-        header(f"{title} — strona {page + 1}/{total_pages} ({start + 1}-{end} z {len(lines)})")
-        width = _terminal_ui_width(fallback=120)
-        for line_value in lines[start:end]:
-            print(_clip_cell(line_value, width))
-
-        if page >= total_pages - 1:
-            print("(END)")
-            return
-
-        try:
-            choice = input(": ").strip().lower()
-        except (EOFError, KeyboardInterrupt):
-            print()
-            return
-
-        if choice in {"q", "0", "k", "koniec", "esc", "w", "wroc", "wróć"}:
-            print("(END)")
-            return
-        if choice in {"p", "poprzednia", "prev", "b"}:
-            page = max(0, page - 1)
-            continue
-        page += 1
-
-
-def menu_options(state: WizardState) -> list[tuple[str, str]]:
-    return [
-        ("1", f"1. Profil pakowania [{profile_menu_label(state)}]"),
-        ("2", f"2. Pokaż listę do spakowania [{pack_list_settings_label(state)}]"),
-        ("3", f"3. Folder do pakowania [{menu_value(state.source_folder)}]"),
-        ("4", f"4. Folder zapisu paczki [{menu_value(state.out_dir)}]"),
-        ("5", "5. Odśwież nazwę paczki z aktualnej wersji"),
-        ("6", f"6. Zmień nazwę paczki [{state.archive_name or 'nie ustawiono'}]"),
-        ("7", "7. Ustawienia"),
-        ("8", "8. Pakuj teraz"),
-        ("0", "0. Wyjście"),
-    ]
-
-
-def default_menu_choice(state: WizardState) -> str:
-    if state.source_folder is None:
-        return "3"
-    if state.out_dir is None:
-        return "4"
-    if not state.archive_name:
-        return "6"
-    if state.plan is not None:
-        return "8"
-    return "2"
-
-
-def _main_menu_separator_before(key: str) -> bool:
-    # 1-2 / 3-6 / 7 / 8-0
-    return str(key) in {"3", "7", "8"}
-
-
-def _inline_edit_field_for_key(key: str) -> str:
-    return {"3": "source", "4": "output", "6": "name"}.get(str(key), "")
-
-
-def print_menu_plain(state: WizardState) -> None:
-    width = _terminal_ui_width(fallback=78)
-    print("\n" + _cyan_line_text(width))
-    print("  MENU GŁÓWNE")
-    print(_cyan_line_text(width))
-    for key, label in menu_options(state):
-        if _main_menu_separator_before(key):
-            _print_plain_separator("  ")
-        print("  " + _clip_cell(label, width - 2))
-
-
-def _cursor_menu_lines(state: WizardState, selected_index: int, inline_editor: dict[str, object] | None = None) -> list[tuple[str, str]]:
-    options = menu_options(state)
-    selected_index = max(0, min(selected_index, len(options) - 1))
-    width = _terminal_ui_width(fallback=100)
-    inline_editor = inline_editor or {}
-    editing_field = str(inline_editor.get("field") or "")
-    editing_text = str(inline_editor.get("text") or "")
-    editing_cursor = as_int(inline_editor.get("cursor"), len(editing_text))
-    message = str(inline_editor.get("message") or "")
-    fragments: list[tuple[str, str]] = []
-
-    def line(style: str, value: str = "") -> None:
-        _line_style_append(fragments, style, value, width)
-
-    line("class:border", "=" * width)
-    line("class:title", f"  Jaźń / Łatka — generator paczki ZIP v{VERSION}")
-    line("class:border", "=" * width)
-    line("", "")
-    for label, value in (
-        ("Plan:     ", plan_status_label(state)),
-        ("Profil:   ", state.profile_label()),
-        ("Źródło:   ", menu_value(state.source_folder)),
-        ("Zapis:    ", menu_value(state.out_dir)),
-        ("ZIP:      ", state.archive_name or "(nie ustawiono)"),
-    ):
-        fragments.append(("class:status.label", label))
-        _line_style_append(fragments, "class:status.value", value, max(10, width - len(label)))
-    line("", "")
-    line("class:border", "=" * width)
-    for idx, (key, label) in enumerate(options):
-        if _main_menu_separator_before(key):
-            line("class:separator", "  -----")
-        field = _inline_edit_field_for_key(key)
-        if editing_field and field == editing_field:
-            edited = _text_with_cursor_marker(editing_text, editing_cursor)
-            if key == "3":
-                label = f"3. Folder do pakowania [{edited}]"
-            elif key == "4":
-                label = f"4. Folder zapisu paczki [{edited}]"
-            elif key == "6":
-                label = f"6. Zmień nazwę paczki [{edited}]"
-        marker = "▶" if idx == selected_index else " "
-        style = "class:latka.selected" if idx == selected_index else "class:latka.option"
-        line(style, f"  {marker} {label}")
-    line("class:border", "=" * width)
-    if editing_field:
-        line("class:hint", "Edycja pola []: wpisuj tekst | Tab autouzupełnij ścieżkę | Enter zapisz | Esc anuluj | Ctrl+X zamknij bez zapisu")
-    else:
-        line("class:hint", "↑/↓ wybór | Enter OK | Esc/Q wróć | Ctrl+X zamknij bez zapisu")
-    if message:
-        line("class:message", message)
-    return fragments
-
-
-def ask_menu_choice_cursor(state: WizardState, default: str) -> str:
-    parts = prompt_toolkit_parts()
-    if parts is None:
-        return ask_text("Wybór", default)
-    Application, KeyBindings, Layout, Window, FormattedTextControl, Style = parts
-    options = menu_options(state)
-    keys = [key for key, _ in options]
-    selected = {"index": keys.index(default) if default in keys else 0}
-    editor: dict[str, object] = {"field": "", "text": "", "cursor": 0, "message": ""}
-
-    def is_editing() -> bool:
-        return bool(editor.get("field"))
-
-    def start_edit(key: str) -> bool:
-        field = _inline_edit_field_for_key(key)
-        if not field:
-            return False
-        text = _inline_edit_initial_text(state, field)
-        editor.update({"field": field, "text": text, "cursor": len(text), "message": f"Edytujesz: {_inline_edit_label_for_field(field)}. Wpisuj bezpośrednio w nawiasach []."})
-        return True
-
-    def stop_edit(message: str = "") -> None:
-        editor.update({"field": "", "text": "", "cursor": 0, "message": message})
-
-    def insert(value: str) -> None:
-        text_value = str(editor.get("text") or "")
-        cursor = as_int(editor.get("cursor"), len(text_value))
-        editor["text"] = text_value[:cursor] + value + text_value[cursor:]
-        editor["cursor"] = cursor + len(value)
-
-    def get_text() -> list[tuple[str, str]]:
-        return _cursor_menu_lines(state, selected["index"], editor)
-
-    control = FormattedTextControl(text=get_text, focusable=True)
-    window = Window(content=control, wrap_lines=False, dont_extend_height=True)
-    layout = Layout(window)
-    kb = KeyBindings()
-
-    def move(delta: int, event: Any) -> None:
-        if not is_editing():
-            selected["index"] = (selected["index"] + delta) % len(options)
-            editor["message"] = ""
-            event.app.invalidate()
-
-    @kb.add("up")
-    def _up(event: Any) -> None: move(-1, event)
-    @kb.add("down")
-    def _down(event: Any) -> None: move(1, event)
-    @kb.add("k")
-    def _k(event: Any) -> None:
-        if is_editing(): insert("k")
-        else: move(-1, event)
-        event.app.invalidate()
-    @kb.add("j")
-    def _j(event: Any) -> None:
-        if is_editing(): insert("j")
-        else: move(1, event)
-        event.app.invalidate()
-    @kb.add("home")
-    def _home(event: Any) -> None:
-        if is_editing(): editor["cursor"] = 0
-        else: selected["index"] = 0
-        event.app.invalidate()
-    @kb.add("end")
-    def _end(event: Any) -> None:
-        if is_editing(): editor["cursor"] = len(str(editor.get("text") or ""))
-        else: selected["index"] = len(options) - 1
-        event.app.invalidate()
-    @kb.add("left")
-    def _left(event: Any) -> None:
-        if is_editing(): editor["cursor"] = max(0, as_int(editor.get("cursor"), 0) - 1); event.app.invalidate()
-    @kb.add("right")
-    def _right(event: Any) -> None:
-        if is_editing():
-            value = str(editor.get("text") or "")
-            editor["cursor"] = min(len(value), as_int(editor.get("cursor"), len(value)) + 1)
-            event.app.invalidate()
-    @kb.add("backspace")
-    @kb.add("c-h")
-    def _backspace(event: Any) -> None:
-        if is_editing():
-            value = str(editor.get("text") or "")
-            cursor = as_int(editor.get("cursor"), len(value))
-            if cursor > 0:
-                editor["text"] = value[:cursor - 1] + value[cursor:]
-                editor["cursor"] = cursor - 1
-            event.app.invalidate()
-    @kb.add("delete")
-    def _delete(event: Any) -> None:
-        if is_editing():
-            value = str(editor.get("text") or "")
-            cursor = as_int(editor.get("cursor"), len(value))
-            if cursor < len(value): editor["text"] = value[:cursor] + value[cursor + 1:]
-            event.app.invalidate()
-    @kb.add("tab")
-    def _tab(event: Any) -> None:
-        if not is_editing(): return
-        field = str(editor.get("field") or "")
-        if field not in {"source", "output"}:
-            editor["message"] = "Tab działa dla ścieżek folderów."
-        else:
-            new_text, msg = _inline_autocomplete_path(str(editor.get("text") or ""), only_directories=True)
-            editor["text"] = new_text; editor["cursor"] = len(new_text); editor["message"] = msg
-        event.app.invalidate()
-    @kb.add("enter")
-    def _enter(event: Any) -> None:
-        if is_editing():
-            ok, msg = _apply_inline_edit_value(state, str(editor.get("field") or ""), str(editor.get("text") or ""))
-            if ok:
-                save_settings(state, quiet=True); stop_edit(msg)
-            else:
-                editor["message"] = msg
-            event.app.invalidate(); return
-        key = options[selected["index"]][0]
-        if start_edit(key): event.app.invalidate(); return
-        event.app.exit(result=key)
-    @kb.add("escape")
-    def _escape(event: Any) -> None:
-        if is_editing(): stop_edit("Anulowano edycję pola."); event.app.invalidate()
-        else: event.app.exit(result="0")
-    @kb.add("q")
-    def _q(event: Any) -> None:
-        if is_editing(): insert("q"); event.app.invalidate()
-        else: event.app.exit(result="0")
-    @kb.add("c-x", eager=True)
-    def _ctrl_x_exit(event: Any) -> None: event.app.exit(exception=UserRequestedAppExit())
-    @kb.add("c-c", eager=True)
-    def _ctrl_c_noop(event: Any) -> None: event.app.invalidate()
-    try:
-        @kb.add("<sigint>", eager=True)
-        def _sigint_noop(event: Any) -> None: event.app.invalidate()
-    except Exception:
-        pass
-    for option_key in keys:
-        if len(option_key) == 1:
-            @kb.add(option_key, eager=True)
-            def _number(event: Any, option_key: str = option_key) -> None:
-                if is_editing(): insert(option_key); event.app.invalidate(); return
-                selected["index"] = keys.index(option_key)
-                if start_edit(option_key): event.app.invalidate(); return
-                event.app.exit(result=option_key)
-    @kb.add("<any>")
-    def _insert_any(event: Any) -> None:
-        if is_editing():
-            data = getattr(event, "data", "") or ""
-            if data and data not in {"\r", "\n", "\t"}:
-                if "\x18" in data: event.app.exit(exception=UserRequestedAppExit()); return
-                insert(data); event.app.invalidate()
-
-    style = Style.from_dict({
-        "border": "ansicyan", "title": "bold ansicyan", "hint": "ansibrightblack",
-        "message": "ansiyellow", "status.label": "bold", "status.value": "",
-        "separator": "ansicyan", "latka.option": "", "latka.selected": "reverse bold",
-    })
-    result = Application(layout=layout, key_bindings=kb, style=style, full_screen=True, mouse_support=False).run()
-    return str(result or default)
-
-
-def _settings_rows(state: WizardState, ui_mode: str) -> list[tuple[str, str, str, str]]:
-    return [
-        ("item", "1", f"Profil pakowania [{state.profile_label()}]", ""),
-        _cursor_separator_row(),
-        ("item", "2", "Zapisz pełny podgląd listy pakowania do JSON", ""),
-        _cursor_separator_row(),
-        ("item", "3", f"Ustawienia paczki [{pack_settings_menu_label(state)}]", ""),
-        ("item", "4", f"Ustawienia wykluczeń [{exclusions_menu_label(state)}]", ""),
-        ("item", "5", "Przeskanuj ponownie i pokaż wpływ", ""),
-        _cursor_separator_row(),
-        ("item", "6", f"Zmień interfejs TXT/Kursorowy [{ui_mode_setting_label(state, ui_mode)}]", ""),
-        _cursor_separator_row(),
-        ("item", "0", "Wróć", ""),
-    ]
-
-
-def _settings_cursor_choice(state: WizardState, ui_mode: str) -> str | None:
-    rows = _settings_rows(state, ui_mode)
-    return _option_rows_cursor_app(title="Ustawienia", rows=rows, default_key="0")
-
-
-def _print_settings_menu_plain(state: WizardState, ui_mode: str) -> None:
-    section("Ustawienia")
-    print(f"  1. Profil pakowania [{state.profile_label()}]")
-    _print_plain_separator("  ")
-    print("  2. Zapisz pełny podgląd listy pakowania do JSON")
-    _print_plain_separator("  ")
-    print(f"  3. Ustawienia paczki [{pack_settings_menu_label(state)}]")
-    print(f"  4. Ustawienia wykluczeń [{exclusions_menu_label(state)}]")
-    print("  5. Przeskanuj ponownie i pokaż wpływ")
-    _print_plain_separator("  ")
-    print(f"  6. Zmień interfejs TXT/Kursorowy [{ui_mode_setting_label(state, ui_mode)}]")
-    _print_plain_separator("  ")
-    print("  0. Wróć")
-
-
-def settings_submenu(state: WizardState, ui_mode: str = "plain") -> str:
-    """Ustawienia bez odświeżania nazwy; odświeżanie jest w menu głównym."""
-    while True:
-        if should_use_cursor_menu(ui_mode):
-            choice = _settings_cursor_choice(state, ui_mode)
-            if choice in {None, "0"}:
-                return "cancel"
-        else:
-            _print_settings_menu_plain(state, ui_mode)
-            choice = ask_text("Wybór", "0").strip()
-            if choice == "0":
-                return "cancel"
-
-        normalized = str(choice).strip()
-        if normalized == "1":
-            configure_profile(state, ui_mode); save_settings(state, quiet=True)
-        elif normalized == "2":
-            if ensure_ready_for_pack_plan(state, ui_mode=ui_mode):
-                if state.plan is None:
-                    rebuild_plan(state)
-                preview = save_preview_json(state)
-                save_settings(state, quiet=True)
-                print(f"Zapisano podgląd: {preview}")
-                pause()
-        elif normalized == "3":
-            configure_pack_settings(state, ui_mode); save_settings(state, quiet=True)
-        elif normalized == "4":
-            exclusion_menu(state, ui_mode); save_settings(state, quiet=True)
-        elif normalized == "5":
-            if ensure_ready_for_pack_plan(state, ui_mode=ui_mode):
-                rebuild_plan(state); save_settings(state, quiet=True); pause()
-        elif normalized == "6":
-            ui_mode = configure_ui_mode_preference(state, ui_mode); save_settings(state, quiet=True)
-        else:
-            print("Nieznana opcja.")
-
-
-def run_wizard(initial_source: str | None = None, *, ui_mode: str | None = None) -> int:
-    settings_snapshot = snapshot_settings_file()
-    state: WizardState | None = None
-    try:
-        activate_process_guard(prompt_user=True)
-        state = initialize_state(initial_source)
-        section(f"Jaźń / Łatka — generator paczki ZIP v{VERSION}")
-        print_bar(100, 100, label="Ładowanie")
-        if state.settings_needs_cleanup:
-            save_settings(state, quiet=True)
-            settings_snapshot = snapshot_settings_file()
-        show_startup_warnings(state)
-        ui_mode = resolve_ui_mode_with_optional_install(ui_mode, state)
-        save_settings(state, quiet=True)
-        settings_snapshot = snapshot_settings_file()
-        prepare_plan_on_startup_if_possible(state)
-    except UserRequestedAppExit:
-        restore_settings_file(settings_snapshot); print("\nZamknięto skrótem Ctrl+X bez zapisywania zmian."); return 130
-    except KeyboardInterrupt:
-        restore_settings_file(settings_snapshot); print("\nPrzerwano przez Ctrl+C. Start aplikacji został anulowany bez tracebacka."); return 130
-    except EOFError:
-        restore_settings_file(settings_snapshot); print("\nWejście terminala zostało zamknięte. Start aplikacji został anulowany bez tracebacka."); return 130
-
-    while True:
-        try:
-            assert state is not None
-            if not should_use_cursor_menu(ui_mode):
-                show_current_state(state)
-                print(f"Tryb UI:                    {ui_mode_label(ui_mode)}; auto-start: {on_off_label(state.ui_auto_start)}")
-            current_default_choice = default_menu_choice(state)
-            choice = ask_menu_choice(state, current_default_choice, ui_mode)
-            control_word = _plain_control_word(choice)
-            if control_word == "exit": raise UserRequestedAppExit()
-            if control_word == "cancel": continue
-
-            known_menu_choices = {"0", "1", "2", "3", "4", "5", "6", "7", "8"}
-            if choice not in known_menu_choices:
-                if current_default_choice == "3" and state.source_folder is None:
-                    if apply_source_path_text(state, choice): save_settings(state, quiet=True)
-                    continue
-                if current_default_choice == "4" and state.out_dir is None:
-                    if apply_output_path_text(state, choice): save_settings(state, quiet=True)
-                    continue
-
-            if choice == APP_EXIT_MARKER:
-                restore_settings_file(settings_snapshot); print("Zamknięto skrótem Ctrl+X bez zapisywania zmian."); return 130
-            if choice == "1":
-                configure_profile(state, ui_mode); save_settings(state, quiet=True)
-            elif choice == "2":
-                if not ensure_ready_for_pack_plan(state, ui_mode=ui_mode): save_settings(state, quiet=True); continue
-                if state.plan is None: rebuild_plan(state)
-                else:
-                    section("Lista do spakowania z ustawieniami"); print_pack_plan_summary(state)
-                save_settings(state, quiet=True); pause()
-            elif choice == "3":
-                configure_source(state); save_settings(state, quiet=True)
-            elif choice == "4":
-                configure_output(state); save_settings(state, quiet=True)
-            elif choice == "5":
-                reset_archive_name_from_version(state); save_settings(state, quiet=True)
-            elif choice == "6":
-                configure_name(state); save_settings(state, quiet=True)
-            elif choice == "7":
-                _ = settings_submenu(state, ui_mode)
-                ui_mode = normalize_ui_mode(state.ui_mode or ui_mode)
-                if ui_mode == "auto": ui_mode = resolve_auto_ui_mode()
-            elif choice == "8":
-                if not ensure_ready_for_pack_plan(state, ui_mode=ui_mode): save_settings(state, quiet=True); continue
-                if state.plan is None: rebuild_plan(state)
-                print("\nTo zostanie użyte jako podstawa pakowania.")
-                print_pack_plan_compact_summary(state)
-                if ask_bool("Pokazać listę katalogów i plików przed pakowaniem", False, require_explicit=True):
-                    print_pack_items_for_plan(state)
-                if not ask_bool("Rozpocząć pakowanie", True, require_explicit=True):
-                    continue
-                assert state.source_folder is not None and state.out_dir is not None and state.plan is not None
-                create_split_zip_from_plan(
-                    source_folder=state.source_folder,
-                    out_dir=state.out_dir,
-                    archive_name=state.archive_name,
-                    plan=state.plan,
-                    part_size_mb=state.part_size_mb,
-                    compression_level=state.compression_level,
-                    force=state.force,
-                    include_empty_dirs=state.include_empty_dirs,
-                    exclude_patterns=state.effective_excludes(),
-                    package_version=state.package_version,
-                    package_release_name=state.package_release_name,
-                    resolved_version_file=state.resolved_version_file,
-                    archive_basename_requested=state.archive_basename_requested,
-                    append_version_to_name=False,
-                    disabled_default_excludes=state.disabled_default_excludes,
-                    pack_profile=state.pack_profile,
-                    include_prefixes=state.include_prefixes(),
-                )
-                save_settings(state, quiet=True); return 0
-            elif choice == "0":
-                exit_action = exit_menu(ui_mode)
-                if exit_action == "save": save_settings(state, quiet=False); print("Zakończono bez pakowania."); return 0
-                if exit_action == "nosave": restore_settings_file(settings_snapshot); print("Zakończono bez zapisywania zmian."); return 0
-                continue
-            else:
-                print("Nieznana opcja.")
-        except UserRequestedAppExit:
-            restore_settings_file(settings_snapshot); print("\nZamknięto skrótem Ctrl+X bez zapisywania zmian."); return 130
-        except KeyboardInterrupt:
-            restore_settings_file(settings_snapshot); print("\nPrzerwano przez Ctrl+C. W trybie kursorowym skrótem zamknięcia aplikacji jest Ctrl+X. Zakończono bez zapisywania zmian."); return 130
-        except EOFError:
-            restore_settings_file(settings_snapshot); print("\nWejście terminala zostało zamknięte. Zamknięto bez zapisywania zmian."); return 130
-        except Exception as exc:
-            save_settings(state, quiet=True); print(f"BŁĄD: {exc}")
-            try: pause()
-            except KeyboardInterrupt:
-                restore_settings_file(settings_snapshot); print("\nPrzerwano przez Ctrl+C. Zakończono bez zapisywania zmian."); return 130
-            except EOFError:
-                restore_settings_file(settings_snapshot); print("\nWejście terminala zostało zamknięte. Zamknięto bez zapisywania zmian."); return 130
-
-
-# =============================================================================
-# NADPISANIA UI v5.14 — responsywne zawijanie, profile i lista/JSON
-# =============================================================================
-
-# Profile v5.14: nazwy są krótsze w menu, a opis dopowiada kontekst.
-PACK_PROFILES.update({
-    "pelna": {
-        "label": "System + pamięć — dwie oddzielne paczki ZIP",
-        "short": "system + pamięć osobno",
-        "description": "Profil domyślny tworzy dwa niezależne zestawy części: *_system.zip.001... z kodem/systemem oraz *_memory.zip.001... wyłącznie z głównego memory/. Domyślnie pozostają tylko zwykłe pliki ZIP; manifesty i SHA256 są opcjonalne.",
-        "exclude_patterns": BASE_SAFE_EXCLUDE_PATTERNS,
-        "include_prefixes": [],
-    },
-    "system": {
-        "label": "Sam system — bez pamięci i workspace_runtime",
-        "short": "sam system",
-        "description": "Kod, dokumentacja, testy i narzędzia bez katalogów memory/ oraz workspace_runtime/. Dobre do aktualizacji kodu bez dużych baz pamięci i stanu sesji.",
-        "exclude_patterns": BASE_SAFE_EXCLUDE_PATTERNS + [
-            "/memory/",
-            "/workspace_runtime/",
-            "RUNTIME_STATE.json",
-            "ACTIVE_RUNTIME_CACHE_CONTRACT.json",
-            "BOOTSTRAP_JAZN_CURRENT.json",
-        ],
-        "include_prefixes": [],
-    },
-    "memory": {
-        "label": "Sama pamięć — tylko memory/",
-        "short": "sama pamięć",
-        "description": "Pakuje wyłącznie gałąź memory/: bazy SQLite, warstwy pamięci, indeksy i eksporty pamięci. Przydatne do osobnej kopii pamięci oraz diagnostyki baz.",
-        "exclude_patterns": BASE_SAFE_EXCLUDE_PATTERNS,
-        "include_prefixes": ["memory/"],
-    },
-})
-# Czwarty profil przywraca domyślne zachowanie wersji 1.2_FINAL:
-# system i pamięć w jednym, poprawnym archiwum dzielonym. Klucz `full`
-# pozostaje dla zgodności z zapisanymi ustawieniami wcześniejszej wersji.
-PACK_PROFILES["full"] = {
-    "label": "System + pamięć — jedna paczka ZIP (jak 1.2_FINAL)",
-    "short": "system + pamięć razem",
-    "description": "Tworzy jeden poprawny ZIP zawierający system i główny katalog memory/, z bezpiecznymi wykluczeniami cache, backupów i plików tymczasowych. Jest to przywrócony domyślny profil z 1.2_FINAL, dostępny jako czwarta opcja.",
-    "exclude_patterns": BASE_SAFE_EXCLUDE_PATTERNS,
-    "include_prefixes": [],
-}
-
-
-def _wizard_effective_excludes_v514(self: WizardState) -> list[str]:
-    patterns: list[str] = []
-    if self.use_default_excludes:
-        disabled = set(self.disabled_default_excludes)
-        patterns.extend(p for p in self.profile_default_excludes() if p not in disabled)
-    if self.use_custom_excludes:
-        patterns.extend(self.custom_excludes)
-    return patterns
-
-
-def _wizard_active_default_excludes_v514(self: WizardState) -> list[str]:
-    if not self.use_default_excludes:
-        return []
-    disabled = set(self.disabled_default_excludes)
-    return [p for p in self.profile_default_excludes() if p not in disabled]
-
-
-WizardState.effective_excludes = _wizard_effective_excludes_v514  # type: ignore[method-assign]
-WizardState.active_default_excludes = _wizard_active_default_excludes_v514  # type: ignore[method-assign]
-
-
-def _terminal_ui_width(*, minimum: int = 20, maximum: int = 200, fallback: int = 100) -> int:
-    """Szerokość widoku dopasowana do aktualnego terminala, także małego."""
-    try:
-        cols = int(shutil.get_terminal_size(fallback=(fallback, 24)).columns)
-    except Exception:
-        cols = fallback
-    return max(minimum, min(maximum, max(12, cols - 2)))
-
-
-def _wrap_text_lines(value: object, width: int, *, initial_indent: str = "", subsequent_indent: str | None = None) -> list[str]:
-    text = str(value)
-    width = max(8, int(width))
-    subsequent = initial_indent if subsequent_indent is None else subsequent_indent
-    if text == "":
-        return [""]
-    raw_lines = text.splitlines() or [text]
-    wrapped: list[str] = []
-    for raw in raw_lines:
-        if raw == "":
-            wrapped.append("")
-            continue
-        lines = textwrap.wrap(
-            raw,
-            width=width,
-            initial_indent=initial_indent,
-            subsequent_indent=subsequent,
-            break_long_words=True,
-            break_on_hyphens=False,
-            replace_whitespace=False,
-            drop_whitespace=False,
-        )
-        wrapped.extend(lines or [initial_indent])
-    return wrapped
-
-
-def _clip_cell(text: object, width: int | None = None) -> str:
-    """Zostawiony dla kompatybilności; nie ucina już tekstu do menu."""
-    return str(text)
-
-
-def _line_style_append(fragments: list[tuple[str, str]], style: str, value: str, width: int = 0) -> None:
-    real_width = int(width or _terminal_ui_width(fallback=100))
-    for line_value in _wrap_text_lines(value, real_width):
-        fragments.append((style, line_value))
-        fragments.append(("", "\n"))
-
-
-def _menu_separator_text(width: int | None = None, *, indent: int = 4, char: str = "-") -> str:
-    real_width = int(width or _terminal_ui_width(fallback=100))
-    pad = " " * max(0, int(indent))
-    inner = max(1, real_width - (len(pad) * 2))
-    return pad + (char * inner) + pad
-
-
-def _cursor_separator_row() -> tuple[str, str, str, str]:
-    return ("sep", "", "", "")
-
-
-def _print_plain_separator(indent: str = "    ") -> None:
-    width = _terminal_ui_width(fallback=78)
-    print(_ansi_cyan_text(_menu_separator_text(width, indent=max(0, len(indent)))))
-
-
-def _application_run_responsive(Application: Any, *, layout: Any, key_bindings: Any, style: Any) -> Any:
-    kwargs: dict[str, Any] = {
-        "layout": layout,
-        "key_bindings": key_bindings,
-        "style": style,
-        "full_screen": True,
-        "mouse_support": False,
-        "refresh_interval": 0.25,
-        "terminal_size_polling_interval": 0.25,
-    }
-    try:
-        return Application(**kwargs).run()
-    except TypeError:
-        kwargs.pop("terminal_size_polling_interval", None)
-        try:
-            return Application(**kwargs).run()
-        except TypeError:
-            kwargs.pop("refresh_interval", None)
-            return Application(**kwargs).run()
-
-
-def _print_wrapped_plain(value: object, *, indent: str = "  ", width: int | None = None) -> None:
-    real_width = int(width or _terminal_ui_width(fallback=100))
-    available = max(8, real_width - len(indent))
-    for idx, line in enumerate(_wrap_text_lines(value, available, subsequent_indent="")):
-        print(indent + line if idx == 0 else indent + line)
-
-
-def print_menu_plain(state: WizardState) -> None:
-    width = _terminal_ui_width(fallback=78)
-    print("\n" + _cyan_line_text(width))
-    print("  MENU GŁÓWNE")
-    print(_cyan_line_text(width))
-    for key, label in menu_options(state):
-        if _main_menu_separator_before(key):
-            _print_plain_separator("    ")
-        _print_wrapped_plain(label, indent="  ", width=width)
-
-
-def _cursor_menu_lines(state: WizardState, selected_index: int, inline_editor: dict[str, object] | None = None) -> list[tuple[str, str]]:
-    options = menu_options(state)
-    selected_index = max(0, min(selected_index, len(options) - 1))
-    width = _terminal_ui_width(fallback=100)
-    inline_editor = inline_editor or {}
-    editing_field = str(inline_editor.get("field") or "")
-    editing_text = str(inline_editor.get("text") or "")
-    editing_cursor = as_int(inline_editor.get("cursor"), len(editing_text))
-    message = str(inline_editor.get("message") or "")
-    fragments: list[tuple[str, str]] = []
-
-    def line(style: str, value: str = "", *, subsequent_indent: str = "") -> None:
-        for piece in _wrap_text_lines(value, width, subsequent_indent=subsequent_indent):
-            fragments.append((style, piece))
-            fragments.append(("", "\n"))
-
-    line("class:border", "=" * width)
-    line("class:title", f"  Jaźń / Łatka — generator paczki ZIP v{VERSION}")
-    line("class:border", "=" * width)
-    line("", "")
-
-    for label, value in (
-        ("Plan:     ", plan_status_label(state)),
-        ("Profil:   ", state.profile_label()),
-        ("Źródło:   ", menu_value(state.source_folder)),
-        ("Zapis:    ", menu_value(state.out_dir)),
-        ("ZIP:      ", state.archive_name or "(nie ustawiono)"),
-    ):
-        line("class:status.value", f"{label}{value}", subsequent_indent=" " * len(label))
-
-    line("", "")
-    line("class:border", "=" * width)
-    for idx, (key, label) in enumerate(options):
-        if _main_menu_separator_before(key):
-            line("class:separator", _menu_separator_text(width))
-        field = _inline_edit_field_for_key(key)
-        if editing_field and field == editing_field:
-            edited = _text_with_cursor_marker(editing_text, editing_cursor)
-            if key == "3":
-                label = f"3. Folder do pakowania [{edited}]"
-            elif key == "4":
-                label = f"4. Folder zapisu paczki [{edited}]"
-            elif key == "6":
-                label = f"6. Zmień nazwę paczki [{edited}]"
-        marker = "▶" if idx == selected_index else " "
-        style = "class:latka.selected" if idx == selected_index else "class:latka.option"
-        line(style, f"  {marker} {label}", subsequent_indent="    ")
-    line("class:border", "=" * width)
-    if editing_field:
-        line("class:hint", "Edycja pola []: wpisuj tekst | Tab autouzupełnij ścieżkę | Enter zapisz | Esc anuluj | Ctrl+X zamknij bez zapisu", subsequent_indent="  ")
-    else:
-        line("class:hint", "↑/↓ wybór | Enter OK | Esc/Q wróć | Ctrl+X zamknij bez zapisu", subsequent_indent="  ")
-    if message:
-        line("class:message", message, subsequent_indent="  ")
-    return fragments
-
-
-def ask_menu_choice_cursor(state: WizardState, default: str) -> str:
-    parts = prompt_toolkit_parts()
-    if parts is None:
-        return ask_text("Wybór", default)
-    Application, KeyBindings, Layout, Window, FormattedTextControl, Style = parts
-    options = menu_options(state)
-    keys = [key for key, _ in options]
-    selected = {"index": keys.index(default) if default in keys else 0}
-    editor: dict[str, object] = {"field": "", "text": "", "cursor": 0, "message": ""}
-
-    def is_editing() -> bool:
-        return bool(editor.get("field"))
-
-    def start_edit(key: str) -> bool:
-        field = _inline_edit_field_for_key(key)
-        if not field:
-            return False
-        text = _inline_edit_initial_text(state, field)
-        editor.update({"field": field, "text": text, "cursor": len(text), "message": f"Edytujesz: {_inline_edit_label_for_field(field)}. Wpisuj bezpośrednio w nawiasach []."})
-        return True
-
-    def stop_edit(message: str = "") -> None:
-        editor.update({"field": "", "text": "", "cursor": 0, "message": message})
-
-    def insert(value: str) -> None:
-        text_value = str(editor.get("text") or "")
-        cursor = as_int(editor.get("cursor"), len(text_value))
-        editor["text"] = text_value[:cursor] + value + text_value[cursor:]
-        editor["cursor"] = cursor + len(value)
-        editor["message"] = ""
-
-    def backspace() -> None:
-        text_value = str(editor.get("text") or "")
-        cursor = as_int(editor.get("cursor"), len(text_value))
-        if cursor <= 0:
-            return
-        editor["text"] = text_value[:cursor - 1] + text_value[cursor:]
-        editor["cursor"] = cursor - 1
-
-    def delete_char() -> None:
-        text_value = str(editor.get("text") or "")
-        cursor = as_int(editor.get("cursor"), len(text_value))
-        if cursor >= len(text_value):
-            return
-        editor["text"] = text_value[:cursor] + text_value[cursor + 1:]
-
-    def submit_edit() -> None:
-        field = str(editor.get("field") or "")
-        text_value = str(editor.get("text") or "")
-        ok = False
-        try:
-            if field == "source":
-                ok = apply_source_path_text(state, text_value)
-            elif field == "output":
-                ok = apply_output_path_text(state, text_value)
-            elif field == "name":
-                state.archive_name = sanitize_zip_name(text_value)
-                state.archive_name_manual = True
-                state.plan = None
-                ok = True
-        except Exception as exc:
-            editor["message"] = f"BŁĄD: {exc}"
-            return
-        if ok:
-            stop_edit("Zapisano zmianę pola.")
-        else:
-            editor["message"] = "Nie zapisano — popraw wartość albo Esc anuluj."
-
-    def autocomplete() -> None:
-        field = str(editor.get("field") or "")
-        if field not in {"source", "output"}:
-            editor["message"] = "Tab jest dostępny dla pól ścieżek."
-            return
-        value, message = _inline_autocomplete_path(str(editor.get("text") or ""), only_directories=True)
-        editor["text"] = value
-        editor["cursor"] = len(value)
-        editor["message"] = message
-
-    def get_text() -> list[tuple[str, str]]:
-        return _cursor_menu_lines(state, selected["index"], editor)
-
-    control = FormattedTextControl(text=get_text, focusable=True)
-    window = Window(content=control, wrap_lines=True, dont_extend_height=True)
-    layout = Layout(window)
-    kb = KeyBindings()
-
-    def move(delta: int, event: Any) -> None:
-        selected["index"] = (selected["index"] + delta) % len(options)
-        event.app.invalidate()
-
-    @kb.add("up")
-    def _up(event: Any) -> None:
-        if not is_editing():
-            move(-1, event)
-
-    @kb.add("down")
-    def _down(event: Any) -> None:
-        if not is_editing():
-            move(1, event)
-
-    @kb.add("k")
-    def _k(event: Any) -> None:
-        if is_editing():
-            insert("k")
-        else:
-            move(-1, event)
-        event.app.invalidate()
-
-    @kb.add("j")
-    def _j(event: Any) -> None:
-        if is_editing():
-            insert("j")
-        else:
-            move(1, event)
-        event.app.invalidate()
-
-    @kb.add("left")
-    def _left(event: Any) -> None:
-        if is_editing():
-            editor["cursor"] = max(0, as_int(editor.get("cursor"), 0) - 1)
-        event.app.invalidate()
-
-    @kb.add("right")
-    def _right(event: Any) -> None:
-        if is_editing():
-            text_value = str(editor.get("text") or "")
-            editor["cursor"] = min(len(text_value), as_int(editor.get("cursor"), 0) + 1)
-        event.app.invalidate()
-
-    @kb.add("home")
-    def _home(event: Any) -> None:
-        if is_editing():
-            editor["cursor"] = 0
-        else:
-            selected["index"] = 0
-        event.app.invalidate()
-
-    @kb.add("end")
-    def _end(event: Any) -> None:
-        if is_editing():
-            editor["cursor"] = len(str(editor.get("text") or ""))
-        else:
-            selected["index"] = len(options) - 1
-        event.app.invalidate()
-
-    @kb.add("backspace")
-    def _backspace(event: Any) -> None:
-        if is_editing():
-            backspace()
-            event.app.invalidate()
-
-    @kb.add("delete")
-    def _delete(event: Any) -> None:
-        if is_editing():
-            delete_char()
-            event.app.invalidate()
-
-    @kb.add("tab")
-    def _tab(event: Any) -> None:
-        if is_editing():
-            autocomplete()
-        event.app.invalidate()
-
-    @kb.add("enter")
-    def _enter(event: Any) -> None:
-        if is_editing():
-            submit_edit()
-            event.app.invalidate()
-            return
-        key = options[selected["index"]][0]
-        if start_edit(key):
-            event.app.invalidate()
-            return
-        event.app.exit(result=key)
-
-    @kb.add("escape")
-    @kb.add("q")
-    def _escape(event: Any) -> None:
-        if is_editing():
-            stop_edit("Anulowano edycję pola.")
-            event.app.invalidate()
-        else:
-            event.app.exit(result="0" if str(options[selected["index"]][0]) == "0" else None)
-
-    @kb.add("c-x", eager=True)
-    def _ctrl_x_exit(event: Any) -> None:
-        event.app.exit(exception=UserRequestedAppExit())
-
-    @kb.add("c-c", eager=True)
-    def _ctrl_c_noop(event: Any) -> None:
-        event.app.invalidate()
-
-    try:
-        @kb.add("<sigint>", eager=True)
-        def _sigint_noop(event: Any) -> None:
-            event.app.invalidate()
-    except Exception:
-        pass
-
-    for option_key in keys:
-        if len(option_key) == 1:
-            @kb.add(option_key, eager=True)
-            def _number(event: Any, option_key: str = option_key) -> None:
-                if is_editing():
-                    insert(option_key)
-                    event.app.invalidate()
-                else:
-                    pos = keys.index(option_key)
-                    selected["index"] = pos
-                    if start_edit(option_key):
-                        event.app.invalidate()
-                    else:
-                        event.app.exit(result=option_key)
-
-    @kb.add("<any>")
-    def _any(event: Any) -> None:
-        if is_editing():
-            insert(event.data)
-            event.app.invalidate()
-
-    style = Style.from_dict({
-        "border": "ansicyan",
-        "title": "bold ansicyan",
-        "hint": "ansibrightblack",
-        "message": "ansiyellow",
-        "separator": "ansicyan",
-        "status.label": "bold",
-        "status.value": "",
-        "latka.option": "",
-        "latka.selected": "reverse bold",
-    })
-    return str(_application_run_responsive(Application, layout=layout, key_bindings=kb, style=style) or default)
-
-
-def _option_rows_cursor_app(
-    *,
-    title: str,
-    rows: list[tuple[str, str, str, str]],
-    default_key: str = "0",
-    header_lines: list[str] | None = None,
-) -> str | None:
-    """Wspólny widok menu z zawijaniem i odświeżaniem po zmianie rozmiaru."""
-    parts = prompt_toolkit_parts()
-    if parts is None:
-        return None
-    Application, KeyBindings, Layout, Window, FormattedTextControl, Style = parts
-    item_rows = [index for index, row in enumerate(rows) if row[0] == "item"]
-    if not item_rows:
-        return None
-    keys = [rows[index][1] for index in item_rows]
-    default_row = next((idx for idx in item_rows if rows[idx][1] == default_key), item_rows[0])
-    selected = {"row_index": default_row}
-
-    def selected_item_pos() -> int:
-        try:
-            return item_rows.index(selected["row_index"])
-        except ValueError:
-            selected["row_index"] = item_rows[0]
-            return 0
-
-    def get_text() -> list[tuple[str, str]]:
-        width = _terminal_ui_width(fallback=100)
-        fragments: list[tuple[str, str]] = []
-
-        def line(style: str, value: str = "", *, subsequent_indent: str = "") -> None:
-            for piece in _wrap_text_lines(value, width, subsequent_indent=subsequent_indent):
-                fragments.append((style, piece))
-                fragments.append(("", "\n"))
-
-        line("class:border", "=" * width)
-        line("class:title", f"  {title}")
-        line("class:border", "=" * width)
-        line("", "")
-        for header in header_lines or []:
-            line("class:hint", header, subsequent_indent="  ")
-        if header_lines:
-            line("", "")
-            line("class:border", "=" * width)
-        for index, (kind, key, label, description) in enumerate(rows):
-            if kind == "sep":
-                line("class:separator", _menu_separator_text(width))
-                continue
-            marker = "▶" if index == selected["row_index"] else " "
-            style = "class:latka.selected" if index == selected["row_index"] else "class:latka.option"
-            line(style, f"  {marker} {key}. {label}", subsequent_indent="    ")
-            if description:
-                line("class:description", "      " + description, subsequent_indent="      ")
-        line("class:border", "=" * width)
-        line("class:hint", "↑/↓ wybór | Enter OK | Esc/Q wróć o 1 poziom | Ctrl+X zamknij bez zapisu", subsequent_indent="  ")
-        return fragments
-
-    control = FormattedTextControl(text=get_text, focusable=True)
-    window = Window(content=control, wrap_lines=True, dont_extend_height=True)
-    layout = Layout(window)
-    kb = KeyBindings()
-
-    def move(delta: int, event: Any) -> None:
-        pos = (selected_item_pos() + delta) % len(item_rows)
-        selected["row_index"] = item_rows[pos]
-        event.app.invalidate()
-
-    @kb.add("up")
-    @kb.add("k")
-    def _up(event: Any) -> None: move(-1, event)
-
-    @kb.add("down")
-    @kb.add("j")
-    def _down(event: Any) -> None: move(1, event)
-
-    @kb.add("home")
-    def _home(event: Any) -> None:
-        selected["row_index"] = item_rows[0]
-        event.app.invalidate()
-
-    @kb.add("end")
-    def _end(event: Any) -> None:
-        selected["row_index"] = item_rows[-1]
-        event.app.invalidate()
-
-    @kb.add("enter")
-    def _enter(event: Any) -> None:
-        _kind, key, _label, _description = rows[selected["row_index"]]
-        event.app.exit(result=key)
-
-    @kb.add("escape")
-    @kb.add("q")
-    def _cancel(event: Any) -> None:
-        event.app.exit(result=None)
-
-    @kb.add("c-x", eager=True)
-    def _ctrl_x_exit(event: Any) -> None:
-        event.app.exit(exception=UserRequestedAppExit())
-
-    @kb.add("c-c", eager=True)
-    def _ctrl_c_noop(event: Any) -> None:
-        event.app.invalidate()
-
-    try:
-        @kb.add("<sigint>", eager=True)
-        def _sigint_noop(event: Any) -> None:
-            event.app.invalidate()
-    except Exception:
-        pass
-
-    for option_key in keys:
-        if len(str(option_key)) == 1:
-            @kb.add(str(option_key))
-            def _number(event: Any, option_key: str = str(option_key)) -> None:
-                event.app.exit(result=option_key)
-
-    style = Style.from_dict({
-        "border": "ansicyan",
-        "title": "bold ansicyan",
-        "hint": "ansibrightblack",
-        "description": "ansibrightblack",
-        "separator": "ansicyan",
-        "latka.option": "",
-        "latka.selected": "reverse bold",
-    })
-    return _application_run_responsive(Application, layout=layout, key_bindings=kb, style=style)
-
-
-def ask_cursor_choice(
-    *,
-    title: str,
-    options: list[tuple[str, str, str]],
-    default_key: str = "0",
-    header_lines: list[str] | None = None,
-) -> str | None:
-    rows: list[tuple[str, str, str, str]] = []
-    for key, label, description in options:
-        if _should_separate_return_option(key, label) and rows and rows[-1][0] != "sep":
-            rows.append(_cursor_separator_row())
-        rows.append(("item", key, label, description))
-    return _option_rows_cursor_app(title=title, rows=rows, default_key=default_key, header_lines=header_lines)
-
-
-def _settings_rows(state: WizardState, ui_mode: str) -> list[tuple[str, str, str, str]]:
-    return [
-        ("item", "1", f"Profil pakowania [{state.profile_label()}]", ""),
-        _cursor_separator_row(),
-        ("item", "2", "Zapisz pełny podgląd listy pakowania do JSON", ""),
-        _cursor_separator_row(),
-        ("item", "3", f"Ustawienia paczki [{pack_settings_menu_label(state)}]", ""),
-        ("item", "4", f"Ustawienia wykluczeń [{exclusions_menu_label(state)}]", ""),
-        _cursor_separator_row(),
-        ("item", "5", f"Zmień interfejs TXT/Kursorowy [{ui_mode_setting_label(state, ui_mode)}]", ""),
-        _cursor_separator_row(),
-        ("item", "0", "Wróć", ""),
-    ]
-
-
-def _settings_cursor_choice(state: WizardState, ui_mode: str) -> str | None:
-    return _option_rows_cursor_app(title="Ustawienia", rows=_settings_rows(state, ui_mode), default_key="0")
-
-
-def _print_settings_menu_plain(state: WizardState, ui_mode: str) -> None:
-    section("Ustawienia")
-    width = _terminal_ui_width(fallback=78)
-    _print_wrapped_plain(f"1. Profil pakowania [{state.profile_label()}]", indent="  ", width=width)
-    _print_plain_separator("    ")
-    _print_wrapped_plain("2. Zapisz pełny podgląd listy pakowania do JSON", indent="  ", width=width)
-    _print_plain_separator("    ")
-    _print_wrapped_plain(f"3. Ustawienia paczki [{pack_settings_menu_label(state)}]", indent="  ", width=width)
-    _print_wrapped_plain(f"4. Ustawienia wykluczeń [{exclusions_menu_label(state)}]", indent="  ", width=width)
-    _print_plain_separator("    ")
-    _print_wrapped_plain(f"5. Zmień interfejs TXT/Kursorowy [{ui_mode_setting_label(state, ui_mode)}]", indent="  ", width=width)
-    _print_plain_separator("    ")
-    _print_wrapped_plain("0. Wróć", indent="  ", width=width)
-
-
-def settings_submenu(state: WizardState, ui_mode: str = "plain") -> str:
-    """Ustawienia bez dublującego skanowania; podgląd JSON zostaje osobno."""
-    while True:
-        if should_use_cursor_menu(ui_mode):
-            choice = _settings_cursor_choice(state, ui_mode)
-            if choice in {None, "0"}:
-                return "cancel"
-        else:
-            _print_settings_menu_plain(state, ui_mode)
-            choice = ask_text("Wybór", "0").strip()
-            if choice == "0":
-                return "cancel"
-
-        normalized = str(choice).strip()
-        if normalized == "1":
-            configure_profile(state, ui_mode); save_settings(state, quiet=True)
-        elif normalized == "2":
-            if ensure_ready_for_pack_plan(state, ui_mode=ui_mode):
-                if state.plan is None:
-                    rebuild_plan(state)
-                preview = save_preview_json(state)
-                save_settings(state, quiet=True)
-                print(f"Zapisano podgląd: {preview}")
-                pause()
-        elif normalized == "3":
-            configure_pack_settings(state, ui_mode); save_settings(state, quiet=True)
-        elif normalized == "4":
-            exclusion_menu(state, ui_mode); save_settings(state, quiet=True)
-        elif normalized == "5":
-            ui_mode = configure_ui_mode_preference(state, ui_mode); save_settings(state, quiet=True)
-        else:
-            print("Nieznana opcja.")
-
-
-def print_lines_paged(title: str, lines: list[str], *, page_size: int | None = None) -> None:
-    """Pager tekstowy z dynamicznym/cyan nagłówkiem i zawijaniem wierszy."""
-    def header(label: str) -> None:
-        width = _terminal_ui_width(fallback=78)
-        print("\n" + _cyan_line_text(width))
-        print(f"  {label}:")
-        print(_cyan_line_text(width))
-
-    if not lines:
-        header(title)
-        print("  (brak)")
-        print("(END)")
-        return
-
-    page_size_value = page_size or terminal_page_size()
-    page_size_value = max(1, int(page_size_value))
-    total_pages = (len(lines) + page_size_value - 1) // page_size_value
-
-    def print_wrapped_items(page_lines: list[str]) -> None:
-        width = _terminal_ui_width(fallback=120)
-        for line_value in page_lines:
-            for wrapped in _wrap_text_lines(line_value, width, subsequent_indent="      "):
-                print(wrapped)
-
-    if total_pages <= 1 or not sys.stdin.isatty():
-        header(title)
-        print_wrapped_items(lines)
-        print("(END)")
-        return
-
-    page = 0
-    while True:
-        start = page * page_size_value
-        end = min(start + page_size_value, len(lines))
-        header(f"{title} — strona {page + 1}/{total_pages} ({start + 1}-{end} z {len(lines)})")
-        print_wrapped_items(lines[start:end])
-
-        if page >= total_pages - 1:
-            print("(END)")
-            return
-
-        try:
-            choice = input(": ").strip().lower()
-        except (EOFError, KeyboardInterrupt):
-            print()
-            return
-
-        if choice in {"q", "0", "k", "koniec", "esc", "w", "wroc", "wróć"}:
-            print("(END)")
-            return
-        if choice in {"p", "poprzednia", "prev", "b"}:
-            page = max(0, page - 1)
-            continue
-        page += 1
-
-
-def ask_bool(prompt: str, default: bool = False, *, require_explicit: bool = False) -> bool:
-    suffix = "T/N" if require_explicit else ("T/n" if default else "t/N")
-    yes_values = {"t", "tak", "y", "yes", "1", "true"}
-    no_values = {"n", "nie", "no", "0", "false"}
-    while True:
-        value = input(f"{prompt} [{suffix}]: ").strip().lower()
-        control = _plain_control_word(value)
-        if control == "exit":
-            raise UserRequestedAppExit()
-        if control == "cancel":
-            raise UserCancelledInput()
-        if not value:
-            if require_explicit:
-                continue
-            return default
-        if value in yes_values:
-            return True
-        if value in no_values:
-            return False
-        print("Wpisz T/Tak albo N/Nie.")
-
-
-def show_pack_list_and_offer_json(state: WizardState, ui_mode: str = "plain") -> None:
-    """Opcja 2: tylko pokaż aktualną listę; opcjonalnie zapisz ten sam podgląd do JSON."""
-    if state.plan is None:
-        rebuild_plan(state)
-    else:
-        section("Lista do spakowania z ustawieniami")
-        print_pack_plan_summary(state)
-    if state.out_dir is not None and ask_bool("Zapisać pełny podgląd listy pakowania do JSON", False, require_explicit=True):
-        preview = save_preview_json(state)
-        print(f"Zapisano podgląd: {preview}")
-
-
-def run_wizard(initial_source: str | None = None, *, ui_mode: str | None = None) -> int:
-    settings_snapshot = snapshot_settings_file()
-    state: WizardState | None = None
-    try:
-        activate_process_guard(prompt_user=True)
-        state = initialize_state(initial_source)
-        section(f"Jaźń / Łatka — generator paczki ZIP v{VERSION}")
-        print_bar(100, 100, label="Ładowanie")
-        if state.settings_needs_cleanup:
-            save_settings(state, quiet=True)
-            settings_snapshot = snapshot_settings_file()
-        show_startup_warnings(state)
-        ui_mode = resolve_ui_mode_with_optional_install(ui_mode, state)
-        save_settings(state, quiet=True)
-        settings_snapshot = snapshot_settings_file()
-        prepare_plan_on_startup_if_possible(state)
-    except UserRequestedAppExit:
-        restore_settings_file(settings_snapshot); print("\nZamknięto skrótem Ctrl+X bez zapisywania zmian."); return 130
-    except KeyboardInterrupt:
-        restore_settings_file(settings_snapshot); print("\nPrzerwano przez Ctrl+C. Start aplikacji został anulowany bez tracebacka."); return 130
-    except EOFError:
-        restore_settings_file(settings_snapshot); print("\nWejście terminala zostało zamknięte. Start aplikacji został anulowany bez tracebacka."); return 130
-
-    while True:
-        try:
-            assert state is not None
-            if not should_use_cursor_menu(ui_mode):
-                show_current_state(state)
-                print(f"Tryb UI:                    {ui_mode_label(ui_mode)}; auto-start: {on_off_label(state.ui_auto_start)}")
-            current_default_choice = default_menu_choice(state)
-            choice = ask_menu_choice(state, current_default_choice, ui_mode)
-            control_word = _plain_control_word(choice)
-            if control_word == "exit": raise UserRequestedAppExit()
-            if control_word == "cancel": continue
-
-            known_menu_choices = {"0", "1", "2", "3", "4", "5", "6", "7", "8"}
-            if choice not in known_menu_choices:
-                if current_default_choice == "3" and state.source_folder is None:
-                    if apply_source_path_text(state, choice): save_settings(state, quiet=True)
-                    continue
-                if current_default_choice == "4" and state.out_dir is None:
-                    if apply_output_path_text(state, choice): save_settings(state, quiet=True)
-                    continue
-
-            if choice == APP_EXIT_MARKER:
-                restore_settings_file(settings_snapshot); print("Zamknięto skrótem Ctrl+X bez zapisywania zmian."); return 130
-            if choice == "1":
-                configure_profile(state, ui_mode); save_settings(state, quiet=True)
-            elif choice == "2":
-                if not ensure_ready_for_pack_plan(state, ui_mode=ui_mode): save_settings(state, quiet=True); continue
-                show_pack_list_and_offer_json(state, ui_mode)
-                save_settings(state, quiet=True); pause()
-            elif choice == "3":
-                configure_source(state); save_settings(state, quiet=True)
-            elif choice == "4":
-                configure_output(state); save_settings(state, quiet=True)
-            elif choice == "5":
-                reset_archive_name_from_version(state); save_settings(state, quiet=True)
-            elif choice == "6":
-                configure_name(state); save_settings(state, quiet=True)
-            elif choice == "7":
-                _ = settings_submenu(state, ui_mode)
-                ui_mode = normalize_ui_mode(state.ui_mode or ui_mode)
-                if ui_mode == "auto": ui_mode = resolve_auto_ui_mode()
-            elif choice == "8":
-                if not ensure_ready_for_pack_plan(state, ui_mode=ui_mode): save_settings(state, quiet=True); continue
-                if state.plan is None: rebuild_plan(state)
-                print("\nTo zostanie użyte jako podstawa pakowania.")
-                print_pack_plan_compact_summary(state)
-                if ask_bool("Pokazać listę katalogów i plików przed pakowaniem", False, require_explicit=True):
-                    print_pack_items_for_plan(state)
-                if not ask_bool("Rozpocząć pakowanie", True, require_explicit=True):
-                    continue
-                assert state.source_folder is not None and state.out_dir is not None and state.plan is not None
-                create_split_zip_from_plan(
-                    source_folder=state.source_folder,
-                    out_dir=state.out_dir,
-                    archive_name=state.archive_name,
-                    plan=state.plan,
-                    part_size_mb=state.part_size_mb,
-                    compression_level=state.compression_level,
-                    force=state.force,
-                    include_empty_dirs=state.include_empty_dirs,
-                    exclude_patterns=state.effective_excludes(),
-                    package_version=state.package_version,
-                    package_release_name=state.package_release_name,
-                    resolved_version_file=state.resolved_version_file,
-                    archive_basename_requested=state.archive_basename_requested,
-                    append_version_to_name=False,
-                    disabled_default_excludes=state.disabled_default_excludes,
-                    pack_profile=state.pack_profile,
-                    include_prefixes=state.include_prefixes(),
-                )
-                save_settings(state, quiet=True); return 0
-            elif choice == "0":
-                exit_action = exit_menu(ui_mode)
-                if exit_action == "save": save_settings(state, quiet=False); print("Zakończono bez pakowania."); return 0
-                if exit_action == "nosave": restore_settings_file(settings_snapshot); print("Zakończono bez zapisywania zmian."); return 0
-                continue
-            else:
-                print("Nieznana opcja.")
-        except UserRequestedAppExit:
-            restore_settings_file(settings_snapshot); print("\nZamknięto skrótem Ctrl+X bez zapisywania zmian."); return 130
-        except KeyboardInterrupt:
-            restore_settings_file(settings_snapshot); print("\nPrzerwano przez Ctrl+C. W trybie kursorowym skrótem zamknięcia aplikacji jest Ctrl+X. Zakończono bez zapisywania zmian."); return 130
-        except EOFError:
-            restore_settings_file(settings_snapshot); print("\nWejście terminala zostało zamknięte. Zamknięto bez zapisywania zmian."); return 130
-        except Exception as exc:
-            save_settings(state, quiet=True); print(f"BŁĄD: {exc}")
-            try: pause()
-            except KeyboardInterrupt:
-                restore_settings_file(settings_snapshot); print("\nPrzerwano przez Ctrl+C. Zakończono bez zapisywania zmian."); return 130
-            except EOFError:
-                restore_settings_file(settings_snapshot); print("\nWejście terminala zostało zamknięte. Zamknięto bez zapisywania zmian."); return 130
-
-
-# =============================================================================
-# URUCHAMIANIE APLIKACJI
-# =============================================================================
-
-
-def delete_settings_files() -> list[Path]:
-    """Usuwa ustawienia aplikacji, bez dotykania paczek ZIP ani runtime Jaźni."""
-    removed: list[Path] = []
-    for path in (settings_path(), legacy_settings_path()):
-        if path is None:
-            continue
-        try:
-            if path.exists() and path.is_file():
-                path.unlink()
-                removed.append(path)
-        except OSError as exc:
-            print(f"UWAGA: nie udało się usunąć {path}: {exc}")
-    return removed
-
-
-
-
-def run_direct_pack_from_args(args: argparse.Namespace) -> int:
-    """Prosty tryb CLI dla wszystkich czterech profili pakowania."""
-    source_raw = str(args.source or "").strip()
-    if not source_raw:
-        print("BŁĄD: tryb --pack wymaga podania folderu źródłowego.", file=sys.stderr)
-        return 2
-
-    source_folder = Path(normalize_path_text(source_raw)).expanduser()
-    if not source_folder.exists() or not source_folder.is_dir():
-        print(
-            f"BŁĄD: folder źródłowy nie istnieje albo nie jest folderem: {source_folder}",
-            file=sys.stderr,
-        )
-        return 2
-
-    out_raw = str(args.out or "").strip()
-    out_dir = (
-        Path(normalize_path_text(out_raw)).expanduser()
-        if out_raw
-        else source_folder.resolve().parent
-    )
-    archive_basename = str(args.name or ARCHIVE_BASENAME or "jazn_latka")
-    profile = str(getattr(args, "profile", DEFAULT_PACK_PROFILE) or DEFAULT_PACK_PROFILE)
-    if profile not in PACK_PROFILES:
-        print(f"BŁĄD: nieznany profil: {profile}", file=sys.stderr)
-        return 2
-
-    profile_defaults = as_str_list(PACK_PROFILES[profile].get("exclude_patterns"))
-    exclude_patterns = (
-        [] if args.no_default_excludes else profile_defaults
-    ) + list(args.exclude or [])
-
-    artifact_mode = "diagnostic" if bool(getattr(args, "diagnostic_files", False)) else DEFAULT_ARTIFACT_MODE
-    verify_after_pack = not bool(getattr(args, "skip_verify_after_pack", False))
-    verify_crc = verify_after_pack and not bool(getattr(args, "skip_crc_after_pack", False))
-
-    try:
-        if profile == DUAL_PACKAGE_PROFILE:
-            create_dual_split_packages_from_args(
-                source_folder=source_folder,
-                out_dir=out_dir,
-                archive_basename=archive_basename,
-                part_size_mb=int(args.part_size_mb),
-                compression_level=int(args.compresslevel),
-                force=bool(args.force),
-                include_empty_dirs=not bool(args.no_empty_dirs),
-                exclude_patterns=exclude_patterns,
-                append_version_to_name=not bool(args.no_version_suffix),
-                version_file=args.version_file,
-                artifact_mode=artifact_mode,
-                verify_after_pack=verify_after_pack,
-                verify_crc=verify_crc,
-            )
-        else:
-            create_split_zip(
-                source_folder=source_folder,
-                out_dir=out_dir,
-                archive_basename=archive_basename,
-                part_size_mb=int(args.part_size_mb),
-                compression_level=int(args.compresslevel),
-                force=bool(args.force),
-                include_empty_dirs=not bool(args.no_empty_dirs),
-                exclude_patterns=exclude_patterns,
-                append_version_to_name=not bool(args.no_version_suffix),
-                version_file=args.version_file,
-                disabled_default_excludes=[],
-                pack_profile=profile,
-                include_prefixes=as_str_list(
-                    PACK_PROFILES[profile].get("include_prefixes")
-                ),
-                artifact_mode=artifact_mode,
-                verify_after_pack=verify_after_pack,
-                verify_crc=verify_crc,
-            )
-        return 0
-    except KeyboardInterrupt:
-        print("\nPrzerwano przez użytkownika.", file=sys.stderr)
-        return 130
-    except Exception as exc:
-        print(f"BŁĄD: {exc}", file=sys.stderr)
-        return 1
-
-
-# =============================================================================
-# NADPISANIA UI v5.15 — inline edycja Ustawień paczki bez wychodzenia z ekranu
-# =============================================================================
-
-
-def _pack_setting_field_for_key(key: str) -> str:
-    return {"1": "part_size", "2": "compression"}.get(str(key), "")
-
-
-def _pack_setting_label_for_field(field: str) -> str:
+    outputs: Sequence[OutputPart],
+    logical_zip_sha256: str | None,
+    verification: dict[str, Any],
+) -> dict[str, Any]:
     return {
-        "part_size": "Rozmiar jednej części ZIP",
-        "compression": "Poziom kompresji",
-    }.get(str(field), "Ustawienie")
-
-
-def _pack_setting_initial_text(state: WizardState, field: str) -> str:
-    if field == "part_size":
-        return str(state.part_size_mb)
-    if field == "compression":
-        return str(state.compression_level)
-    return ""
-
-
-def _apply_pack_setting_value(state: WizardState, field: str, raw: str) -> tuple[bool, str]:
-    value_text = str(raw or "").strip()
-    if not value_text:
-        return False, "BŁĄD: wartość nie może być pusta."
-    try:
-        value = int(value_text)
-    except ValueError:
-        return False, "BŁĄD: wpisz liczbę całkowitą."
-
-    if field == "part_size":
-        if value < 1:
-            return False, "BŁĄD: rozmiar części ZIP musi być >= 1 MiB."
-        state.part_size_mb = value
-        state.plan = None
-        return True, f"Ustawiono rozmiar części ZIP: {state.part_size_mb} MiB"
-
-    if field == "compression":
-        if not (0 <= value <= 9):
-            return False, "BŁĄD: poziom kompresji musi być w zakresie 0-9."
-        state.compression_level = value
-        state.plan = None
-        return True, f"Ustawiono poziom kompresji: {state.compression_level}"
-
-    return False, "BŁĄD: nieznane pole ustawień paczki."
-
-
-def _pack_settings_label_for_key(state: WizardState, key: str, editor: dict[str, object] | None = None) -> str:
-    editor = editor or {}
-    editing_field = str(editor.get("field") or "")
-    editing_text = str(editor.get("text") or "")
-    editing_cursor = as_int(editor.get("cursor"), len(editing_text))
-
-    def edit_value(field: str, fallback: str) -> str:
-        if editing_field == field:
-            return _text_with_cursor_marker(editing_text, editing_cursor)
-        return fallback
-
-    if key == "1":
-        return f"Zmień rozmiar jednej części ZIP [{edit_value('part_size', str(state.part_size_mb))} MiB]"
-    if key == "2":
-        return f"Zmień poziom kompresji [{edit_value('compression', str(state.compression_level))}]"
-    if key == "3":
-        return f"Zapisywać puste katalogi [{'tak' if state.include_empty_dirs else 'nie'}]"
-    if key == "4":
-        return f"Nadpisywać istniejące pliki [{'tak' if state.force else 'nie'}]"
-    if key == "5":
-        return "Ustaw wszystko krok po kroku"
-    if key == "0":
-        return "Wróć"
-    return ""
-
-
-def _pack_settings_rows(state: WizardState, editor: dict[str, object] | None = None) -> list[tuple[str, str, str, str]]:
-    return [
-        ("item", "1", _pack_settings_label_for_key(state, "1", editor), "Wpisz liczbę MiB; minimum 1."),
-        ("item", "2", _pack_settings_label_for_key(state, "2", editor), "Zakres 0-9; 6 jest rozsądnym domyślnym poziomem."),
-        ("item", "3", _pack_settings_label_for_key(state, "3", editor), "Przełącz Tak/Nie bez opuszczania tego ekranu."),
-        ("item", "4", _pack_settings_label_for_key(state, "4", editor), "Przełącz Tak/Nie bez opuszczania tego ekranu."),
-        ("item", "5", _pack_settings_label_for_key(state, "5", editor), "Rozmiar i kompresję edytuje w tym samym widoku; Tak/Nie przełączysz na pozycjach 3 i 4."),
-        _cursor_separator_row(),
-        ("item", "0", _pack_settings_label_for_key(state, "0", editor), "Powrót do menu Ustawień."),
-    ]
-
-
-def _pack_settings_cursor_app(state: WizardState) -> None:
-    """Kursorowe Ustawienia paczki z edycją bezpośrednio w nawiasach []."""
-    parts = prompt_toolkit_parts()
-    if parts is None:
-        return
-    Application, KeyBindings, Layout, Window, FormattedTextControl, Style = parts
-
-    rows = _pack_settings_rows(state)
-    item_rows = [index for index, row in enumerate(rows) if row[0] == "item"]
-    key_to_row = {rows[index][1]: index for index in item_rows}
-    selected = {"row_index": key_to_row.get("0", item_rows[0])}
-    editor: dict[str, object] = {"field": "", "text": "", "cursor": 0, "message": "", "wizard": False}
-
-    def is_editing() -> bool:
-        return bool(editor.get("field"))
-
-    def selected_key() -> str:
-        _kind, key, _label, _description = rows[selected["row_index"]]
-        return str(key)
-
-    def selected_item_pos() -> int:
-        try:
-            return item_rows.index(selected["row_index"])
-        except ValueError:
-            selected["row_index"] = item_rows[0]
-            return 0
-
-    def start_edit(field: str, *, wizard: bool = False) -> None:
-        key = "1" if field == "part_size" else "2"
-        selected["row_index"] = key_to_row.get(key, selected["row_index"])
-        text = _pack_setting_initial_text(state, field)
-        editor.update({
-            "field": field,
-            "text": text,
-            "cursor": len(text),
-            "wizard": bool(wizard),
-            "message": f"Edytujesz: {_pack_setting_label_for_field(field)}. Pisz w nawiasie []; Enter zapisuje, Esc anuluje.",
-        })
-
-    def stop_edit(message: str = "") -> None:
-        editor.update({"field": "", "text": "", "cursor": 0, "wizard": False, "message": message})
-
-    def move(delta: int, event: Any) -> None:
-        if is_editing():
-            event.app.invalidate()
-            return
-        pos = (selected_item_pos() + delta) % len(item_rows)
-        selected["row_index"] = item_rows[pos]
-        editor["message"] = ""
-        event.app.invalidate()
-
-    def insert(value: str) -> None:
-        text_value = str(editor.get("text") or "")
-        cursor = as_int(editor.get("cursor"), len(text_value))
-        editor["text"] = text_value[:cursor] + value + text_value[cursor:]
-        editor["cursor"] = cursor + len(value)
-
-    def submit_edit(event: Any) -> None:
-        field = str(editor.get("field") or "")
-        ok, message = _apply_pack_setting_value(state, field, str(editor.get("text") or ""))
-        if not ok:
-            editor["message"] = message
-            event.app.invalidate()
-            return
-        wizard = bool(editor.get("wizard"))
-        if wizard and field == "part_size":
-            start_edit("compression", wizard=True)
-            editor["message"] = message + " | Następnie ustaw poziom kompresji."
-        else:
-            stop_edit(message)
-        event.app.invalidate()
-
-    def toggle_bool(key: str) -> str:
-        if key == "3":
-            state.include_empty_dirs = not state.include_empty_dirs
-            state.plan = None
-            return f"Zapisywanie pustych katalogów: {'tak' if state.include_empty_dirs else 'nie'}"
-        if key == "4":
-            state.force = not state.force
-            state.plan = None
-            return f"Nadpisywanie istniejących plików: {'tak' if state.force else 'nie'}"
-        return ""
-
-    def activate_selected(event: Any) -> None:
-        key = selected_key()
-        field = _pack_setting_field_for_key(key)
-        if field:
-            start_edit(field)
-            event.app.invalidate()
-            return
-        if key in {"3", "4"}:
-            editor["message"] = toggle_bool(key)
-            event.app.invalidate()
-            return
-        if key == "5":
-            start_edit("part_size", wizard=True)
-            event.app.invalidate()
-            return
-        if key == "0":
-            event.app.exit(result=None)
-
-    def get_text() -> list[tuple[str, str]]:
-        width = _terminal_ui_width(fallback=100)
-        current_rows = _pack_settings_rows(state, editor)
-        fragments: list[tuple[str, str]] = []
-
-        def line(style: str, value: str = "", *, subsequent_indent: str = "") -> None:
-            for piece in _wrap_text_lines(value, width, subsequent_indent=subsequent_indent):
-                fragments.append((style, piece))
-                fragments.append(("", "\n"))
-
-        line("class:border", "=" * width)
-        line("class:title", "  Ustawienia paczki")
-        line("class:border", "=" * width)
-        line("", "")
-        line("class:hint", f"Profil: {state.profile_label()}", subsequent_indent="  ")
-        line("class:hint", f"Zakres include: {state.include_prefixes() or '(cały folder źródłowy)'}", subsequent_indent="  ")
-        line("class:hint", "ESC wraca do Ustawień; w trakcie edycji anuluje tylko bieżące pole.", subsequent_indent="  ")
-        line("", "")
-        line("class:border", "=" * width)
-        for index, (kind, key, label, description) in enumerate(current_rows):
-            if kind == "sep":
-                line("class:separator", _menu_separator_text(width))
-                continue
-            marker = "▶" if index == selected["row_index"] else " "
-            base_style = "class:latka.selected" if index == selected["row_index"] else "class:latka.option"
-            if is_editing() and key == selected_key():
-                base_style = "class:editing"
-            line(base_style, f"  {marker} {key}. {label}", subsequent_indent="    ")
-            if description:
-                line("class:description", "      " + description, subsequent_indent="      ")
-        line("class:border", "=" * width)
-        if is_editing():
-            line("class:hint", "Edycja pola [] | cyfry/tekst wpisują się w nawiasie | ←/→ ruch kursora | Enter zapisz | Esc anuluj | Ctrl+X zamknij bez zapisu", subsequent_indent="  ")
-        else:
-            line("class:hint", "↑/↓ wybór | Enter OK | Esc/Q wróć o 1 poziom | Ctrl+X zamknij bez zapisu", subsequent_indent="  ")
-        message = str(editor.get("message") or "")
-        if message:
-            line("class:message", message, subsequent_indent="  ")
-        return fragments
-
-    control = FormattedTextControl(text=get_text, focusable=True)
-    window = Window(content=control, wrap_lines=True, dont_extend_height=True)
-    layout = Layout(window)
-    kb = KeyBindings()
-
-    @kb.add("up")
-    def _up(event: Any) -> None:
-        move(-1, event)
-
-    @kb.add("down")
-    def _down(event: Any) -> None:
-        move(1, event)
-
-    @kb.add("k")
-    def _k(event: Any) -> None:
-        if is_editing():
-            insert("k")
-            event.app.invalidate()
-        else:
-            move(-1, event)
-
-    @kb.add("j")
-    def _j(event: Any) -> None:
-        if is_editing():
-            insert("j")
-            event.app.invalidate()
-        else:
-            move(1, event)
-
-    @kb.add("home")
-    def _home(event: Any) -> None:
-        if is_editing():
-            editor["cursor"] = 0
-        else:
-            selected["row_index"] = item_rows[0]
-        event.app.invalidate()
-
-    @kb.add("end")
-    def _end(event: Any) -> None:
-        if is_editing():
-            editor["cursor"] = len(str(editor.get("text") or ""))
-        else:
-            selected["row_index"] = item_rows[-1]
-        event.app.invalidate()
-
-    @kb.add("left")
-    def _left(event: Any) -> None:
-        if is_editing():
-            editor["cursor"] = max(0, as_int(editor.get("cursor"), 0) - 1)
-            event.app.invalidate()
-
-    @kb.add("right")
-    def _right(event: Any) -> None:
-        if is_editing():
-            value = str(editor.get("text") or "")
-            editor["cursor"] = min(len(value), as_int(editor.get("cursor"), len(value)) + 1)
-            event.app.invalidate()
-
-    @kb.add("backspace")
-    @kb.add("c-h")
-    def _backspace(event: Any) -> None:
-        if is_editing():
-            value = str(editor.get("text") or "")
-            cursor = as_int(editor.get("cursor"), len(value))
-            if cursor > 0:
-                editor["text"] = value[:cursor - 1] + value[cursor:]
-                editor["cursor"] = cursor - 1
-            event.app.invalidate()
-
-    @kb.add("delete")
-    def _delete(event: Any) -> None:
-        if is_editing():
-            value = str(editor.get("text") or "")
-            cursor = as_int(editor.get("cursor"), len(value))
-            if cursor < len(value):
-                editor["text"] = value[:cursor] + value[cursor + 1:]
-            event.app.invalidate()
-
-    @kb.add("enter")
-    def _enter(event: Any) -> None:
-        if is_editing():
-            submit_edit(event)
-        else:
-            activate_selected(event)
-
-    @kb.add("escape")
-    def _escape(event: Any) -> None:
-        if is_editing():
-            stop_edit("Anulowano edycję pola. Kursor został w Ustawieniach paczki.")
-            event.app.invalidate()
-        else:
-            event.app.exit(result=None)
-
-    @kb.add("q")
-    def _q(event: Any) -> None:
-        if is_editing():
-            insert("q")
-            event.app.invalidate()
-        else:
-            event.app.exit(result=None)
-
-    @kb.add("c-x", eager=True)
-    def _ctrl_x_exit(event: Any) -> None:
-        event.app.exit(exception=UserRequestedAppExit())
-
-    @kb.add("c-c", eager=True)
-    def _ctrl_c_noop(event: Any) -> None:
-        event.app.invalidate()
-
-    try:
-        @kb.add("<sigint>", eager=True)
-        def _sigint_noop(event: Any) -> None:
-            event.app.invalidate()
-    except Exception:
-        pass
-
-    for option_key in ["0", "1", "2", "3", "4", "5"]:
-        @kb.add(option_key, eager=True)
-        def _number(event: Any, option_key: str = option_key) -> None:
-            if is_editing():
-                insert(option_key)
-                event.app.invalidate()
-                return
-            selected["row_index"] = key_to_row.get(option_key, selected["row_index"])
-            activate_selected(event)
-
-    @kb.add("<any>")
-    def _insert_any(event: Any) -> None:
-        if is_editing():
-            data = getattr(event, "data", "") or ""
-            if data and data not in {"\r", "\n", "\t"}:
-                insert(data)
-                event.app.invalidate()
-
-    style = Style.from_dict({
-        "border": "ansicyan",
-        "title": "bold ansicyan",
-        "hint": "ansibrightblack",
-        "description": "ansibrightblack",
-        "separator": "ansicyan",
-        "message": "ansiyellow",
-        "editing": "reverse bold",
-        "latka.option": "",
-        "latka.selected": "reverse bold",
-    })
-    _application_run_responsive(Application, layout=layout, key_bindings=kb, style=style)
-
-
-def configure_pack_settings(state: WizardState, ui_mode: str = "plain") -> None:
-    """Ustawienia paczki. W trybie kursorowym edycja zostaje w tym samym widoku."""
-    while True:
-        if should_use_cursor_menu(ui_mode):
-            _pack_settings_cursor_app(state)
-            return
-
-        section("Ustawienia paczki")
-        print_current_pack_settings_block(state)
-        print("\nOpcje:")
-        print("  1. Zmień rozmiar jednej części ZIP")
-        print("  2. Zmień poziom kompresji")
-        print("  3. Włącz/wyłącz zapisywanie pustych katalogów")
-        print("  4. Włącz/wyłącz nadpisywanie istniejących plików")
-        print("  5. Ustaw wszystko krok po kroku")
-        print("  0. Wróć")
-        choice = ask_text("Wybór", "0")
-        if choice == "1":
-            state.part_size_mb = ask_int("Rozmiar części ZIP w MiB", state.part_size_mb, minimum=1)
-            state.plan = None
-        elif choice == "2":
-            state.compression_level = ask_int("Poziom kompresji 0-9", state.compression_level, minimum=0, maximum=9)
-            state.plan = None
-        elif choice == "3":
-            state.include_empty_dirs = not state.include_empty_dirs
-            state.plan = None
-            print(f"Zapisywanie pustych katalogów: {'tak' if state.include_empty_dirs else 'nie'}")
-        elif choice == "4":
-            state.force = not state.force
-            state.plan = None
-            print(f"Nadpisywanie istniejących plików: {'tak' if state.force else 'nie'}")
-        elif choice == "5":
-            state.part_size_mb = ask_int("Rozmiar części ZIP w MiB", state.part_size_mb, minimum=1)
-            state.compression_level = ask_int("Poziom kompresji 0-9", state.compression_level, minimum=0, maximum=9)
-            state.include_empty_dirs = ask_bool("Zapisywać puste katalogi", state.include_empty_dirs)
-            state.force = ask_bool("Nadpisywać istniejące pliki", state.force)
-            state.plan = None
-        elif choice == "0":
-            return
-        else:
-            print("Nieznana opcja.")
-
-# =============================================================================
-# NADPISANIA UI v5.16 — wąski kursor edycji, T/N bez przewijania promptu,
-# ręczne wykluczenia bez zagnieżdżonych Application.run i poprawki etykiet
-# =============================================================================
-
-VERSION = "1.6.1.RELEASE-VERSION-FIX"
-
-
-def _zip_menu_display_name(name: str) -> str:
-    text = str(name or "").strip()
-    return text[:-4] if text.lower().endswith(".zip") else text
-
-
-def _manual_excludes_enabled_for_label(state: WizardState) -> bool:
-    """Etykieta pokazuje faktyczny przełącznik ręcznie dodanych wzorców."""
-    return bool(state.use_custom_excludes)
-
-
-def manual_exclusions_label(state: WizardState) -> str:
-    return f"{on_off_label(state.use_custom_excludes)}, wpisów {len(state.custom_excludes)}"
-
-
-def exclusions_menu_label(state: WizardState) -> str:
-    default_total = len(state.profile_default_excludes())
-    default_active = len(state.active_default_excludes())
-    return (
-        f"domyślne {on_off_label(state.use_default_excludes)} {default_active}/{default_total}, "
-        f"ręcznie dodane {on_off_label(state.use_custom_excludes)} {len(state.custom_excludes)}"
-    )
-
-
-def menu_options(state: WizardState) -> list[tuple[str, str]]:
-    name_label = _zip_menu_display_name(state.archive_name) or "nie ustawiono"
-    return [
-        ("1", f"1. Profil pakowania [{profile_menu_label(state)}]"),
-        ("2", f"2. Pokaż listę do spakowania [{pack_list_settings_label(state)}]"),
-        ("3", f"3. Folder do pakowania [{menu_value(state.source_folder)}]"),
-        ("4", f"4. Folder zapisu paczki [{menu_value(state.out_dir)}]"),
-        ("5", "5. Odśwież nazwę paczki z aktualnej wersji"),
-        ("6", f"6. Zmień nazwę paczki [{name_label}]"),
-        ("7", "7. Ustawienia"),
-        ("8", "8. Pakuj teraz"),
-        ("0", "0. Wyjście"),
-    ]
-
-
-def _inline_edit_initial_text(state: WizardState, field: str) -> str:
-    if field == "source":
-        return str(state.source_folder or "")
-    if field == "output":
-        return str(state.out_dir or "")
-    if field == "name":
-        return _zip_menu_display_name(str(state.archive_name or ""))
-    return ""
-
-
-def _format_editable_bracket_label(prefix: str, field_value: str, suffix: str = "") -> list[tuple[str, str]]:
-    """Fragmenty jednej pozycji: normalny tekst, a wyróżnienie tylko w nawiasie []."""
-    return [("", prefix + "["), ("class:editing", field_value), ("", "]" + suffix)]
-
-
-def _append_wrapped_fragments(
-    fragments: list[tuple[str, str]],
-    styled_parts: list[tuple[str, str]],
-    width: int,
-    *,
-    base_style: str = "",
-    subsequent_indent: str = "    ",
-) -> None:
-    """Dodaje krótkie fragmenty stylowane. Długie wartości trzymamy czytelnie przez Window.wrap_lines."""
-    for style, text in styled_parts:
-        fragments.append((style or base_style, text))
-    fragments.append(("", "\n"))
-
-
-def _cursor_menu_lines(state: WizardState, selected_index: int, inline_editor: dict[str, object] | None = None) -> list[tuple[str, str]]:
-    options = menu_options(state)
-    selected_index = max(0, min(selected_index, len(options) - 1))
-    width = _terminal_ui_width(fallback=100)
-    inline_editor = inline_editor or {}
-    editing_field = str(inline_editor.get("field") or "")
-    editing_text = str(inline_editor.get("text") or "")
-    editing_cursor = as_int(inline_editor.get("cursor"), len(editing_text))
-    message = str(inline_editor.get("message") or "")
-    fragments: list[tuple[str, str]] = []
-
-    def line(style: str, value: str = "", *, subsequent_indent: str = "") -> None:
-        for piece in _wrap_text_lines(value, width, subsequent_indent=subsequent_indent):
-            fragments.append((style, piece))
-            fragments.append(("", "\n"))
-
-    line("class:border", "=" * width)
-    line("class:title", f"  Jaźń / Łatka — generator paczki ZIP v{VERSION}")
-    line("class:border", "=" * width)
-    line("", "")
-    for label, value in (
-        ("Plan:     ", plan_status_label(state)),
-        ("Profil:   ", state.profile_label()),
-        ("Źródło:   ", menu_value(state.source_folder)),
-        ("Zapis:    ", menu_value(state.out_dir)),
-        ("ZIP:      ", state.archive_name or "(nie ustawiono)"),
-    ):
-        line("class:status.value", f"{label}{value}", subsequent_indent=" " * len(label))
-    line("", "")
-    line("class:border", "=" * width)
-    for idx, (key, label) in enumerate(options):
-        if _main_menu_separator_before(key):
-            line("class:separator", _menu_separator_text(width))
-        field = _inline_edit_field_for_key(key)
-        marker = "▶" if idx == selected_index else " "
-        selected_style = "class:latka.selected" if idx == selected_index else "class:latka.option"
-        if editing_field and field == editing_field:
-            edited = _text_with_cursor_marker(editing_text, editing_cursor)
-            row_start = f"  {marker} "
-            if key == "3":
-                parts = [("class:latka.option", row_start + "3. Folder do pakowania ["), ("class:editing", edited), ("class:latka.option", "]")]
-            elif key == "4":
-                parts = [("class:latka.option", row_start + "4. Folder zapisu paczki ["), ("class:editing", edited), ("class:latka.option", "]")]
-            elif key == "6":
-                parts = [("class:latka.option", row_start + "6. Zmień nazwę paczki ["), ("class:editing", edited), ("class:latka.option", "]")]
-            else:
-                parts = [("class:latka.option", row_start + label)]
-            _append_wrapped_fragments(fragments, parts, width)
-        else:
-            line(selected_style, f"  {marker} {label}", subsequent_indent="    ")
-    line("class:border", "=" * width)
-    if editing_field:
-        line("class:hint", "Edycja pola []: wpisuj tekst | Tab autouzupełnij ścieżkę | Enter zapisz | Esc anuluj | Ctrl+X zamknij bez zapisu", subsequent_indent="  ")
-    else:
-        line("class:hint", "↑/↓ wybór | Enter OK | Esc/Q wyjście | Ctrl+X zamknij bez zapisu", subsequent_indent="  ")
-    if message:
-        line("class:message", message, subsequent_indent="  ")
-    return fragments
-
-
-def ask_menu_choice_cursor(state: WizardState, default: str) -> str:
-    """Menu główne: Esc/Q zawsze otwiera Wyjście, nie uruchamia domyślnej akcji."""
-    parts = prompt_toolkit_parts()
-    if parts is None:
-        return ask_text("Wybór", default)
-    Application, KeyBindings, Layout, Window, FormattedTextControl, Style = parts
-    options = menu_options(state)
-    keys = [key for key, _ in options]
-    selected = {"index": keys.index(default) if default in keys else 0}
-    editor: dict[str, object] = {"field": "", "text": "", "cursor": 0, "message": ""}
-
-    def is_editing() -> bool:
-        return bool(editor.get("field"))
-
-    def start_edit(key: str) -> bool:
-        field = _inline_edit_field_for_key(key)
-        if not field:
-            return False
-        text = _inline_edit_initial_text(state, field)
-        editor.update({"field": field, "text": text, "cursor": len(text), "message": f"Edytujesz: {_inline_edit_label_for_field(field)}. Wpisuj bezpośrednio w nawiasach []."})
-        return True
-
-    def stop_edit(message: str = "") -> None:
-        editor.update({"field": "", "text": "", "cursor": 0, "message": message})
-
-    def insert(value: str) -> None:
-        text_value = str(editor.get("text") or "")
-        cursor = as_int(editor.get("cursor"), len(text_value))
-        editor["text"] = text_value[:cursor] + value + text_value[cursor:]
-        editor["cursor"] = cursor + len(value)
-        editor["message"] = ""
-
-    def backspace() -> None:
-        text_value = str(editor.get("text") or "")
-        cursor = as_int(editor.get("cursor"), len(text_value))
-        if cursor > 0:
-            editor["text"] = text_value[:cursor - 1] + text_value[cursor:]
-            editor["cursor"] = cursor - 1
-
-    def delete_char() -> None:
-        text_value = str(editor.get("text") or "")
-        cursor = as_int(editor.get("cursor"), len(text_value))
-        if cursor < len(text_value):
-            editor["text"] = text_value[:cursor] + text_value[cursor + 1:]
-
-    def submit_edit() -> None:
-        ok, msg = _apply_inline_edit_value(state, str(editor.get("field") or ""), str(editor.get("text") or ""))
-        if ok:
-            save_settings(state, quiet=True)
-            stop_edit(msg)
-        else:
-            editor["message"] = msg
-
-    def autocomplete() -> None:
-        field = str(editor.get("field") or "")
-        if field not in {"source", "output"}:
-            editor["message"] = "Tab działa dla ścieżek folderów."
-            return
-        value, message = _inline_autocomplete_path(str(editor.get("text") or ""), only_directories=True)
-        editor["text"] = value
-        editor["cursor"] = len(value)
-        editor["message"] = message
-
-    def get_text() -> list[tuple[str, str]]:
-        return _cursor_menu_lines(state, selected["index"], editor)
-
-    control = FormattedTextControl(text=get_text, focusable=True)
-    window = Window(content=control, wrap_lines=True, dont_extend_height=True)
-    layout = Layout(window)
-    kb = KeyBindings()
-
-    def move(delta: int, event: Any) -> None:
-        if not is_editing():
-            selected["index"] = (selected["index"] + delta) % len(options)
-        event.app.invalidate()
-
-    @kb.add("up")
-    def _up(event: Any) -> None:
-        move(-1, event)
-
-    @kb.add("down")
-    def _down(event: Any) -> None:
-        move(1, event)
-
-    @kb.add("k")
-    def _k(event: Any) -> None:
-        if is_editing(): insert("k")
-        else: selected["index"] = (selected["index"] - 1) % len(options)
-        event.app.invalidate()
-
-    @kb.add("j")
-    def _j(event: Any) -> None:
-        if is_editing(): insert("j")
-        else: selected["index"] = (selected["index"] + 1) % len(options)
-        event.app.invalidate()
-
-    @kb.add("left")
-    def _left(event: Any) -> None:
-        if is_editing():
-            editor["cursor"] = max(0, as_int(editor.get("cursor"), 0) - 1)
-            event.app.invalidate()
-
-    @kb.add("right")
-    def _right(event: Any) -> None:
-        if is_editing():
-            text_value = str(editor.get("text") or "")
-            editor["cursor"] = min(len(text_value), as_int(editor.get("cursor"), 0) + 1)
-            event.app.invalidate()
-
-    @kb.add("home")
-    def _home(event: Any) -> None:
-        if is_editing(): editor["cursor"] = 0
-        else: selected["index"] = 0
-        event.app.invalidate()
-
-    @kb.add("end")
-    def _end(event: Any) -> None:
-        if is_editing(): editor["cursor"] = len(str(editor.get("text") or ""))
-        else: selected["index"] = len(options) - 1
-        event.app.invalidate()
-
-    @kb.add("backspace")
-    @kb.add("c-h")
-    def _backspace(event: Any) -> None:
-        if is_editing():
-            backspace(); event.app.invalidate()
-
-    @kb.add("delete")
-    def _delete(event: Any) -> None:
-        if is_editing():
-            delete_char(); event.app.invalidate()
-
-    @kb.add("tab")
-    def _tab(event: Any) -> None:
-        if is_editing():
-            autocomplete(); event.app.invalidate()
-
-    @kb.add("enter")
-    def _enter(event: Any) -> None:
-        if is_editing():
-            submit_edit(); event.app.invalidate(); return
-        key = options[selected["index"]][0]
-        if start_edit(key):
-            event.app.invalidate(); return
-        event.app.exit(result=key)
-
-    @kb.add("escape")
-    @kb.add("q")
-    def _escape(event: Any) -> None:
-        if is_editing():
-            stop_edit("Anulowano edycję pola."); event.app.invalidate()
-        else:
-            event.app.exit(result="0")
-
-    @kb.add("c-x", eager=True)
-    def _ctrl_x_exit(event: Any) -> None:
-        event.app.exit(exception=UserRequestedAppExit())
-
-    @kb.add("c-c", eager=True)
-    def _ctrl_c_noop(event: Any) -> None:
-        event.app.invalidate()
-
-    try:
-        @kb.add("<sigint>", eager=True)
-        def _sigint_noop(event: Any) -> None:
-            event.app.invalidate()
-    except Exception:
-        pass
-
-    for option_key in keys:
-        if len(option_key) == 1:
-            @kb.add(option_key, eager=True)
-            def _number(event: Any, option_key: str = option_key) -> None:
-                if is_editing():
-                    insert(option_key); event.app.invalidate(); return
-                selected["index"] = keys.index(option_key)
-                if start_edit(option_key): event.app.invalidate(); return
-                event.app.exit(result=option_key)
-
-    @kb.add("<any>")
-    def _any(event: Any) -> None:
-        if is_editing():
-            data = getattr(event, "data", "") or ""
-            if data and data not in {"\r", "\n", "\t"}:
-                insert(data); event.app.invalidate()
-
-    style = Style.from_dict({
-        "border": "ansicyan", "title": "bold ansicyan", "hint": "ansibrightblack",
-        "message": "ansiyellow", "separator": "ansicyan", "status.label": "bold",
-        "status.value": "", "editing": "reverse bold", "latka.option": "", "latka.selected": "reverse bold",
-    })
-    result = _application_run_responsive(Application, layout=layout, key_bindings=kb, style=style)
-    return "0" if result is None else str(result)
-
-
-def _read_explicit_bool_inplace(prompt: str) -> bool | None:
-    """Jawne T/N: Enter bez odpowiedzi jest ignorowany bez drukowania nowych promptów."""
-    if not sys.stdin.isatty():
-        return None
-    try:
-        import msvcrt  # type: ignore
-    except Exception:
-        msvcrt = None  # type: ignore
-
-    if msvcrt is not None:
-        sys.stdout.write(f"{prompt} [T/N]: ")
-        sys.stdout.flush()
-        buffer = ""
-        yes = {"t", "tak", "y", "yes", "1"}
-        no = {"n", "nie", "no", "0"}
-        while True:
-            ch = msvcrt.getwch()
-            if ch in ("\x00", "\xe0"):
-                _ = msvcrt.getwch()
-                continue
-            if ch == "\x18":
-                raise UserRequestedAppExit()
-            if ch == "\x1b":
-                sys.stdout.write("\n")
-                sys.stdout.flush()
-                return False
-            if ch in ("\r", "\n"):
-                continue
-            if ch in ("\b", "\x7f"):
-                if buffer:
-                    buffer = buffer[:-1]
-                    sys.stdout.write("\b \b")
-                    sys.stdout.flush()
-                continue
-            if ch.isprintable():
-                buffer += ch
-                sys.stdout.write(ch)
-                sys.stdout.flush()
-                raw = buffer.strip().lower()
-                if raw in yes:
-                    sys.stdout.write("\n")
-                    sys.stdout.flush()
-                    return True
-                if raw in no:
-                    sys.stdout.write("\n")
-                    sys.stdout.flush()
-                    return False
-                if len(buffer) > 8:
-                    sys.stdout.write("\nWpisz T/Tak albo N/Nie.\n")
-                    sys.stdout.write(f"{prompt} [T/N]: ")
-                    sys.stdout.flush()
-                    buffer = ""
-        return None
-
-    # POSIX fallback: jeżeli nie umiemy przejąć klawiszy, zostawiamy zwykłe input().
-    return None
-
-
-def ask_bool(prompt: str, default: bool = False, *, require_explicit: bool = False) -> bool:
-    yes_values = {"t", "tak", "y", "yes", "1", "true"}
-    no_values = {"n", "nie", "no", "0", "false"}
-    if require_explicit:
-        result = _read_explicit_bool_inplace(prompt)
-        if result is not None:
-            return bool(result)
-        result2 = _explicit_bool_cursor(prompt)
-        if result2 is not None:
-            return bool(result2)
-    suffix = "T/N" if require_explicit else ("T/n" if default else "t/N")
-    while True:
-        value = input(f"{prompt} [{suffix}]: ").strip().lower()
-        control = _plain_control_word(value)
-        if control == "exit":
-            raise UserRequestedAppExit()
-        if control == "cancel":
-            raise UserCancelledInput()
-        if not value:
-            if require_explicit:
-                continue
-            return default
-        if value in yes_values:
-            return True
-        if value in no_values:
-            return False
-        print("Wpisz T/Tak albo N/Nie.")
-
-
-def _exclusion_cursor_choice(state: WizardState) -> str | None:
-    rows: list[tuple[str, str, str, str]] = [
-        ("item", "1", f"Domyślne [{on_off_label(state.use_default_excludes)}]", "Globalnie włącz/wyłącz całą listę domyślną."),
-        ("item", "2", f"Edytuj domyślne [{len(state.active_default_excludes())}/{len(state.profile_default_excludes())}]", "Tabela pojedynczych wzorców domyślnych."),
-        _cursor_separator_row(),
-        ("item", "3", f"Ręcznie dodane [{on_off_label(state.use_custom_excludes)}]", "Włącz/wyłącz użycie ręcznie dodanych wzorców."),
-        ("item", "4", f"Zarządzaj [{len(state.custom_excludes)}]", "Dodaj, edytuj, usuń pojedyncze albo wyczyść wszystkie."),
-        _cursor_separator_row(),
-        ("item", "0", "Wróć", "Powrót do ustawień."),
-    ]
-    return _option_rows_cursor_app(
-        title="Ustawienia wykluczeń",
-        rows=rows,
-        default_key="0",
-        header_lines=[
-            f"Profil: {state.profile_label()}",
-            f"Domyślne aktywne: {len(state.active_default_excludes())} / {len(state.profile_default_excludes())}",
-            f"Ręcznie dodane: {manual_exclusions_label(state)}",
+        "schema_version": PACKAGE_SET_SCHEMA,
+        "generator": Path(__file__).name,
+        "generator_version": GENERATOR_VERSION,
+        "created_at_utc": utc_now(),
+        "source_root": str(plan.root),
+        "package_name": base_zip_name,
+        "profile": plan.profile,
+        "archive_format": archive_format,
+        "package_version": plan.version.full_version,
+        "part_size_bytes": part_size,
+        "compression": "ZIP_DEFLATED",
+        "compression_level": compression_level,
+        "scan_method": plan.scan_method,
+        "manifest_builder": plan.manifest_builder,
+        "plan_sha256": plan.plan_sha256(),
+        "entry_count": plan.file_count,
+        "source_total_size_bytes": plan.total_size,
+        "logical_zip_sha256": logical_zip_sha256,
+        "package_set_sha256": package_set_hash(outputs),
+        "outputs": [
+            {
+                "part_no": item.part_no,
+                "filename": item.filename,
+                "size_bytes": item.size_bytes,
+                "sha256": item.sha256,
+                "is_complete_zip": item.is_complete_zip,
+            }
+            for item in outputs
         ],
+        "entries": [
+            {
+                "path": item.relative,
+                "size_bytes": item.size_bytes,
+                "sha256": item.sha256,
+                "classification": item.classification,
+            }
+            for item in plan.entries
+        ],
+        "excluded_count": len(plan.excluded),
+        "excluded_sample": [
+            {"path": path, "reason": reason}
+            for path, reason in plan.excluded[:1000]
+        ],
+        "verification": verification,
+    }
+
+
+def write_join_ps1(temp_dir: Path, base_zip_name: str, outputs: Sequence[OutputPart], logical_hash: str) -> Path:
+    path = temp_dir / f"{base_zip_name}.join.ps1"
+    rows = "\n".join(
+        f"    @{{ Name = '{item.filename.replace("'", "''")}'; Sha256 = '{item.sha256}' }}"
+        for item in outputs
     )
-
-
-def exclusion_menu(state: WizardState, ui_mode: str = "plain") -> None:
-    while True:
-        if should_use_cursor_menu(ui_mode):
-            choice = _exclusion_cursor_choice(state)
-            if choice in {None, "0"}:
-                return
-        else:
-            print_exclusion_status(state)
-            print("\nOpcje:")
-            print(f"  1. Domyślne [{on_off_label(state.use_default_excludes)}]")
-            print("     Globalnie włącz/wyłącz całą listę domyślną.")
-            print(f"  2. Edytuj domyślne [{len(state.active_default_excludes())}/{len(state.profile_default_excludes())}]")
-            print("     Tabela pojedynczych wzorców domyślnych.")
-            _print_plain_separator("    ")
-            print(f"  3. Ręcznie dodane [{on_off_label(state.use_custom_excludes)}]")
-            print("     Włącz/wyłącz użycie ręcznie dodanych wzorców.")
-            print(f"  4. Zarządzaj [{len(state.custom_excludes)}]")
-            print("     Dodaj, edytuj, usuń pojedyncze albo wyczyść wszystkie.")
-            _print_plain_separator("    ")
-            print("  0. Wróć")
-            choice = ask_text("Wybór", "0")
-            if choice == "0":
-                return
-        normalized_choice = str(choice).strip().replace(",", ".")
-        if normalized_choice == "1":
-            state.use_default_excludes = not state.use_default_excludes
-            state.plan = None
-        elif normalized_choice == "2":
-            default_exclusions_table_menu(state, ui_mode)
-        elif normalized_choice == "3":
-            state.use_custom_excludes = not state.use_custom_excludes
-            state.plan = None
-        elif normalized_choice == "4":
-            manual_exclusion_submenu(state, ui_mode)
-        else:
-            print("Nieznana opcja.")
-
-
-def _pack_settings_label_for_key(state: WizardState, key: str, editor: dict[str, object] | None = None) -> str:
-    editor = editor or {}
-    editing_field = str(editor.get("field") or "")
-    editing_text = str(editor.get("text") or "")
-    editing_cursor = as_int(editor.get("cursor"), len(editing_text))
-
-    def edit_value(field: str, fallback: str) -> str:
-        if editing_field == field:
-            return _text_with_cursor_marker(editing_text, editing_cursor)
-        return fallback
-    if key == "1":
-        return f"Zmień rozmiar jednej części ZIP [{edit_value('part_size', str(state.part_size_mb))} MiB]"
-    if key == "2":
-        return f"Zmień poziom kompresji [{edit_value('compression', str(state.compression_level))}]"
-    if key == "3":
-        return f"Zapisywać puste katalogi [{'tak' if state.include_empty_dirs else 'nie'}]"
-    if key == "4":
-        return f"Nadpisywać istniejące pliki [{'tak' if state.force else 'nie'}]"
-    if key == "5":
-        return "Ustaw wszystko krok po kroku"
-    if key == "0":
-        return "Wróć"
-    return ""
-
-
-def _pack_settings_cursor_app(state: WizardState) -> None:
-    """Ustawienia paczki: edycja wartości tylko w nawiasach, bez podświetlania całego wiersza."""
-    parts = prompt_toolkit_parts()
-    if parts is None:
-        return
-    Application, KeyBindings, Layout, Window, FormattedTextControl, Style = parts
-    rows = _pack_settings_rows(state)
-    item_rows = [index for index, row in enumerate(rows) if row[0] == "item"]
-    key_to_row = {rows[index][1]: index for index in item_rows}
-    selected = {"row_index": key_to_row.get("0", item_rows[0])}
-    editor: dict[str, object] = {"field": "", "text": "", "cursor": 0, "message": "", "wizard": False}
-
-    def is_editing() -> bool:
-        return bool(editor.get("field"))
-
-    def selected_key() -> str:
-        _kind, key, _label, _description = rows[selected["row_index"]]
-        return str(key)
-
-    def selected_item_pos() -> int:
-        try:
-            return item_rows.index(selected["row_index"])
-        except ValueError:
-            selected["row_index"] = item_rows[0]
-            return 0
-
-    def start_edit(field: str, *, wizard: bool = False) -> None:
-        key = "1" if field == "part_size" else "2"
-        selected["row_index"] = key_to_row.get(key, selected["row_index"])
-        text = _pack_setting_initial_text(state, field)
-        editor.update({"field": field, "text": text, "cursor": len(text), "wizard": bool(wizard), "message": f"Edytujesz: {_pack_setting_label_for_field(field)}. Pisz w nawiasie []; Enter zapisuje, Esc anuluje."})
-
-    def stop_edit(message: str = "") -> None:
-        editor.update({"field": "", "text": "", "cursor": 0, "wizard": False, "message": message})
-
-    def move(delta: int, event: Any) -> None:
-        if not is_editing():
-            selected["row_index"] = item_rows[(selected_item_pos() + delta) % len(item_rows)]
-            editor["message"] = ""
-        event.app.invalidate()
-
-    def insert(value: str) -> None:
-        text_value = str(editor.get("text") or "")
-        cursor = as_int(editor.get("cursor"), len(text_value))
-        editor["text"] = text_value[:cursor] + value + text_value[cursor:]
-        editor["cursor"] = cursor + len(value)
-
-    def submit_edit(event: Any) -> None:
-        field = str(editor.get("field") or "")
-        ok, message = _apply_pack_setting_value(state, field, str(editor.get("text") or ""))
-        if not ok:
-            editor["message"] = message
-            event.app.invalidate(); return
-        wizard = bool(editor.get("wizard"))
-        if wizard and field == "part_size":
-            start_edit("compression", wizard=True)
-            editor["message"] = message + " | Następnie ustaw poziom kompresji."
-        else:
-            stop_edit(message)
-        event.app.invalidate()
-
-    def toggle_bool(key: str) -> str:
-        if key == "3":
-            state.include_empty_dirs = not state.include_empty_dirs; state.plan = None
-            return f"Zapisywanie pustych katalogów: {'tak' if state.include_empty_dirs else 'nie'}"
-        if key == "4":
-            state.force = not state.force; state.plan = None
-            return f"Nadpisywanie istniejących plików: {'tak' if state.force else 'nie'}"
-        return ""
-
-    def activate_selected(event: Any) -> None:
-        key = selected_key()
-        field = _pack_setting_field_for_key(key)
-        if field:
-            start_edit(field); event.app.invalidate(); return
-        if key in {"3", "4"}:
-            editor["message"] = toggle_bool(key); event.app.invalidate(); return
-        if key == "5":
-            start_edit("part_size", wizard=True); event.app.invalidate(); return
-        if key == "0":
-            event.app.exit(result=None)
-
-    def append_pack_row(fragments: list[tuple[str, str]], key: str, label: str, marker: str, style: str, width: int) -> None:
-        editing_field = str(editor.get("field") or "")
-        if editing_field == "part_size" and key == "1":
-            value = _text_with_cursor_marker(str(editor.get("text") or ""), as_int(editor.get("cursor"), 0))
-            _append_wrapped_fragments(fragments, [("class:latka.option", f"  {marker} 1. Zmień rozmiar jednej części ZIP ["), ("class:editing", value), ("class:latka.option", " MiB]")], width)
-            return
-        if editing_field == "compression" and key == "2":
-            value = _text_with_cursor_marker(str(editor.get("text") or ""), as_int(editor.get("cursor"), 0))
-            _append_wrapped_fragments(fragments, [("class:latka.option", f"  {marker} 2. Zmień poziom kompresji ["), ("class:editing", value), ("class:latka.option", "]")], width)
-            return
-        for piece in _wrap_text_lines(f"  {marker} {key}. {label}", width, subsequent_indent="    "):
-            fragments.append((style, piece)); fragments.append(("", "\n"))
-
-    def get_text() -> list[tuple[str, str]]:
-        width = _terminal_ui_width(fallback=100)
-        current_rows = _pack_settings_rows(state, editor)
-        fragments: list[tuple[str, str]] = []
-        def line(style: str, value: str = "", *, subsequent_indent: str = "") -> None:
-            for piece in _wrap_text_lines(value, width, subsequent_indent=subsequent_indent):
-                fragments.append((style, piece)); fragments.append(("", "\n"))
-        line("class:border", "=" * width)
-        line("class:title", "  Ustawienia paczki")
-        line("class:border", "=" * width)
-        line("", "")
-        line("class:hint", f"Profil: {state.profile_label()}", subsequent_indent="  ")
-        line("class:hint", f"Zakres include: {state.include_prefixes() or '(cały folder źródłowy)'}", subsequent_indent="  ")
-        line("class:hint", "ESC wraca do Ustawień; w trakcie edycji anuluje tylko bieżące pole.", subsequent_indent="  ")
-        line("", "")
-        line("class:border", "=" * width)
-        for index, (kind, key, label, description) in enumerate(current_rows):
-            if kind == "sep":
-                line("class:separator", _menu_separator_text(width)); continue
-            marker = "▶" if index == selected["row_index"] else " "
-            style = "class:latka.selected" if index == selected["row_index"] and not is_editing() else "class:latka.option"
-            append_pack_row(fragments, key, label, marker, style, width)
-            if description:
-                line("class:description", "      " + description, subsequent_indent="      ")
-        line("class:border", "=" * width)
-        if is_editing():
-            line("class:hint", "Edycja pola [] | cyfry/tekst wpisują się w nawiasie | ←/→ ruch kursora | Enter zapisz | Esc anuluj | Ctrl+X zamknij bez zapisu", subsequent_indent="  ")
-        else:
-            line("class:hint", "↑/↓ wybór | Enter OK | Esc/Q wróć o 1 poziom | Ctrl+X zamknij bez zapisu", subsequent_indent="  ")
-        message = str(editor.get("message") or "")
-        if message:
-            line("class:message", message, subsequent_indent="  ")
-        return fragments
-
-    control = FormattedTextControl(text=get_text, focusable=True)
-    window = Window(content=control, wrap_lines=True, dont_extend_height=True)
-    layout = Layout(window)
-    kb = KeyBindings()
-
-    @kb.add("up")
-    def _up(event: Any) -> None: move(-1, event)
-    @kb.add("down")
-    def _down(event: Any) -> None: move(1, event)
-    @kb.add("k")
-    def _k(event: Any) -> None:
-        if is_editing(): insert("k"); event.app.invalidate()
-        else: move(-1, event)
-    @kb.add("j")
-    def _j(event: Any) -> None:
-        if is_editing(): insert("j"); event.app.invalidate()
-        else: move(1, event)
-    @kb.add("home")
-    def _home(event: Any) -> None:
-        if is_editing(): editor["cursor"] = 0
-        else: selected["row_index"] = item_rows[0]
-        event.app.invalidate()
-    @kb.add("end")
-    def _end(event: Any) -> None:
-        if is_editing(): editor["cursor"] = len(str(editor.get("text") or ""))
-        else: selected["row_index"] = item_rows[-1]
-        event.app.invalidate()
-    @kb.add("left")
-    def _left(event: Any) -> None:
-        if is_editing(): editor["cursor"] = max(0, as_int(editor.get("cursor"), 0) - 1); event.app.invalidate()
-    @kb.add("right")
-    def _right(event: Any) -> None:
-        if is_editing():
-            value = str(editor.get("text") or "")
-            editor["cursor"] = min(len(value), as_int(editor.get("cursor"), len(value)) + 1)
-            event.app.invalidate()
-    @kb.add("backspace")
-    @kb.add("c-h")
-    def _backspace(event: Any) -> None:
-        if is_editing():
-            value = str(editor.get("text") or ""); cursor = as_int(editor.get("cursor"), len(value))
-            if cursor > 0:
-                editor["text"] = value[:cursor - 1] + value[cursor:]; editor["cursor"] = cursor - 1
-            event.app.invalidate()
-    @kb.add("delete")
-    def _delete(event: Any) -> None:
-        if is_editing():
-            value = str(editor.get("text") or ""); cursor = as_int(editor.get("cursor"), len(value))
-            if cursor < len(value): editor["text"] = value[:cursor] + value[cursor + 1:]
-            event.app.invalidate()
-    @kb.add("enter")
-    def _enter(event: Any) -> None:
-        if is_editing(): submit_edit(event)
-        else: activate_selected(event)
-    @kb.add("escape")
-    def _escape(event: Any) -> None:
-        if is_editing(): stop_edit("Anulowano edycję pola. Kursor został w Ustawieniach paczki."); event.app.invalidate()
-        else: event.app.exit(result=None)
-    @kb.add("q")
-    def _q(event: Any) -> None:
-        if is_editing(): insert("q"); event.app.invalidate()
-        else: event.app.exit(result=None)
-    @kb.add("c-x", eager=True)
-    def _ctrl_x_exit(event: Any) -> None: event.app.exit(exception=UserRequestedAppExit())
-    @kb.add("c-c", eager=True)
-    def _ctrl_c_noop(event: Any) -> None: event.app.invalidate()
-    try:
-        @kb.add("<sigint>", eager=True)
-        def _sigint_noop(event: Any) -> None: event.app.invalidate()
-    except Exception:
-        pass
-    for option_key in ["0", "1", "2", "3", "4", "5"]:
-        @kb.add(option_key, eager=True)
-        def _number(event: Any, option_key: str = option_key) -> None:
-            if is_editing(): insert(option_key); event.app.invalidate(); return
-            selected["row_index"] = key_to_row.get(option_key, selected["row_index"]); activate_selected(event)
-    @kb.add("<any>")
-    def _insert_any(event: Any) -> None:
-        if is_editing():
-            data = getattr(event, "data", "") or ""
-            if data and data not in {"\r", "\n", "\t"}: insert(data); event.app.invalidate()
-    style = Style.from_dict({
-        "border": "ansicyan", "title": "bold ansicyan", "hint": "ansibrightblack",
-        "description": "ansibrightblack", "separator": "ansicyan", "message": "ansiyellow",
-        "editing": "reverse bold", "latka.option": "", "latka.selected": "reverse bold",
-    })
-    _application_run_responsive(Application, layout=layout, key_bindings=kb, style=style)
-
-
-def _custom_exclusion_list_cursor(state: WizardState, *, mode: str) -> None:
-    """Przewijana lista ręcznych wykluczeń. Nie jest wywoływana z wnętrza innego Application.run."""
-    parts = prompt_toolkit_parts()
-    if parts is None:
-        return
-    Application, KeyBindings, Layout, Window, FormattedTextControl, Style = parts
-    selected = {"index": 0, "top": 0}
-    editor = {"active": False, "text": "", "cursor": 0, "message": ""}
-    title = "Edytuj ręcznie dodane wykluczenie" if mode == "edit" else "Usuń ręcznie dodane wykluczenie"
-
-    def visible_row_count() -> int:
-        try: lines = shutil.get_terminal_size(fallback=(100, 24)).lines
-        except Exception: lines = 24
-        return max(4, min(max(1, len(state.custom_excludes)), lines - 12))
-    def clamp() -> None:
-        count = len(state.custom_excludes)
-        if count <= 0:
-            selected["index"] = selected["top"] = 0; return
-        selected["index"] = max(0, min(selected["index"], count - 1))
-        visible = visible_row_count()
-        if selected["index"] < selected["top"]: selected["top"] = selected["index"]
-        elif selected["index"] >= selected["top"] + visible: selected["top"] = selected["index"] - visible + 1
-        selected["top"] = max(0, min(selected["top"], max(0, count - visible)))
-    def is_editing() -> bool: return bool(editor.get("active"))
-    def move(delta: int) -> None:
-        if is_editing() or not state.custom_excludes: return
-        selected["index"] = max(0, min(len(state.custom_excludes) - 1, selected["index"] + delta)); clamp()
-    def start_edit() -> None:
-        if not state.custom_excludes: return
-        clamp(); value = state.custom_excludes[selected["index"]]
-        editor.update({"active": True, "text": value, "cursor": len(value), "message": ""})
-    def stop_edit(message: str = "") -> None:
-        editor.update({"active": False, "text": "", "cursor": 0, "message": message})
-    def insert(data: str) -> None:
-        value = str(editor.get("text") or ""); cursor = as_int(editor.get("cursor"), len(value))
-        editor["text"] = value[:cursor] + data + value[cursor:]; editor["cursor"] = cursor + len(data)
-    def apply_edit() -> None:
-        value = str(editor.get("text") or "").strip()
-        if not value: editor["message"] = "Wzorzec nie może być pusty."; return
-        clamp(); old = state.custom_excludes[selected["index"]]
-        state.custom_excludes[selected["index"]] = value; state.use_custom_excludes = True; state.plan = None
-        stop_edit(f"Zmieniono: {old} → {value}")
-    def remove_current() -> None:
-        if not state.custom_excludes: editor["message"] = "Brak wpisów do usunięcia."; return
-        clamp(); old = state.custom_excludes.pop(selected["index"]); state.plan = None
-        if selected["index"] >= len(state.custom_excludes): selected["index"] = max(0, len(state.custom_excludes) - 1)
-        clamp(); editor["message"] = f"Usunięto: {old}"
-    def get_text() -> list[tuple[str, str]]:
-        clamp(); width = _terminal_ui_width(fallback=100); fragments: list[tuple[str, str]] = []
-        def line(style: str, value: str = "", *, subsequent_indent: str = "") -> None:
-            for piece in _wrap_text_lines(value, width, subsequent_indent=subsequent_indent):
-                fragments.append((style, piece)); fragments.append(("", "\n"))
-        line("class:border", "=" * width); line("class:title", f"  {title}"); line("class:border", "=" * width)
-        line("", ""); line("class:hint", "ESC wraca do menu ręcznie dodanych wykluczeń."); line("", ""); line("class:border", "=" * width)
-        if not state.custom_excludes:
-            line("class:hint", "  (brak ręcznie dodanych wykluczeń)")
-        else:
-            visible = visible_row_count(); top = selected["top"]; bottom = min(top + visible, len(state.custom_excludes))
-            for idx in range(top, bottom):
-                marker = "▶" if idx == selected["index"] else " "
-                if is_editing() and idx == selected["index"]:
-                    value = _text_with_cursor_marker(str(editor.get("text") or ""), as_int(editor.get("cursor"), 0))
-                    _append_wrapped_fragments(fragments, [("class:latka.option", f"  {marker} {idx + 1}. ["), ("class:editing", value), ("class:latka.option", "]")], width)
-                else:
-                    style = "class:latka.selected" if idx == selected["index"] else "class:latka.option"
-                    line(style, f"  {marker} {idx + 1}. [{state.custom_excludes[idx]}]", subsequent_indent="    ")
-        line("class:separator", _menu_separator_text(width)); line("class:latka.option", "    0. Wróć"); line("class:description", "      Bez zmiany.")
-        line("class:border", "=" * width)
-        footer = "Edycja []: wpisuj tekst | Tab autouzupełnij | Enter zapisz | Esc anuluj | Ctrl+X zamknij bez zapisu" if is_editing() else "↑/↓ wybór | Enter OK | Esc/Q wróć o 1 poziom | Ctrl+X zamknij bez zapisu"
-        line("class:hint", footer, subsequent_indent="  ")
-        if editor.get("message"): line("class:message", str(editor.get("message")), subsequent_indent="  ")
-        return fragments
-    control = FormattedTextControl(text=get_text, focusable=True)
-    window = Window(content=control, wrap_lines=True, dont_extend_height=False)
-    layout = Layout(window); kb = KeyBindings()
-    @kb.add("up")
-    def _up(event: Any) -> None: move(-1); event.app.invalidate()
-    @kb.add("down")
-    def _down(event: Any) -> None: move(1); event.app.invalidate()
-    @kb.add("k")
-    def _k(event: Any) -> None:
-        if is_editing(): insert("k")
-        else: move(-1)
-        event.app.invalidate()
-    @kb.add("j")
-    def _j(event: Any) -> None:
-        if is_editing(): insert("j")
-        else: move(1)
-        event.app.invalidate()
-    @kb.add("pageup")
-    @kb.add("c-u")
-    def _page_up(event: Any) -> None: move(-visible_row_count()); event.app.invalidate()
-    @kb.add("pagedown")
-    @kb.add("c-d")
-    def _page_down(event: Any) -> None: move(visible_row_count()); event.app.invalidate()
-    @kb.add("home")
-    def _home(event: Any) -> None:
-        if is_editing(): editor["cursor"] = 0
-        else: selected["index"] = selected["top"] = 0
-        event.app.invalidate()
-    @kb.add("end")
-    def _end(event: Any) -> None:
-        if is_editing(): editor["cursor"] = len(str(editor.get("text") or ""))
-        else: selected["index"] = max(0, len(state.custom_excludes) - 1); clamp()
-        event.app.invalidate()
-    @kb.add("left")
-    def _left(event: Any) -> None:
-        if is_editing(): editor["cursor"] = max(0, as_int(editor.get("cursor"), 0) - 1); event.app.invalidate()
-    @kb.add("right")
-    def _right(event: Any) -> None:
-        if is_editing():
-            value = str(editor.get("text") or ""); editor["cursor"] = min(len(value), as_int(editor.get("cursor"), len(value)) + 1); event.app.invalidate()
-    @kb.add("backspace")
-    @kb.add("c-h")
-    def _backspace(event: Any) -> None:
-        if is_editing():
-            value = str(editor.get("text") or ""); cursor = as_int(editor.get("cursor"), len(value))
-            if cursor > 0: editor["text"] = value[:cursor - 1] + value[cursor:]; editor["cursor"] = cursor - 1
-            event.app.invalidate()
-    @kb.add("delete")
-    def _delete(event: Any) -> None:
-        if is_editing():
-            value = str(editor.get("text") or ""); cursor = as_int(editor.get("cursor"), len(value))
-            if cursor < len(value): editor["text"] = value[:cursor] + value[cursor + 1:]
-            event.app.invalidate()
-    @kb.add("tab")
-    def _tab(event: Any) -> None:
-        if is_editing():
-            new_text, msg = _inline_autocomplete_path(str(editor.get("text") or ""), only_directories=False)
-            editor["text"] = new_text; editor["cursor"] = len(new_text); editor["message"] = msg; event.app.invalidate()
-    @kb.add("enter")
-    def _enter(event: Any) -> None:
-        if is_editing(): apply_edit()
-        elif mode == "edit": start_edit()
-        else: remove_current()
-        event.app.invalidate()
-    @kb.add("escape")
-    def _escape(event: Any) -> None:
-        if is_editing(): stop_edit("Anulowano edycję pola."); event.app.invalidate()
-        else: event.app.exit(result=None)
-    @kb.add("q")
-    def _q(event: Any) -> None:
-        if is_editing(): insert("q"); event.app.invalidate()
-        else: event.app.exit(result=None)
-    @kb.add("0")
-    def _zero(event: Any) -> None:
-        if is_editing(): insert("0"); event.app.invalidate()
-        else: event.app.exit(result=None)
-    @kb.add("c-x", eager=True)
-    def _ctrl_x_exit(event: Any) -> None: event.app.exit(exception=UserRequestedAppExit())
-    @kb.add("c-c", eager=True)
-    def _ctrl_c_noop(event: Any) -> None: event.app.invalidate()
-    try:
-        @kb.add("<sigint>", eager=True)
-        def _sigint_noop(event: Any) -> None: event.app.invalidate()
-    except Exception: pass
-    @kb.add("<any>")
-    def _any(event: Any) -> None:
-        if is_editing():
-            data = getattr(event, "data", "") or ""
-            if data and data not in {"\r", "\n", "\t"}: insert(data); event.app.invalidate()
-    style = Style.from_dict({"border": "ansicyan", "title": "bold ansicyan", "hint": "ansibrightblack", "description": "ansibrightblack", "separator": "ansicyan", "message": "ansiyellow", "editing": "reverse bold", "latka.option": "", "latka.selected": "reverse bold"})
-    _application_run_responsive(Application, layout=layout, key_bindings=kb, style=style)
-
-
-def _manual_exclusion_cursor_menu(state: WizardState) -> None:
-    """Menu ręcznie dodanych wykluczeń bez zagnieżdżania Application.run w handlerze."""
-    while True:
-        parts = prompt_toolkit_parts()
-        if parts is None:
-            return
-        Application, KeyBindings, Layout, Window, FormattedTextControl, Style = parts
-        rows: list[tuple[str, str, str, str]] = [
-            ("item", "1", "Dodaj", "Dodaj nowy ręczny wzorzec."),
-            ("item", "2", "Edytuj", "Zmień wybrany ręczny wzorzec."),
-            ("item", "3", "Usuń pojedyncze", "Usuń jeden wybrany wzorzec."),
-            ("item", "4", "Wyczyść wszystkie", "Usuń wszystkie ręczne wzorce."),
-            _cursor_separator_row(),
-            ("item", "0", "Wróć", "Powrót do ustawień wykluczeń."),
-        ]
-        item_rows = [idx for idx, row in enumerate(rows) if row[0] == "item"]
-        keys = [rows[idx][1] for idx in item_rows]
-        selected = {"row_index": item_rows[0]}
-        editor = {"active": False, "text": "", "cursor": 0, "message": ""}
-        def selected_item_pos() -> int:
-            try: return item_rows.index(selected["row_index"])
-            except ValueError: selected["row_index"] = item_rows[0]; return 0
-        def is_editing_add() -> bool: return bool(editor.get("active"))
-        def start_add() -> None:
-            selected["row_index"] = item_rows[0]; editor.update({"active": True, "text": "", "cursor": 0, "message": ""})
-        def stop_add(message: str = "") -> None:
-            editor.update({"active": False, "text": "", "cursor": 0, "message": message})
-        def insert(data: str) -> None:
-            value = str(editor.get("text") or ""); cursor = as_int(editor.get("cursor"), len(value))
-            editor["text"] = value[:cursor] + data + value[cursor:]; editor["cursor"] = cursor + len(data)
-        def apply_add() -> None:
-            value = str(editor.get("text") or "").strip()
-            if not value: editor["message"] = "Wzorzec nie może być pusty."; return
-            state.custom_excludes.append(value); state.use_custom_excludes = True; state.plan = None
-            stop_add(f"Dodano: {value}"); selected["row_index"] = item_rows[0]
-        def get_text() -> list[tuple[str, str]]:
-            width = _terminal_ui_width(fallback=100); fragments: list[tuple[str, str]] = []
-            def line(style: str, value: str = "", *, subsequent_indent: str = "") -> None:
-                for piece in _wrap_text_lines(value, width, subsequent_indent=subsequent_indent):
-                    fragments.append((style, piece)); fragments.append(("", "\n"))
-            line("class:border", "=" * width); line("class:title", "  Ręcznie dodane wykluczenie"); line("class:border", "=" * width)
-            line("", ""); line("class:hint", f"Ręcznie dodane: {manual_exclusions_label(state)}"); line("", ""); line("class:border", "=" * width)
-            for index, (kind, key, label, description) in enumerate(rows):
-                if kind == "sep": line("class:separator", _menu_separator_text(width)); continue
-                marker = "▶" if index == selected["row_index"] else " "
-                style = "class:latka.selected" if index == selected["row_index"] and not is_editing_add() else "class:latka.option"
-                if key == "1" and is_editing_add():
-                    value = _text_with_cursor_marker(str(editor.get("text") or ""), as_int(editor.get("cursor"), 0))
-                    _append_wrapped_fragments(fragments, [("class:latka.option", f"  {marker} 1. Dodaj ["), ("class:editing", value), ("class:latka.option", "]")], width)
-                else:
-                    shown_label = f"Dodaj [ścieżka]" if key == "1" else label
-                    line(style, f"  {marker} {key}. {shown_label}", subsequent_indent="    ")
-                if description: line("class:description", "      " + description, subsequent_indent="      ")
-            line("class:border", "=" * width)
-            footer = "Edycja []: wpisuj tekst | Tab autouzupełnij | Enter dodaj | Esc anuluj | Ctrl+X zamknij bez zapisu" if is_editing_add() else "↑/↓ wybór | Enter OK | Esc/Q wróć o 1 poziom | Ctrl+X zamknij bez zapisu"
-            line("class:hint", footer, subsequent_indent="  ")
-            if editor.get("message"): line("class:message", str(editor.get("message")), subsequent_indent="  ")
-            return fragments
-        control = FormattedTextControl(text=get_text, focusable=True); window = Window(content=control, wrap_lines=True, dont_extend_height=True); layout = Layout(window); kb = KeyBindings()
-        def move(delta: int, event: Any) -> None:
-            if not is_editing_add(): selected["row_index"] = item_rows[(selected_item_pos() + delta) % len(item_rows)]
-            event.app.invalidate()
-        @kb.add("up")
-        def _up(event: Any) -> None: move(-1, event)
-        @kb.add("down")
-        def _down(event: Any) -> None: move(1, event)
-        @kb.add("k")
-        def _k(event: Any) -> None:
-            if is_editing_add(): insert("k")
-            else: selected["row_index"] = item_rows[(selected_item_pos() - 1) % len(item_rows)]
-            event.app.invalidate()
-        @kb.add("j")
-        def _j(event: Any) -> None:
-            if is_editing_add(): insert("j")
-            else: selected["row_index"] = item_rows[(selected_item_pos() + 1) % len(item_rows)]
-            event.app.invalidate()
-        @kb.add("home")
-        def _home(event: Any) -> None:
-            if is_editing_add(): editor["cursor"] = 0
-            else: selected["row_index"] = item_rows[0]
-            event.app.invalidate()
-        @kb.add("end")
-        def _end(event: Any) -> None:
-            if is_editing_add(): editor["cursor"] = len(str(editor.get("text") or ""))
-            else: selected["row_index"] = item_rows[-1]
-            event.app.invalidate()
-        @kb.add("left")
-        def _left(event: Any) -> None:
-            if is_editing_add(): editor["cursor"] = max(0, as_int(editor.get("cursor"), 0) - 1); event.app.invalidate()
-        @kb.add("right")
-        def _right(event: Any) -> None:
-            if is_editing_add():
-                value = str(editor.get("text") or ""); editor["cursor"] = min(len(value), as_int(editor.get("cursor"), len(value)) + 1); event.app.invalidate()
-        @kb.add("backspace")
-        @kb.add("c-h")
-        def _backspace(event: Any) -> None:
-            if is_editing_add():
-                value = str(editor.get("text") or ""); cursor = as_int(editor.get("cursor"), len(value))
-                if cursor > 0: editor["text"] = value[:cursor - 1] + value[cursor:]; editor["cursor"] = cursor - 1
-                event.app.invalidate()
-        @kb.add("delete")
-        def _delete(event: Any) -> None:
-            if is_editing_add():
-                value = str(editor.get("text") or ""); cursor = as_int(editor.get("cursor"), len(value))
-                if cursor < len(value): editor["text"] = value[:cursor] + value[cursor + 1:]
-                event.app.invalidate()
-        @kb.add("tab")
-        def _tab(event: Any) -> None:
-            if is_editing_add():
-                new_text, msg = _inline_autocomplete_path(str(editor.get("text") or ""), only_directories=False)
-                editor["text"] = new_text; editor["cursor"] = len(new_text); editor["message"] = msg; event.app.invalidate()
-        @kb.add("enter")
-        def _enter(event: Any) -> None:
-            if is_editing_add(): apply_add(); event.app.invalidate(); return
-            _kind, key, _label, _description = rows[selected["row_index"]]
-            if key == "1": start_add(); event.app.invalidate(); return
-            if key == "2": event.app.exit(result="edit"); return
-            if key == "3": event.app.exit(result="remove"); return
-            if key == "4": state.custom_excludes.clear(); state.plan = None; editor["message"] = "Wyczyszczono wszystkie ręcznie dodane wykluczenia."; event.app.invalidate(); return
-            if key == "0": event.app.exit(result=None)
-        @kb.add("escape")
-        def _escape(event: Any) -> None:
-            if is_editing_add(): stop_add("Anulowano dodawanie."); event.app.invalidate()
-            else: event.app.exit(result=None)
-        @kb.add("q")
-        def _q(event: Any) -> None:
-            if is_editing_add(): insert("q"); event.app.invalidate()
-            else: event.app.exit(result=None)
-        @kb.add("c-x", eager=True)
-        def _ctrl_x_exit(event: Any) -> None: event.app.exit(exception=UserRequestedAppExit())
-        @kb.add("c-c", eager=True)
-        def _ctrl_c_noop(event: Any) -> None: event.app.invalidate()
-        try:
-            @kb.add("<sigint>", eager=True)
-            def _sigint_noop(event: Any) -> None: event.app.invalidate()
-        except Exception: pass
-        for option_key in keys:
-            if len(option_key) == 1:
-                @kb.add(option_key)
-                def _number(event: Any, option_key: str = option_key) -> None:
-                    if is_editing_add(): insert(option_key); event.app.invalidate(); return
-                    row_index = next((idx for idx, row in enumerate(rows) if row[0] == "item" and row[1] == option_key), selected["row_index"])
-                    selected["row_index"] = row_index
-                    _kind, key, _label, _description = rows[row_index]
-                    if key == "1": start_add(); event.app.invalidate(); return
-                    if key == "2": event.app.exit(result="edit"); return
-                    if key == "3": event.app.exit(result="remove"); return
-                    if key == "4": state.custom_excludes.clear(); state.plan = None; editor["message"] = "Wyczyszczono wszystkie ręcznie dodane wykluczenia."; event.app.invalidate(); return
-                    if key == "0": event.app.exit(result=None)
-        @kb.add("<any>")
-        def _any(event: Any) -> None:
-            if is_editing_add():
-                data = getattr(event, "data", "") or ""
-                if data and data not in {"\r", "\n", "\t"}: insert(data); event.app.invalidate()
-        style = Style.from_dict({"border": "ansicyan", "title": "bold ansicyan", "hint": "ansibrightblack", "description": "ansibrightblack", "separator": "ansicyan", "message": "ansiyellow", "editing": "reverse bold", "latka.option": "", "latka.selected": "reverse bold"})
-        result = _application_run_responsive(Application, layout=layout, key_bindings=kb, style=style)
-        if result is None:
-            return
-        if result == "edit":
-            _custom_exclusion_list_cursor(state, mode="edit")
-            continue
-        if result == "remove":
-            _custom_exclusion_list_cursor(state, mode="remove")
-            continue
-
-
-
-# =============================================================================
-# NADPISANIA UI v5.17 — powrót kursora do ostatniej pozycji i brak pauzy po Nie
-# =============================================================================
-
-VERSION = "1.6.1.RELEASE-VERSION-FIX"
-
-# Pamięć pozycji kursora działa w ramach jednego uruchomienia aplikacji.
-# Nie zapisujemy tego do JSON-a, bo to stan nawigacji, nie ustawienie paczki.
-_CURSOR_LAST_KEYS: dict[str, str] = {}
-
-
-def _cursor_scope_name(title: str) -> str:
-    return " ".join(str(title or "menu").strip().lower().split())
-
-
-def _remembered_key(scope: str, default_key: str, keys: Iterable[str]) -> str:
-    valid = [str(k) for k in keys]
-    remembered = _CURSOR_LAST_KEYS.get(_cursor_scope_name(scope), "")
-    if remembered in valid:
-        return remembered
-    default_text = str(default_key)
-    return default_text if default_text in valid else (valid[0] if valid else default_text)
-
-
-def _store_cursor_key(scope: str, key: str, keys: Iterable[str]) -> None:
-    valid = {str(k) for k in keys}
-    key_text = str(key)
-    if key_text in valid:
-        _CURSOR_LAST_KEYS[_cursor_scope_name(scope)] = key_text
-
-
-def _read_explicit_bool_inplace(prompt: str) -> bool | None:
-    """Jawne T/N bez powielania promptu po pustym Enterze.
-
-    Na Windows używa msvcrt.getwch(), więc Enter bez litery T/N jest ignorowany
-    w tej samej linii. Gdy msvcrt nie jest dostępny, zwraca None i pozwala
-    przejść do prompt_toolkit/fallbacku.
-    """
-    try:
-        import msvcrt  # type: ignore
-    except Exception:
-        return None
-    try:
-        sys.stdout.write(f"{prompt} [T/N]: ")
-        sys.stdout.flush()
-        buffer = ""
-        yes = {"t", "tak", "y", "yes", "1", "true"}
-        no = {"n", "nie", "no", "0", "false"}
-        while True:
-            ch = msvcrt.getwch()
-            if ch in ("\x00", "\xe0"):
-                _ = msvcrt.getwch()
-                continue
-            if ch == "\x18":
-                raise UserRequestedAppExit()
-            if ch == "\x1b":
-                sys.stdout.write("\n")
-                sys.stdout.flush()
-                return False
-            if ch in ("\r", "\n"):
-                # Najważniejsza poprawka: sam Enter naprawdę nie robi nic
-                # i nie drukuje kolejnego promptu.
-                continue
-            if ch in ("\b", "\x7f"):
-                if buffer:
-                    buffer = buffer[:-1]
-                    sys.stdout.write("\b \b")
-                    sys.stdout.flush()
-                continue
-            if not ch.isprintable():
-                continue
-            buffer += ch
-            sys.stdout.write(ch)
-            sys.stdout.flush()
-            raw = buffer.strip().lower()
-            if raw in yes:
-                sys.stdout.write("\n")
-                sys.stdout.flush()
-                return True
-            if raw in no:
-                sys.stdout.write("\n")
-                sys.stdout.flush()
-                return False
-            if not any(item.startswith(raw) for item in (yes | no)) or len(buffer) > 8:
-                sys.stdout.write("\nWpisz T/Tak albo N/Nie.\n")
-                sys.stdout.write(f"{prompt} [T/N]: ")
-                sys.stdout.flush()
-                buffer = ""
-    except UserRequestedAppExit:
-        raise
-    except Exception:
-        return None
-
-
-def ask_bool(prompt: str, default: bool = False, *, require_explicit: bool = False) -> bool:
-    yes_values = {"t", "tak", "y", "yes", "1", "true"}
-    no_values = {"n", "nie", "no", "0", "false"}
-    if require_explicit:
-        result = _read_explicit_bool_inplace(prompt)
-        if result is not None:
-            return bool(result)
-        # Fallback prompt_toolkit też nie przewija promptu po pustym Enterze.
-        result2 = _explicit_bool_cursor(prompt)
-        if result2 is not None:
-            return bool(result2)
-    suffix = "T/N" if require_explicit else ("T/n" if default else "t/N")
-    while True:
-        value = input(f"{prompt} [{suffix}]: ").strip().lower()
-        control = _plain_control_word(value)
-        if control == "exit":
-            raise UserRequestedAppExit()
-        if control == "cancel":
-            raise UserCancelledInput()
-        if not value:
-            if require_explicit:
-                # Logicznie no-op; zwykły input() nie umie zatrzymać kursora w tej
-                # samej linii, ale nie zatwierdza żadnej decyzji.
-                continue
-            return default
-        if value in yes_values:
-            return True
-        if value in no_values:
-            return False
-        print("Wpisz T/Tak albo N/Nie.")
-
-
-def ask_menu_choice_cursor(state: WizardState, default: str) -> str:
-    """Menu główne z pamięcią ostatniej pozycji i Esc/Q -> Wyjście."""
-    parts = prompt_toolkit_parts()
-    if parts is None:
-        return ask_text("Wybór", default)
-    Application, KeyBindings, Layout, Window, FormattedTextControl, Style = parts
-    options = menu_options(state)
-    keys = [key for key, _ in options]
-    start_key = _remembered_key("menu główne", default, keys)
-    selected = {"index": keys.index(start_key) if start_key in keys else 0}
-    editor: dict[str, object] = {"field": "", "text": "", "cursor": 0, "message": ""}
-
-    def is_editing() -> bool:
-        return bool(editor.get("field"))
-
-    def selected_key() -> str:
-        return str(options[selected["index"]][0])
-
-    def start_edit(key: str) -> bool:
-        field = _inline_edit_field_for_key(key)
-        if not field:
-            return False
-        text = _inline_edit_initial_text(state, field)
-        editor.update({"field": field, "text": text, "cursor": len(text), "message": f"Edytujesz: {_inline_edit_label_for_field(field)}. Wpisuj bezpośrednio w nawiasach []."})
-        return True
-
-    def stop_edit(message: str = "") -> None:
-        editor.update({"field": "", "text": "", "cursor": 0, "message": message})
-
-    def insert(value: str) -> None:
-        text_value = str(editor.get("text") or "")
-        cursor = as_int(editor.get("cursor"), len(text_value))
-        editor["text"] = text_value[:cursor] + value + text_value[cursor:]
-        editor["cursor"] = cursor + len(value)
-        editor["message"] = ""
-
-    def backspace() -> None:
-        text_value = str(editor.get("text") or "")
-        cursor = as_int(editor.get("cursor"), len(text_value))
-        if cursor > 0:
-            editor["text"] = text_value[:cursor - 1] + text_value[cursor:]
-            editor["cursor"] = cursor - 1
-
-    def delete_char() -> None:
-        text_value = str(editor.get("text") or "")
-        cursor = as_int(editor.get("cursor"), len(text_value))
-        if cursor < len(text_value):
-            editor["text"] = text_value[:cursor] + text_value[cursor + 1:]
-
-    def submit_edit() -> None:
-        ok, msg = _apply_inline_edit_value(state, str(editor.get("field") or ""), str(editor.get("text") or ""))
-        if ok:
-            save_settings(state, quiet=True)
-            _store_cursor_key("menu główne", selected_key(), keys)
-            stop_edit(msg)
-        else:
-            editor["message"] = msg
-
-    def autocomplete() -> None:
-        field = str(editor.get("field") or "")
-        if field not in {"source", "output"}:
-            editor["message"] = "Tab działa dla ścieżek folderów."
-            return
-        value, message = _inline_autocomplete_path(str(editor.get("text") or ""), only_directories=True)
-        editor["text"] = value
-        editor["cursor"] = len(value)
-        editor["message"] = message
-
-    def get_text() -> list[tuple[str, str]]:
-        return _cursor_menu_lines(state, selected["index"], editor)
-
-    control = FormattedTextControl(text=get_text, focusable=True)
-    window = Window(content=control, wrap_lines=True, dont_extend_height=True)
-    layout = Layout(window)
-    kb = KeyBindings()
-
-    def move(delta: int, event: Any) -> None:
-        if not is_editing():
-            selected["index"] = (selected["index"] + delta) % len(options)
-        event.app.invalidate()
-
-    @kb.add("up")
-    def _up(event: Any) -> None:
-        move(-1, event)
-
-    @kb.add("down")
-    def _down(event: Any) -> None:
-        move(1, event)
-
-    @kb.add("k")
-    def _k(event: Any) -> None:
-        if is_editing(): insert("k")
-        else: selected["index"] = (selected["index"] - 1) % len(options)
-        event.app.invalidate()
-
-    @kb.add("j")
-    def _j(event: Any) -> None:
-        if is_editing(): insert("j")
-        else: selected["index"] = (selected["index"] + 1) % len(options)
-        event.app.invalidate()
-
-    @kb.add("left")
-    def _left(event: Any) -> None:
-        if is_editing():
-            editor["cursor"] = max(0, as_int(editor.get("cursor"), 0) - 1)
-        event.app.invalidate()
-
-    @kb.add("right")
-    def _right(event: Any) -> None:
-        if is_editing():
-            text_value = str(editor.get("text") or "")
-            editor["cursor"] = min(len(text_value), as_int(editor.get("cursor"), 0) + 1)
-        event.app.invalidate()
-
-    @kb.add("home")
-    def _home(event: Any) -> None:
-        if is_editing(): editor["cursor"] = 0
-        else: selected["index"] = 0
-        event.app.invalidate()
-
-    @kb.add("end")
-    def _end(event: Any) -> None:
-        if is_editing(): editor["cursor"] = len(str(editor.get("text") or ""))
-        else: selected["index"] = len(options) - 1
-        event.app.invalidate()
-
-    @kb.add("backspace")
-    @kb.add("c-h")
-    def _backspace(event: Any) -> None:
-        if is_editing(): backspace()
-        event.app.invalidate()
-
-    @kb.add("delete")
-    def _delete(event: Any) -> None:
-        if is_editing(): delete_char()
-        event.app.invalidate()
-
-    @kb.add("tab")
-    def _tab(event: Any) -> None:
-        if is_editing(): autocomplete()
-        event.app.invalidate()
-
-    @kb.add("enter")
-    def _enter(event: Any) -> None:
-        if is_editing():
-            submit_edit(); event.app.invalidate(); return
-        key = selected_key()
-        _store_cursor_key("menu główne", key, keys)
-        if start_edit(key):
-            event.app.invalidate(); return
-        event.app.exit(result=key)
-
-    @kb.add("escape")
-    @kb.add("q")
-    def _escape(event: Any) -> None:
-        if is_editing():
-            stop_edit("Anulowano edycję pola."); event.app.invalidate(); return
-        _store_cursor_key("menu główne", "0", keys)
-        event.app.exit(result="0")
-
-    @kb.add("c-x", eager=True)
-    def _ctrl_x_exit(event: Any) -> None:
-        event.app.exit(exception=UserRequestedAppExit())
-
-    @kb.add("c-c", eager=True)
-    def _ctrl_c_noop(event: Any) -> None:
-        event.app.invalidate()
-
-    try:
-        @kb.add("<sigint>", eager=True)
-        def _sigint_noop(event: Any) -> None:
-            event.app.invalidate()
-    except Exception:
-        pass
-
-    for option_key in keys:
-        if len(option_key) == 1:
-            @kb.add(option_key, eager=True)
-            def _number(event: Any, option_key: str = option_key) -> None:
-                if is_editing():
-                    insert(option_key); event.app.invalidate(); return
-                selected["index"] = keys.index(option_key)
-                _store_cursor_key("menu główne", option_key, keys)
-                if start_edit(option_key): event.app.invalidate(); return
-                event.app.exit(result=option_key)
-
-    @kb.add("<any>")
-    def _any(event: Any) -> None:
-        if is_editing():
-            data = getattr(event, "data", "") or ""
-            if data and data not in {"\r", "\n", "\t"}:
-                if "\x18" in data:
-                    event.app.exit(exception=UserRequestedAppExit()); return
-                insert(data); event.app.invalidate()
-
-    style = Style.from_dict({
-        "border": "ansicyan", "title": "bold ansicyan", "hint": "ansibrightblack",
-        "message": "ansiyellow", "separator": "ansicyan", "status.label": "bold",
-        "status.value": "", "editing": "reverse bold", "latka.option": "", "latka.selected": "reverse bold",
-    })
-    result = _application_run_responsive(Application, layout=layout, key_bindings=kb, style=style)
-    return str(result or _remembered_key("menu główne", default, keys))
-
-
-def _option_rows_cursor_app(
-    *,
-    title: str,
-    rows: list[tuple[str, str, str, str]],
-    default_key: str = "0",
-    header_lines: list[str] | None = None,
-) -> str | None:
-    """Wspólny widok menu z pamięcią ostatnio zaznaczonego wiersza."""
-    parts = prompt_toolkit_parts()
-    if parts is None:
-        return None
-    Application, KeyBindings, Layout, Window, FormattedTextControl, Style = parts
-    item_rows = [index for index, row in enumerate(rows) if row[0] == "item"]
-    if not item_rows:
-        return None
-    keys = [str(rows[index][1]) for index in item_rows]
-    scope = title or "menu"
-    start_key = _remembered_key(scope, default_key, keys)
-    default_row = next((idx for idx in item_rows if str(rows[idx][1]) == start_key), item_rows[0])
-    selected = {"row_index": default_row}
-
-    def selected_item_pos() -> int:
-        try:
-            return item_rows.index(selected["row_index"])
-        except ValueError:
-            selected["row_index"] = item_rows[0]
-            return 0
-
-    def selected_key() -> str:
-        _kind, key, _label, _description = rows[selected["row_index"]]
-        return str(key)
-
-    def get_text() -> list[tuple[str, str]]:
-        width = _terminal_ui_width(fallback=100)
-        fragments: list[tuple[str, str]] = []
-        def line(style: str, value: str = "", *, subsequent_indent: str = "") -> None:
-            for piece in _wrap_text_lines(value, width, subsequent_indent=subsequent_indent):
-                fragments.append((style, piece)); fragments.append(("", "\n"))
-        line("class:border", "=" * width)
-        line("class:title", f"  {title}")
-        line("class:border", "=" * width)
-        line("", "")
-        for header in header_lines or []:
-            line("class:hint", header, subsequent_indent="  ")
-        if header_lines:
-            line("", ""); line("class:border", "=" * width)
-        for index, (kind, key, label, description) in enumerate(rows):
-            if kind == "sep":
-                line("class:separator", _menu_separator_text(width)); continue
-            marker = "▶" if index == selected["row_index"] else " "
-            style = "class:latka.selected" if index == selected["row_index"] else "class:latka.option"
-            line(style, f"  {marker} {key}. {label}", subsequent_indent="    ")
-            if description:
-                line("class:description", "      " + description, subsequent_indent="      ")
-        line("class:border", "=" * width)
-        line("class:hint", "↑/↓ wybór | Enter OK | Esc/Q wróć o 1 poziom | Ctrl+X zamknij bez zapisu", subsequent_indent="  ")
-        return fragments
-
-    control = FormattedTextControl(text=get_text, focusable=True)
-    window = Window(content=control, wrap_lines=True, dont_extend_height=True)
-    layout = Layout(window)
-    kb = KeyBindings()
-
-    def move(delta: int, event: Any) -> None:
-        pos = (selected_item_pos() + delta) % len(item_rows)
-        selected["row_index"] = item_rows[pos]
-        event.app.invalidate()
-
-    @kb.add("up")
-    @kb.add("k")
-    def _up(event: Any) -> None: move(-1, event)
-
-    @kb.add("down")
-    @kb.add("j")
-    def _down(event: Any) -> None: move(1, event)
-
-    @kb.add("home")
-    def _home(event: Any) -> None:
-        selected["row_index"] = item_rows[0]; event.app.invalidate()
-
-    @kb.add("end")
-    def _end(event: Any) -> None:
-        selected["row_index"] = item_rows[-1]; event.app.invalidate()
-
-    @kb.add("enter")
-    def _enter(event: Any) -> None:
-        key = selected_key()
-        _store_cursor_key(scope, key, keys)
-        event.app.exit(result=key)
-
-    @kb.add("escape")
-    @kb.add("q")
-    def _cancel(event: Any) -> None:
-        _store_cursor_key(scope, selected_key(), keys)
-        event.app.exit(result=None)
-
-    @kb.add("c-x", eager=True)
-    def _ctrl_x_exit(event: Any) -> None:
-        event.app.exit(exception=UserRequestedAppExit())
-
-    @kb.add("c-c", eager=True)
-    def _ctrl_c_noop(event: Any) -> None:
-        event.app.invalidate()
-
-    try:
-        @kb.add("<sigint>", eager=True)
-        def _sigint_noop(event: Any) -> None:
-            event.app.invalidate()
-    except Exception:
-        pass
-
-    for option_key in keys:
-        if len(str(option_key)) == 1:
-            @kb.add(str(option_key))
-            def _number(event: Any, option_key: str = str(option_key)) -> None:
-                _store_cursor_key(scope, option_key, keys)
-                event.app.exit(result=option_key)
-
-    style = Style.from_dict({
-        "border": "ansicyan", "title": "bold ansicyan", "hint": "ansibrightblack",
-        "description": "ansibrightblack", "separator": "ansicyan",
-        "latka.option": "", "latka.selected": "reverse bold",
-    })
-    return _application_run_responsive(Application, layout=layout, key_bindings=kb, style=style)
-
-
-def ask_cursor_choice(
-    *,
-    title: str,
-    options: list[tuple[str, str, str]],
-    default_key: str = "0",
-    header_lines: list[str] | None = None,
-) -> str | None:
-    rows: list[tuple[str, str, str, str]] = []
-    for key, label, description in options:
-        if _should_separate_return_option(key, label) and rows and rows[-1][0] != "sep":
-            rows.append(_cursor_separator_row())
-        rows.append(("item", key, label, description))
-    return _option_rows_cursor_app(title=title, rows=rows, default_key=default_key, header_lines=header_lines)
-
-
-def show_pack_list_and_offer_json(state: WizardState, ui_mode: str = "plain") -> None:
-    """Opcja 2: pokaż listę i po odpowiedzi N wróć od razu do menu — bez Enter=dalerj."""
-    if state.plan is None:
-        rebuild_plan(state)
-    else:
-        section("Lista do spakowania z ustawieniami")
-        print_pack_plan_summary(state)
-    if state.out_dir is not None and ask_bool("Zapisać pełny podgląd listy pakowania do JSON", False, require_explicit=True):
-        preview = save_preview_json(state)
-        print(f"Zapisano podgląd: {preview}")
-
-
-def run_wizard(initial_source: str | None = None, *, ui_mode: str | None = None) -> int:
-    settings_snapshot = snapshot_settings_file()
-    state: WizardState | None = None
-    try:
-        activate_process_guard(prompt_user=True)
-        state = initialize_state(initial_source)
-        section(f"Jaźń / Łatka — generator paczki ZIP v{VERSION}")
-        print_bar(100, 100, label="Ładowanie")
-        if state.settings_needs_cleanup:
-            save_settings(state, quiet=True)
-            settings_snapshot = snapshot_settings_file()
-        show_startup_warnings(state)
-        ui_mode = resolve_ui_mode_with_optional_install(ui_mode, state)
-        save_settings(state, quiet=True)
-        settings_snapshot = snapshot_settings_file()
-        prepare_plan_on_startup_if_possible(state)
-    except UserRequestedAppExit:
-        restore_settings_file(settings_snapshot); print("\nZamknięto skrótem Ctrl+X bez zapisywania zmian."); return 130
-    except KeyboardInterrupt:
-        restore_settings_file(settings_snapshot); print("\nPrzerwano przez Ctrl+C. Start aplikacji został anulowany bez tracebacka."); return 130
-    except EOFError:
-        restore_settings_file(settings_snapshot); print("\nWejście terminala zostało zamknięte. Start aplikacji został anulowany bez tracebacka."); return 130
-
-    while True:
-        try:
-            assert state is not None
-            if not should_use_cursor_menu(ui_mode):
-                show_current_state(state)
-                print(f"Tryb UI:                    {ui_mode_label(ui_mode)}; auto-start: {on_off_label(state.ui_auto_start)}")
-            current_default_choice = default_menu_choice(state)
-            choice = ask_menu_choice(state, current_default_choice, ui_mode)
-            control_word = _plain_control_word(choice)
-            if control_word == "exit": raise UserRequestedAppExit()
-            if control_word == "cancel": continue
-
-            known_menu_choices = {"0", "1", "2", "3", "4", "5", "6", "7", "8"}
-            if choice not in known_menu_choices:
-                if current_default_choice == "3" and state.source_folder is None:
-                    if apply_source_path_text(state, choice): save_settings(state, quiet=True)
-                    continue
-                if current_default_choice == "4" and state.out_dir is None:
-                    if apply_output_path_text(state, choice): save_settings(state, quiet=True)
-                    continue
-
-            if choice == APP_EXIT_MARKER:
-                restore_settings_file(settings_snapshot); print("Zamknięto skrótem Ctrl+X bez zapisywania zmian."); return 130
-            if choice == "1":
-                configure_profile(state, ui_mode); save_settings(state, quiet=True)
-            elif choice == "2":
-                if not ensure_ready_for_pack_plan(state, ui_mode=ui_mode): save_settings(state, quiet=True); continue
-                show_pack_list_and_offer_json(state, ui_mode)
-                save_settings(state, quiet=True)
-                # Bez pause(): po N wracamy od razu do menu, a kursor zostaje na opcji 2.
-            elif choice == "3":
-                configure_source(state); save_settings(state, quiet=True)
-            elif choice == "4":
-                configure_output(state); save_settings(state, quiet=True)
-            elif choice == "5":
-                reset_archive_name_from_version(state); save_settings(state, quiet=True)
-            elif choice == "6":
-                configure_name(state); save_settings(state, quiet=True)
-            elif choice == "7":
-                _ = settings_submenu(state, ui_mode)
-                ui_mode = normalize_ui_mode(state.ui_mode or ui_mode)
-                if ui_mode == "auto": ui_mode = resolve_auto_ui_mode()
-            elif choice == "8":
-                if not ensure_ready_for_pack_plan(state, ui_mode=ui_mode): save_settings(state, quiet=True); continue
-                if state.plan is None: rebuild_plan(state)
-                print("\nTo zostanie użyte jako podstawa pakowania.")
-                print_pack_plan_compact_summary(state)
-                if ask_bool("Pokazać listę katalogów i plików przed pakowaniem", False, require_explicit=True):
-                    print_pack_items_for_plan(state)
-                if not ask_bool("Rozpocząć pakowanie", True, require_explicit=True):
-                    continue
-                assert state.source_folder is not None and state.out_dir is not None and state.plan is not None
-                create_split_zip_from_plan(
-                    source_folder=state.source_folder,
-                    out_dir=state.out_dir,
-                    archive_name=state.archive_name,
-                    plan=state.plan,
-                    part_size_mb=state.part_size_mb,
-                    compression_level=state.compression_level,
-                    force=state.force,
-                    include_empty_dirs=state.include_empty_dirs,
-                    exclude_patterns=state.effective_excludes(),
-                    package_version=state.package_version,
-                    package_release_name=state.package_release_name,
-                    resolved_version_file=state.resolved_version_file,
-                    archive_basename_requested=state.archive_basename_requested,
-                    append_version_to_name=False,
-                    disabled_default_excludes=state.disabled_default_excludes,
-                    pack_profile=state.pack_profile,
-                    include_prefixes=state.include_prefixes(),
-                )
-                save_settings(state, quiet=True); return 0
-            elif choice == "0":
-                exit_action = exit_menu(ui_mode)
-                if exit_action == "save": save_settings(state, quiet=False); print("Zakończono bez pakowania."); return 0
-                if exit_action == "nosave": restore_settings_file(settings_snapshot); print("Zakończono bez zapisywania zmian."); return 0
-                continue
-            else:
-                print("Nieznana opcja.")
-        except UserRequestedAppExit:
-            restore_settings_file(settings_snapshot); print("\nZamknięto skrótem Ctrl+X bez zapisywania zmian."); return 130
-        except KeyboardInterrupt:
-            restore_settings_file(settings_snapshot); print("\nPrzerwano przez Ctrl+C. W trybie kursorowym skrótem zamknięcia aplikacji jest Ctrl+X. Zakończono bez zapisywania zmian."); return 130
-        except EOFError:
-            restore_settings_file(settings_snapshot); print("\nWejście terminala zostało zamknięte. Zamknięto bez zapisywania zmian."); return 130
-        except Exception as exc:
-            save_settings(state, quiet=True); print(f"BŁĄD: {exc}")
-            try: pause()
-            except KeyboardInterrupt:
-                restore_settings_file(settings_snapshot); print("\nPrzerwano przez Ctrl+C. Zakończono bez zapisywania zmian."); return 130
-            except EOFError:
-                restore_settings_file(settings_snapshot); print("\nWejście terminala zostało zamknięte. Zamknięto bez zapisywania zmian."); return 130
-
-
-# =============================================================================
-# NADPISANIA UI v5.18 — cyan w podglądzie list i JSON w menu głównym
-# =============================================================================
-
-VERSION = "1.6.1.RELEASE-VERSION-FIX"
-
-_WINDOWS_VT_READY: bool | None = None
-
-
-def _enable_windows_virtual_terminal() -> bool:
-    """Włącza obsługę sekwencji ANSI/VT w Windows Console/PowerShell, jeśli można."""
-    global _WINDOWS_VT_READY
-    if _WINDOWS_VT_READY is not None:
-        return bool(_WINDOWS_VT_READY)
-    if os.name != "nt":
-        _WINDOWS_VT_READY = True
-        return True
-    try:
-        import ctypes  # type: ignore
-        kernel32 = ctypes.windll.kernel32
-        handle = kernel32.GetStdHandle(-11)  # STD_OUTPUT_HANDLE
-        if handle in (0, -1):
-            _WINDOWS_VT_READY = False
-            return False
-        mode = ctypes.c_uint32()
-        if not kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
-            _WINDOWS_VT_READY = False
-            return False
-        ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
-        if mode.value & ENABLE_VIRTUAL_TERMINAL_PROCESSING:
-            _WINDOWS_VT_READY = True
-            return True
-        new_mode = mode.value | ENABLE_VIRTUAL_TERMINAL_PROCESSING
-        _WINDOWS_VT_READY = bool(kernel32.SetConsoleMode(handle, new_mode))
-        return bool(_WINDOWS_VT_READY)
-    except Exception:
-        _WINDOWS_VT_READY = False
-        return False
-
-
-def _cyan_enabled() -> bool:
-    """Kolor cyan dla separatorów w terminalu, także w PowerShell/Windows Console."""
-    try:
-        if os.environ.get("NO_COLOR"):
-            return False
-        if not sys.stdout.isatty():
-            return False
-        if os.name == "nt":
-            # Spróbuj włączyć VT; nawet gdy terminal już umie ANSI, ta funkcja
-            # nie szkodzi, a usuwa przypadek „PowerShell widzi zwykły tekst”.
-            _enable_windows_virtual_terminal()
-            return True
-        return True
-    except Exception:
-        return False
-
-
-def _ansi_cyan_text(text: str) -> str:
-    return "\033[36m" + text + "\033[0m" if _cyan_enabled() else text
-
-
-def _cyan_line_text(width: int | None = None, char: str = "=") -> str:
-    return _ansi_cyan_text(str(char) * int(width or _terminal_ui_width()))
-
-
-def _main_menu_separator_before(key: str) -> bool:
-    # 1-3 / 4-7 / 8 / T-Z / 9-0. Nie rozdzielamy 9 i 0, bo pakowanie/wyjście są na dole.
-    return str(key).lower() in {"4", "8", "t", "9"}
-
-
-def _inline_edit_field_for_key(key: str) -> str:
-    return {"4": "source", "5": "output", "7": "name"}.get(str(key), "")
-
-
-def default_menu_choice(state: WizardState) -> str:
-    if state.source_folder is None:
-        return "4"
-    if state.out_dir is None:
-        return "5"
-    if not state.archive_name:
-        return "7"
-    if state.plan is not None:
-        return "9"
-    return "2"
-
-
-def menu_options(state: WizardState) -> list[tuple[str, str]]:
-    name_label = _zip_menu_display_name(state.archive_name) or "nie ustawiono"
-    return [
-        ("1", f"1. Profil pakowania [{profile_menu_label(state)}]"),
-        ("2", f"2. Pokaż listę do spakowania [{pack_list_settings_label(state)}]"),
-        ("3", "3. Zapisz pełny podgląd listy pakowania do JSON"),
-        ("4", f"4. Folder do pakowania [{menu_value(state.source_folder)}]"),
-        ("5", f"5. Folder zapisu paczki [{menu_value(state.out_dir)}]"),
-        ("6", "6. Odśwież nazwę paczki z aktualnej wersji"),
-        ("7", f"7. Zmień nazwę paczki [{name_label}]"),
-        ("8", "8. Ustawienia"),
-        ("t", "T. Testuj gotową paczkę"),
-        ("z", "Z. Połącz części w jeden ZIP"),
-        ("9", "9. Pakuj teraz"),
-        ("0", "0. Wyjście"),
-    ]
-
-
-def _cursor_menu_lines(state: WizardState, selected_index: int, inline_editor: dict[str, object] | None = None) -> list[tuple[str, str]]:
-    options = menu_options(state)
-    selected_index = max(0, min(selected_index, len(options) - 1))
-    width = _terminal_ui_width(fallback=100)
-    inline_editor = inline_editor or {}
-    editing_field = str(inline_editor.get("field") or "")
-    editing_text = str(inline_editor.get("text") or "")
-    editing_cursor = as_int(inline_editor.get("cursor"), len(editing_text))
-    message = str(inline_editor.get("message") or "")
-    fragments: list[tuple[str, str]] = []
-
-    def line(style: str, value: str = "", *, subsequent_indent: str = "") -> None:
-        for piece in _wrap_text_lines(value, width, subsequent_indent=subsequent_indent):
-            fragments.append((style, piece))
-            fragments.append(("", "\n"))
-
-    line("class:border", "=" * width)
-    line("class:title", f"  Jaźń / Łatka — generator paczki ZIP v{VERSION}")
-    line("class:border", "=" * width)
-    line("", "")
-    for label, value in (
-        ("Plan:     ", plan_status_label(state)),
-        ("Profil:   ", state.profile_label()),
-        ("Źródło:   ", menu_value(state.source_folder)),
-        ("Zapis:    ", menu_value(state.out_dir)),
-        ("ZIP:      ", state.archive_name or "(nie ustawiono)"),
-    ):
-        line("class:status.value", f"{label}{value}", subsequent_indent=" " * len(label))
-    line("", "")
-    line("class:border", "=" * width)
-    for idx, (key, label) in enumerate(options):
-        if _main_menu_separator_before(key):
-            line("class:separator", _menu_separator_text(width))
-        field = _inline_edit_field_for_key(key)
-        marker = "▶" if idx == selected_index else " "
-        selected_style = "class:latka.selected" if idx == selected_index else "class:latka.option"
-        if editing_field and field == editing_field:
-            edited = _text_with_cursor_marker(editing_text, editing_cursor)
-            row_start = f"  {marker} "
-            if key == "4":
-                parts = [("class:latka.option", row_start + "4. Folder do pakowania ["), ("class:editing", edited), ("class:latka.option", "]")]
-            elif key == "5":
-                parts = [("class:latka.option", row_start + "5. Folder zapisu paczki ["), ("class:editing", edited), ("class:latka.option", "]")]
-            elif key == "7":
-                parts = [("class:latka.option", row_start + "7. Zmień nazwę paczki ["), ("class:editing", edited), ("class:latka.option", "]")]
-            else:
-                parts = [("class:latka.option", row_start + label)]
-            _append_wrapped_fragments(fragments, parts, width)
-        else:
-            line(selected_style, f"  {marker} {label}", subsequent_indent="    ")
-    line("class:border", "=" * width)
-    if editing_field:
-        line("class:hint", "Edycja pola []: wpisuj tekst | Tab autouzupełnij ścieżkę | Enter zapisz | Esc anuluj | Ctrl+X zamknij bez zapisu", subsequent_indent="  ")
-    else:
-        line("class:hint", "↑/↓ wybór | Enter OK | Esc/Q wyjście | Ctrl+X zamknij bez zapisu", subsequent_indent="  ")
-    if message:
-        line("class:message", message, subsequent_indent="  ")
-    return fragments
-
-
-def _settings_rows(state: WizardState, ui_mode: str) -> list[tuple[str, str, str, str]]:
-    return [
-        ("item", "1", f"Profil pakowania [{state.profile_label()}]", ""),
-        _cursor_separator_row(),
-        ("item", "2", f"Ustawienia paczki [{pack_settings_menu_label(state)}]", ""),
-        ("item", "3", f"Ustawienia wykluczeń [{exclusions_menu_label(state)}]", ""),
-        _cursor_separator_row(),
-        ("item", "4", f"Zmień interfejs TXT/Kursorowy [{ui_mode_setting_label(state, ui_mode)}]", ""),
-        _cursor_separator_row(),
-        ("item", "0", "Wróć", ""),
-    ]
-
-
-def _settings_cursor_choice(state: WizardState, ui_mode: str) -> str | None:
-    return _option_rows_cursor_app(title="Ustawienia", rows=_settings_rows(state, ui_mode), default_key="0")
-
-
-def _print_settings_menu_plain(state: WizardState, ui_mode: str) -> None:
-    section("Ustawienia")
-    width = _terminal_ui_width(fallback=78)
-    _print_wrapped_plain(f"1. Profil pakowania [{state.profile_label()}]", indent="  ", width=width)
-    _print_plain_separator("    ")
-    _print_wrapped_plain(f"2. Ustawienia paczki [{pack_settings_menu_label(state)}]", indent="  ", width=width)
-    _print_wrapped_plain(f"3. Ustawienia wykluczeń [{exclusions_menu_label(state)}]", indent="  ", width=width)
-    _print_plain_separator("    ")
-    _print_wrapped_plain(f"4. Zmień interfejs TXT/Kursorowy [{ui_mode_setting_label(state, ui_mode)}]", indent="  ", width=width)
-    _print_plain_separator("    ")
-    _print_wrapped_plain("0. Wróć", indent="  ", width=width)
-
-
-def settings_submenu(state: WizardState, ui_mode: str = "plain") -> str:
-    """Ustawienia bez opcji JSON — JSON jest teraz w menu głównym pod podglądem listy."""
-    while True:
-        if should_use_cursor_menu(ui_mode):
-            choice = _settings_cursor_choice(state, ui_mode)
-            if choice in {None, "0"}:
-                return "cancel"
-        else:
-            _print_settings_menu_plain(state, ui_mode)
-            choice = ask_text("Wybór", "0").strip()
-            if choice == "0":
-                return "cancel"
-
-        normalized = str(choice).strip()
-        if normalized == "1":
-            configure_profile(state, ui_mode); save_settings(state, quiet=True)
-        elif normalized == "2":
-            configure_pack_settings(state, ui_mode); save_settings(state, quiet=True)
-        elif normalized == "3":
-            exclusion_menu(state, ui_mode); save_settings(state, quiet=True)
-        elif normalized == "4":
-            ui_mode = configure_ui_mode_preference(state, ui_mode); save_settings(state, quiet=True)
-        else:
-            print("Nieznana opcja.")
-
-
-def print_lines_paged(title: str, lines: list[str], *, page_size: int | None = None) -> None:
-    """Pager tekstowy: wszystkie linie `====` w nagłówkach są cyan, także przy liście plików."""
-    def header(label: str) -> None:
-        width = _terminal_ui_width(fallback=78)
-        print("\n" + _cyan_line_text(width))
-        print(f"  {label}:")
-        print(_cyan_line_text(width))
-
-    if not lines:
-        header(title)
-        print("  (brak)")
-        print("(END)")
-        return
-
-    page_size_value = page_size or terminal_page_size()
-    page_size_value = max(1, int(page_size_value))
-    total_pages = (len(lines) + page_size_value - 1) // page_size_value
-
-    def print_wrapped_items(page_lines: list[str]) -> None:
-        width = _terminal_ui_width(fallback=120)
-        for line_value in page_lines:
-            for wrapped in _wrap_text_lines(line_value, width, subsequent_indent="      "):
-                print(wrapped)
-
-    if total_pages <= 1 or not sys.stdin.isatty():
-        header(title)
-        print_wrapped_items(lines)
-        print("(END)")
-        return
-
-    page = 0
-    while True:
-        start = page * page_size_value
-        end = min(start + page_size_value, len(lines))
-        header(f"{title} — strona {page + 1}/{total_pages} ({start + 1}-{end} z {len(lines)})")
-        print_wrapped_items(lines[start:end])
-        if page >= total_pages - 1:
-            print("(END)")
-            return
-        try:
-            choice = input(": ").strip().lower()
-        except (EOFError, KeyboardInterrupt):
-            print()
-            return
-        if choice in {"q", "0", "k", "koniec", "esc", "w", "wroc", "wróć"}:
-            print("(END)")
-            return
-        if choice in {"p", "poprzednia", "prev", "b"}:
-            page = max(0, page - 1)
-            continue
-        page += 1
-
-
-def show_pack_list_and_offer_json(state: WizardState, ui_mode: str = "plain") -> None:
-    """Opcja 2: tylko pokazuje aktualną listę. Zapis JSON jest osobną opcją 3."""
-    if state.plan is None:
-        rebuild_plan(state)
-    else:
-        section("Lista do spakowania z ustawieniami")
-        print_pack_plan_summary(state)
-
-
-def save_pack_preview_from_main_menu(state: WizardState, ui_mode: str = "plain") -> None:
-    """Opcja 3 menu głównego: zapisuje pełny podgląd tej samej listy do JSON."""
-    if state.plan is None:
-        rebuild_plan(state)
-    preview = save_preview_json(state)
-    save_settings(state, quiet=True)
-    print(f"Zapisano podgląd: {preview}")
-    pause()
-
-
-
-# =============================================================================
-# PAKIET DWUCZĘŚCIOWY v1.3 — system i pamięć jako osobne dzielone ZIP-y
-# =============================================================================
-
-DUAL_PACKAGE_PROFILE = "pelna"
-DUAL_PACKAGE_COMPONENTS = ("system", "memory")
-DUAL_SYSTEM_REQUIRED_EXCLUDES = (
-    "/memory/",
-    "/workspace_runtime/",
-    "RUNTIME_STATE.json",
-    "ACTIVE_RUNTIME_CACHE_CONTRACT.json",
-    "BOOTSTRAP_JAZN_CURRENT.json",
+    content = f'''# Łączy binarne części jednego ZIP-a i sprawdza SHA-256.
+$ErrorActionPreference = "Stop"
+$BaseZip = "{base_zip_name}"
+$ExpectedFull = "{logical_hash}"
+$Parts = @(
+{rows}
 )
 
+foreach ($Part in $Parts) {{
+    $Path = Join-Path $PSScriptRoot $Part.Name
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {{ throw "Brak części: $($Part.Name)" }}
+    $Actual = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($Actual -ne $Part.Sha256) {{ throw "Zły SHA256 części: $($Part.Name)" }}
+}}
 
-def _dedupe_patterns(patterns: Iterable[str]) -> list[str]:
-    seen: set[str] = set()
-    result: list[str] = []
-    for item in patterns:
-        value = str(item or "").strip()
-        if not value or value in seen:
-            continue
-        seen.add(value)
-        result.append(value)
-    return result
-
-
-def archive_name_with_component(base_archive_name: str, component: str) -> str:
-    """Dodaje `_system` albo `_memory` bezpośrednio przed `.zip`."""
-    component = str(component or "").strip().lower()
-    if component not in DUAL_PACKAGE_COMPONENTS:
-        raise ValueError(f"Nieznany komponent paczki: {component!r}")
-    normalized = sanitize_zip_name(base_archive_name)
-    stem = normalized[:-4]
-    for suffix in ("_system", "_memory"):
-        if stem.lower().endswith(suffix):
-            stem = stem[:-len(suffix)]
-            break
-    return sanitize_zip_name(f"{stem}_{component}.zip")
-
-
-def dual_archive_names(base_archive_name: str) -> dict[str, str]:
-    return {
-        component: archive_name_with_component(base_archive_name, component)
-        for component in DUAL_PACKAGE_COMPONENTS
-    }
-
-
-def package_set_stem(base_archive_name: str) -> str:
-    normalized = sanitize_zip_name(base_archive_name)
-    stem = normalized[:-4]
-    for suffix in ("_system", "_memory"):
-        if stem.lower().endswith(suffix):
-            stem = stem[:-len(suffix)]
-            break
-    return stem
-
-
-def _component_excludes(base_excludes: Iterable[str], component: str) -> list[str]:
-    excludes = list(base_excludes)
-    if component == "system":
-        excludes.extend(DUAL_SYSTEM_REQUIRED_EXCLUDES)
-    return _dedupe_patterns(excludes)
-
-
-def _merge_disjoint_plans(system_plan: PackPlan, memory_plan: PackPlan) -> PackPlan:
-    system_files = set(system_plan.files)
-    memory_files = set(memory_plan.files)
-    overlap = system_files & memory_files
-    if overlap:
-        sample = ", ".join(str(path) for path in sorted(overlap)[:5])
-        raise ValueError(f"Plany systemu i pamięci nakładają się: {sample}")
-    files = sorted(system_files | memory_files, key=lambda p: p.as_posix().lower())
-    dirs = sorted(set(system_plan.dirs) | set(memory_plan.dirs), key=lambda p: p.as_posix().lower())
-    excluded = sorted(
-        set(system_plan.excluded) | set(memory_plan.excluded),
-        key=lambda item: (item[0].lower(), item[1]),
-    )
-    total_size = 0
-    for file_path in files:
-        try:
-            total_size += file_path.stat().st_size
-        except OSError:
-            pass
-    return PackPlan(
-        files=files,
-        dirs=dirs,
-        source_total_size=total_size,
-        excluded=excluded,
-    )
-
-
-def discover_dual_package_plans(state: WizardState) -> dict[str, PackPlan]:
-    require_ready_state(state)
-    assert state.source_folder is not None
-    source = state.source_folder.resolve()
-    memory_root = source / "memory"
-    if not memory_root.exists() or not memory_root.is_dir():
-        raise FileNotFoundError(
-            "Profil „system + pamięć” wymaga katalogu memory/ w folderze źródłowym: "
-            f"{memory_root}"
-        )
-
-    base_excludes = state.effective_excludes()
-    subsection("Plan paczki systemowej")
-    system_plan = discover_pack_plan(
-        source,
-        state.include_empty_dirs,
-        _component_excludes(base_excludes, "system"),
-        [],
-    )
-    subsection("Plan paczki pamięci")
-    memory_plan = discover_pack_plan(
-        source,
-        state.include_empty_dirs,
-        _component_excludes(base_excludes, "memory"),
-        ["memory/"],
-    )
-    plans = {"system": system_plan, "memory": memory_plan}
-    state.component_plans = plans
-    state.plan = _merge_disjoint_plans(system_plan, memory_plan)
-    return plans
-
-
-def _existing_outputs_for_archive(out_dir: Path, archive_name: str) -> list[Path]:
-    archive_name = sanitize_zip_name(archive_name)
-    return _windows_zip_output_paths(out_dir, archive_name)
-
-
-def _preflight_dual_outputs(
-    out_dir: Path,
-    names: dict[str, str],
-    *,
-    force: bool,
-    set_stem: str,
-) -> None:
-    out_dir.mkdir(parents=True, exist_ok=True)
-    existing: list[Path] = []
-    for name in names.values():
-        existing.extend(_existing_outputs_for_archive(out_dir, name))
-    for extra_name in (
-        f"{set_stem}.package_set.manifest.json",
-        f"{set_stem}.extract_all.py",
-    ):
-        path = out_dir / extra_name
-        if path.exists() and path.is_file():
-            existing.append(path)
-    existing = sorted(set(existing))
-    if existing and not force:
-        sample = "\n".join(f"  - {path}" for path in existing[:30])
-        more = "" if len(existing) <= 30 else f"\n  ... oraz {len(existing) - 30} więcej"
-        raise FileExistsError(
-            "Znaleziono wcześniejsze pliki co najmniej jednej paczki dwuczęściowej. "
-            "Włącz nadpisywanie albo zmień nazwę/folder wyjściowy.\n"
-            + sample
-            + more
-        )
-    if force:
-        for path in existing:
-            path.unlink()
-
-
-def write_dual_extract_all_script(
-    out_dir: Path,
-    *,
-    set_stem: str,
-    system_archive_name: str,
-    memory_archive_name: str,
-) -> Path:
-    helper_path = out_dir / f"{set_stem}.extract_all.py"
-    template = r'''#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-# Rozpakowuje dwuczęściową paczkę Jaźni w kolejności: system, następnie pamięć.
-from __future__ import annotations
-
-import argparse
-import subprocess
-import sys
-from pathlib import Path
-
-SYSTEM_ARCHIVE = __SYSTEM_ARCHIVE__
-MEMORY_ARCHIVE = __MEMORY_ARCHIVE__
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Rozpakuj system i pamięć Jaźni do jednego katalogu runtime."
-    )
-    parser.add_argument("--parts-dir", default=str(Path(__file__).resolve().parent))
-    parser.add_argument("--destination", default="/mnt/data/jazn_runtime_current")
-    parser.add_argument("--skip-part-hash", action="store_true")
-    parser.add_argument("--skip-testzip", action="store_true")
-    args = parser.parse_args()
-
-    parts_dir = Path(args.parts_dir).expanduser().resolve()
-    common = ["--parts-dir", str(parts_dir), "--destination", args.destination]
-    if args.skip_part_hash:
-        common.append("--skip-part-hash")
-    if args.skip_testzip:
-        common.append("--skip-testzip")
-
-    system_helper = parts_dir / f"{SYSTEM_ARCHIVE}.extract_here.py"
-    memory_helper = parts_dir / f"{MEMORY_ARCHIVE}.extract_here.py"
-    for helper in (system_helper, memory_helper):
-        if not helper.exists():
-            raise SystemExit(f"Brak helpera: {helper}")
-
-    print("[1/2] Walidacja i rozpakowanie systemu...")
-    subprocess.check_call(
-        [sys.executable, "-X", "utf8", str(system_helper), *common, "--clean"]
-    )
-    print("[2/2] Walidacja i dołączenie pamięci...")
-    subprocess.check_call(
-        [sys.executable, "-X", "utf8", str(memory_helper), *common, "--force"]
-    )
-    print(
-        "Gotowe. System i pamięć są w: "
-        f"{Path(args.destination).expanduser().resolve()}"
-    )
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+$Out = Join-Path $PSScriptRoot $BaseZip
+$Tmp = "$Out.joining.tmp"
+if (Test-Path -LiteralPath $Tmp) {{ Remove-Item -LiteralPath $Tmp -Force }}
+$Target = [System.IO.File]::Open($Tmp, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write)
+try {{
+    foreach ($Part in $Parts) {{
+        $Source = [System.IO.File]::OpenRead((Join-Path $PSScriptRoot $Part.Name))
+        try {{ $Source.CopyTo($Target) }} finally {{ $Source.Dispose() }}
+    }}
+}} finally {{ $Target.Dispose() }}
+$ActualFull = (Get-FileHash -LiteralPath $Tmp -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($ActualFull -ne $ExpectedFull) {{ Remove-Item -LiteralPath $Tmp -Force; throw "Zły SHA256 pełnego ZIP-a" }}
+Move-Item -LiteralPath $Tmp -Destination $Out -Force
+Write-Host "Gotowe: $Out"
 '''
-    content = (
-        template
-        .replace("__SYSTEM_ARCHIVE__", repr(system_archive_name))
-        .replace("__MEMORY_ARCHIVE__", repr(memory_archive_name))
-    )
-    helper_path.write_text(content, encoding="utf-8")
-    return helper_path
-
-
-def write_dual_package_set_manifest(
-    out_dir: Path,
-    *,
-    base_archive_name: str,
-    package_version: str,
-    package_release_name: str,
-    manifests: dict[str, dict[str, object]],
-) -> Path:
-    names = dual_archive_names(base_archive_name)
-    stem = package_set_stem(base_archive_name)
-    extract_all = write_dual_extract_all_script(
-        out_dir,
-        set_stem=stem,
-        system_archive_name=names["system"],
-        memory_archive_name=names["memory"],
-    )
-    path = out_dir / f"{stem}.package_set.manifest.json"
-    data = {
-        "schema_version": "jazn_dual_package_set/v1",
-        "created_at": now_iso(),
-        "script": Path(__file__).name,
-        "script_version": f"v{VERSION}",
-        "package_version": package_version,
-        "package_release_name": package_release_name,
-        "base_archive_name": sanitize_zip_name(base_archive_name),
-        "package_mode": "system_and_memory_as_separate_split_zip_archives",
-        "extraction_order": ["system", "memory"],
-        "recommended_destination": "/mnt/data/jazn_runtime_current",
-        "extract_all_script": extract_all.name,
-        "packages": [
-            {
-                "component": component,
-                "archive_name_after_join": names[component],
-                "manifest_file": f"{names[component]}.manifest.json",
-                "parts_count": manifests[component].get("parts_count"),
-                "logical_full_zip_size_bytes": manifests[component].get(
-                    "logical_full_zip_size_bytes"
-                ),
-                "logical_full_zip_sha256": manifests[component].get(
-                    "logical_full_zip_sha256"
-                ),
-                "extract_here_script": f"{names[component]}.extract_here.py",
-            }
-            for component in DUAL_PACKAGE_COMPONENTS
-        ],
-    }
-    path.write_text(
-        json.dumps(data, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    path.write_text(content, encoding="utf-8")
     return path
 
 
-def create_dual_split_packages(
-    *,
-    source_folder: Path,
-    out_dir: Path,
-    base_archive_name: str,
-    plans: dict[str, PackPlan],
-    part_size_mb: int,
-    compression_level: int,
-    force: bool,
-    include_empty_dirs: bool,
-    base_exclude_patterns: list[str],
-    package_version: str,
-    package_release_name: str,
-    resolved_version_file: Path | None,
-    archive_basename_requested: str,
-    append_version_to_name: bool,
-    disabled_default_excludes: list[str] | None = None,
-    artifact_mode: str = DEFAULT_ARTIFACT_MODE,
-    verify_after_pack: bool = VERIFY_AFTER_PACK,
-    verify_crc: bool = VERIFY_CRC_AFTER_PACK,
-) -> dict[str, object]:
-    source_folder = source_folder.resolve()
-    out_dir = out_dir.resolve()
-    artifact_mode = normalize_artifact_mode(artifact_mode)
-    names = dual_archive_names(base_archive_name)
-    stem = package_set_stem(base_archive_name)
-    _preflight_dual_outputs(out_dir, names, force=force, set_stem=stem)
+def known_output_paths(out_dir: Path, base_zip_name: str) -> list[Path]:
+    stem = re.escape(base_zip_name[:-4])
+    base = re.escape(base_zip_name)
+    patterns = [
+        re.compile(rf"^{base}$", re.I),
+        re.compile(rf"^{stem}\.part\d{{3}}\.zip$", re.I),
+        re.compile(rf"^{base}\.\d{{3}}$", re.I),
+        re.compile(rf"^{base}\.(?:package\.json|join\.ps1|parts\.sha256|sha256)$", re.I),
+    ]
+    result: list[Path] = []
+    if not out_dir.exists():
+        return result
+    for path in out_dir.iterdir():
+        if path.is_file() and any(pattern.match(path.name) for pattern in patterns):
+            result.append(path)
+    return sorted(result)
 
-    manifests: dict[str, dict[str, object]] = {}
+
+def create_pack_staging_dir(out_dir: Path, base_zip_name: str) -> Path:
+    """Tworzy katalog roboczy bez przenoszenia restrykcyjnego ACL do wyników.
+
+    Python 3.13+ na Windows nadaje katalogom tworzonym przez tempfile.mkdtemp()
+    (mode 0o700) ACL ograniczony do bieżącego użytkownika i administratorów.
+    Plik przeniesiony w obrębie tego samego woluminu zachowuje deskryptor
+    bezpieczeństwa, dlatego wcześniejsza wersja mogła publikować ZIP-y i
+    sidecary z nieoczekiwanymi, niedziedziczonymi uprawnieniami.
+    """
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    mode = 0o777 if os.name == "nt" else 0o700
+    for _ in range(128):
+        candidate = out_dir / f".{base_zip_name}.packing-{uuid.uuid4().hex}"
+        try:
+            candidate.mkdir(mode=mode)
+            return candidate
+        except FileExistsError:
+            continue
+    raise PackError("Nie można utworzyć unikalnego katalogu roboczego paczki.")
+
+
+def _clear_readonly_flag(path: Path) -> None:
+    """Usuwa wyłącznie atrybut read-only; nie modyfikuje ACL/DACL."""
+
+    if os.name != "nt":
+        return
     try:
-        section("Paczka 1/2 — SYSTEM")
-        manifests["system"] = create_split_zip_from_plan(
-            source_folder=source_folder,
-            out_dir=out_dir,
-            archive_name=names["system"],
-            plan=plans["system"],
-            part_size_mb=part_size_mb,
-            compression_level=compression_level,
-            force=force,
-            include_empty_dirs=include_empty_dirs,
-            exclude_patterns=_component_excludes(base_exclude_patterns, "system"),
-            package_version=package_version,
-            package_release_name=package_release_name,
-            resolved_version_file=resolved_version_file,
-            archive_basename_requested=archive_basename_requested,
-            append_version_to_name=append_version_to_name,
-            disabled_default_excludes=disabled_default_excludes,
-            pack_profile="system",
-            include_prefixes=[],
-            artifact_mode=artifact_mode,
-            verify_after_pack=verify_after_pack,
-            verify_crc=verify_crc,
-        )
+        os.chmod(path, stat.S_IREAD | stat.S_IWRITE)
+    except OSError as exc:
+        raise PackError(f"Nie można usunąć atrybutu tylko-do-odczytu: {path}: {exc}") from exc
 
-        section("Paczka 2/2 — MEMORY")
-        manifests["memory"] = create_split_zip_from_plan(
-            source_folder=source_folder,
-            out_dir=out_dir,
-            archive_name=names["memory"],
-            plan=plans["memory"],
-            part_size_mb=part_size_mb,
-            compression_level=compression_level,
-            force=force,
-            include_empty_dirs=include_empty_dirs,
-            exclude_patterns=_component_excludes(base_exclude_patterns, "memory"),
-            package_version=package_version,
-            package_release_name=package_release_name,
-            resolved_version_file=resolved_version_file,
-            archive_basename_requested=archive_basename_requested,
-            append_version_to_name=append_version_to_name,
-            disabled_default_excludes=disabled_default_excludes,
-            pack_profile="memory",
-            include_prefixes=["memory/"],
-            artifact_mode=artifact_mode,
-            verify_after_pack=verify_after_pack,
-            verify_crc=verify_crc,
-        )
 
-    except BaseException:
-        for archive in names.values():
-            cleanup_archive_outputs(out_dir, archive)
-        for extra_name in (
-            f"{stem}.package_set.manifest.json",
-            f"{stem}.extract_all.py",
-        ):
-            try:
-                (out_dir / extra_name).unlink(missing_ok=True)
-            except OSError:
-                pass
+def _publish_with_destination_acl(source: Path, target: Path) -> None:
+    """Publikuje atomowo przez nowy plik utworzony bezpośrednio w out_dir.
+
+    Nowy plik dziedziczy ACL katalogu docelowego. Nie przenosimy deskryptora
+    bezpieczeństwa pliku z katalogu stagingowego. Zawartość jest kopiowana
+    strumieniowo, flushowana i fsyncowana przed atomowym os.replace().
+    """
+
+    if not source.is_file():
+        raise PackError(f"Brak pliku stagingowego do publikacji: {source}")
+    temp_target = target.with_name(f".{target.name}.publishing-{uuid.uuid4().hex}.tmp")
+    expected_size = source.stat().st_size
+    copied = 0
+    digest_source = hashlib.sha256()
+    digest_target = hashlib.sha256()
+    try:
+        with source.open("rb") as input_handle, temp_target.open("xb") as output_handle:
+            for chunk in iter(lambda: input_handle.read(CHUNK_SIZE), b""):
+                digest_source.update(chunk)
+                output_handle.write(chunk)
+                digest_target.update(chunk)
+                copied += len(chunk)
+            output_handle.flush()
+            os.fsync(output_handle.fileno())
+        if copied != expected_size or digest_target.digest() != digest_source.digest():
+            raise PackError(f"Publikowany plik różni się od stagingu: {source.name}")
+        _clear_readonly_flag(temp_target)
+        os.replace(temp_target, target)
+        _clear_readonly_flag(target)
+        source.unlink()
+    except Exception:
+        temp_target.unlink(missing_ok=True)
         raise
 
-    package_set_manifest: Path | None = None
-    if artifact_mode == "diagnostic":
-        package_set_manifest = write_dual_package_set_manifest(
-            out_dir,
-            base_archive_name=base_archive_name,
-            package_version=package_version,
-            package_release_name=package_release_name,
-            manifests=manifests,
+
+def existing_package_error(base_zip_name: str, existing: Sequence[Path]) -> PackError:
+    """Buduje jeden spójny komunikat kolizji dla CLI i interfejsu."""
+
+    return PackError(
+        "Istnieją wcześniejsze pliki tej paczki. Włącz nadpisywanie (--force) "
+        "albo zmień nazwę:\n"
+        + "\n".join(f"  - {path}" for path in existing)
+    )
+
+
+def preflight_output_collisions(
+    out_dir: Path,
+    base_zip_names: Iterable[str],
+    *,
+    force: bool,
+) -> None:
+    """Odrzuca kolizje przed kompresją i przed częściowym wynikiem profilu dual.
+
+    Kontrola w commit_transaction pozostaje celowo jako druga bariera przed
+    wyścigiem między preflightem i atomową publikacją plików.
+    """
+
+    if force:
+        return
+    collisions: list[tuple[str, list[Path]]] = []
+    for base_zip_name in base_zip_names:
+        existing = known_output_paths(out_dir, base_zip_name)
+        if existing:
+            collisions.append((base_zip_name, existing))
+    if not collisions:
+        return
+    if len(collisions) == 1:
+        name, existing = collisions[0]
+        raise existing_package_error(name, existing)
+    lines = [
+        "Istnieją wcześniejsze pliki co najmniej jednej planowanej paczki. "
+        "Włącz nadpisywanie (--force) albo zmień nazwę:"
+    ]
+    for name, existing in collisions:
+        lines.append(f"\n{name}")
+        lines.extend(f"  - {path}" for path in existing)
+    raise PackError("\n".join(lines))
+
+
+def commit_transaction(temp_dir: Path, out_dir: Path, filenames: Sequence[str], base_zip_name: str, force: bool) -> list[Path]:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    existing = known_output_paths(out_dir, base_zip_name)
+    if existing and not force:
+        raise existing_package_error(base_zip_name, existing)
+
+    backup = out_dir / f".{base_zip_name}.backup-{uuid.uuid4().hex}"
+    moved_existing: list[tuple[Path, Path]] = []
+    committed: list[Path] = []
+    try:
+        if existing:
+            backup.mkdir()
+            for old in existing:
+                target = backup / old.name
+                os.replace(old, target)
+                moved_existing.append((target, old))
+        for filename in filenames:
+            source = temp_dir / filename
+            target = out_dir / filename
+            _publish_with_destination_acl(source, target)
+            committed.append(target)
+        if backup.exists():
+            shutil.rmtree(backup)
+        return committed
+    except Exception:
+        for target in committed:
+            target.unlink(missing_ok=True)
+        for stored, original in reversed(moved_existing):
+            if stored.exists():
+                os.replace(stored, original)
+        if backup.exists():
+            shutil.rmtree(backup, ignore_errors=True)
+        raise
+
+
+def package_one(plan: PackPlan, options: PackOptions, base_zip_name: str) -> PackageResult:
+    part_size = options.part_size_mb * 1024 * 1024
+    archive_format = choose_format(options.archive_format, plan, part_size)
+    options.out_dir.mkdir(parents=True, exist_ok=True)
+    temp_dir = create_pack_staging_dir(options.out_dir, base_zip_name)
+    try:
+        print(f"\nPaczka: {base_zip_name}")
+        print(f"Profil: {plan.profile}")
+        print(f"Format: {archive_format}")
+        print(f"Plan: {plan.file_count} plików, {human_size(plan.total_size)}")
+        print(f"Plan SHA-256: {plan.plan_sha256()}")
+
+        if archive_format == "independent":
+            outputs, logical_hash = write_independent(
+                temp_dir, base_zip_name, plan, part_size, options.compression_level
+            )
+        else:
+            outputs, logical_hash = write_binary(
+                temp_dir, base_zip_name, plan, part_size, options.compression_level
+            )
+
+        verification = verify_outputs(temp_dir, outputs, archive_format, plan)
+        payload = sidecar_payload(
+            base_zip_name,
+            plan,
+            archive_format,
+            part_size,
+            options.compression_level,
+            outputs,
+            logical_hash,
+            verification,
         )
-    section("Gotowy pakiet dwuczęściowy")
-    print(
-        f"System:                  {names['system']} "
-        f"({manifests['system'].get('parts_count')} ZIP)"
-    )
-    print(
-        f"Pamięć:                  {names['memory']} "
-        f"({manifests['memory'].get('parts_count')} ZIP)"
-    )
-    if package_set_manifest is not None:
-        print(f"Manifest zestawu:        {package_set_manifest}")
-        print(f"Rozpakowanie obu paczek: {out_dir / (stem + '.extract_all.py')}")
+        sidecar_name = f"{base_zip_name}.package.json"
+        sidecar_temp = temp_dir / sidecar_name
+        sidecar_temp.write_bytes(serialize_json(payload))
+
+        # package.json jest częścią kontraktu paczki i powstaje zawsze.
+        # --no-sidecars wyłącza tylko dodatkowe pliki tekstowe/join.ps1.
+        extra_names: list[str] = [sidecar_name]
+        if options.sidecars:
+            (temp_dir / f"{base_zip_name}.parts.sha256").write_text(
+                "".join(f"{item.sha256}  {item.filename}\n" for item in outputs),
+                encoding="ascii",
+            )
+            extra_names.append(f"{base_zip_name}.parts.sha256")
+            if logical_hash:
+                (temp_dir / f"{base_zip_name}.sha256").write_text(
+                    f"{logical_hash}  {base_zip_name}\n", encoding="ascii"
+                )
+                extra_names.append(f"{base_zip_name}.sha256")
+                join_path = write_join_ps1(temp_dir, base_zip_name, outputs, logical_hash)
+                extra_names.append(join_path.name)
+
+        filenames = [item.filename for item in outputs] + extra_names
+        committed = commit_transaction(
+            temp_dir,
+            options.out_dir,
+            filenames,
+            base_zip_name,
+            options.force,
+        )
+        sidecar_final = options.out_dir / sidecar_name
+        return PackageResult(
+            package_name=base_zip_name,
+            profile=plan.profile,
+            archive_format=archive_format,
+            plan=plan,
+            outputs=list(outputs),
+            logical_zip_sha256=logical_hash,
+            package_set_sha256=package_set_hash(outputs),
+            sidecar_path=sidecar_final,
+            committed_paths=committed,
+        )
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def package_names(stem: str, version: VersionInfo, profile: str) -> dict[str, str]:
+    stem = sanitize_archive_stem(stem)
+    base = f"{stem}_v{version.filename_version}"
+    if profile == "dual":
+        return {
+            "system": f"{base}_system.zip",
+            "memory": f"{base}_memory.zip",
+        }
+    if profile == "memory":
+        return {"memory": f"{base}_memory.zip"}
+    return {profile: f"{base}.zip"}
+
+
+def build_plans_for_options(
+    options: PackOptions,
+    *,
+    notice: Any | None = None,
+) -> list[PackPlan]:
+    """Buduje plan tylko raz. Wynik może zostać pokazany i bezpośrednio spakowany."""
+
+    source = options.source.expanduser().resolve()
+    out_dir = options.out_dir.expanduser().resolve()
+    ensure_output_outside_source(source, out_dir)
+    manual_excludes = options.custom_excludes if options.custom_excludes_enabled else []
+    if options.profile == "dual":
+        plans = [build_plan(source, "system", manual_excludes, options.base_excludes)]
+        try:
+            plans.append(build_plan(source, "memory", manual_excludes, options.base_excludes))
+        except PackError as exc:
+            message = f"Pomijam paczkę pamięci: {exc}"
+            if notice is None:
+                print(f"UWAGA: {message}")
+            else:
+                notice(message, "warn")
+        return plans
+    return [build_plan(source, options.profile, manual_excludes, options.base_excludes)]
+
+
+def run_pack_with_plans(options: PackOptions, plans: Sequence[PackPlan]) -> list[PackageResult]:
+    """Pakuje dokładnie zatwierdzone obiekty planu — bez ponownego skanowania."""
+
+    source = options.source.expanduser().resolve()
+    out_dir = options.out_dir.expanduser().resolve()
+    ensure_output_outside_source(source, out_dir)
+    version = read_version_info(source)
+    names = package_names(options.archive_basename, version, options.profile)
+
+    expected_profiles = {"system", "memory"} if options.profile == "dual" else {options.profile}
+    actual_profiles = {plan.profile for plan in plans}
+    if not plans or not actual_profiles.issubset(expected_profiles):
+        raise PackError(
+            f"Zatwierdzone plany nie pasują do profilu {options.profile!r}: {sorted(actual_profiles)}"
+        )
+
+    planned_names: list[str] = []
+    for plan in plans:
+        name = names.get(plan.profile)
+        if not name:
+            raise PackError(f"Brak nazwy wynikowej dla profilu planu: {plan.profile}")
+        planned_names.append(name)
+    preflight_output_collisions(out_dir, planned_names, force=options.force)
+
+    results: list[PackageResult] = []
+    for plan in plans:
+        if plan.root.resolve() != source:
+            raise PackError("Zatwierdzony plan pochodzi z innego folderu źródłowego.")
+        if plan.version.full_version != version.full_version:
+            raise PackError(
+                "Wersja zmieniła się po zatwierdzeniu planu: "
+                f"plan={plan.version.full_version!r}, teraz={version.full_version!r}"
+            )
+        plan_hash_before = plan.plan_sha256()
+        name = names[plan.profile]
+        result = package_one(plan, options, name)
+        if result.plan is not plan or plan.plan_sha256() != plan_hash_before:
+            raise PackError("Plan został zmieniony podczas pakowania.")
+        results.append(result)
+    return results
+
+
+def run_pack(options: PackOptions) -> list[PackageResult]:
+    """CLI: zbuduj plany raz, a następnie spakuj dokładnie te same obiekty."""
+
+    return run_pack_with_plans(options, build_plans_for_options(options))
+
+
+# -----------------------------------------------------------------------------
+# Verify/extract z sidecara
+# -----------------------------------------------------------------------------
+
+
+def load_sidecar(path: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8-sig"))
+    except Exception as exc:
+        raise PackError(f"Nie można odczytać sidecara {path}: {exc}") from exc
+    if payload.get("schema_version") != PACKAGE_SET_SCHEMA:
+        raise PackError(f"Nieobsługiwany schema_version: {payload.get('schema_version')!r}")
+    return payload
+
+
+def sidecar_outputs(path: Path, payload: dict[str, Any]) -> list[OutputPart]:
+    outputs: list[OutputPart] = []
+    for item in payload.get("outputs") or []:
+        outputs.append(OutputPart(
+            filename=str(item["filename"]),
+            size_bytes=int(item["size_bytes"]),
+            sha256=str(item["sha256"]),
+            part_no=int(item["part_no"]),
+            is_complete_zip=bool(item.get("is_complete_zip")),
+        ))
+    outputs.sort(key=lambda x: x.part_no)
+    if not outputs:
+        raise PackError("Sidecar nie zawiera outputs.")
+    for item in outputs:
+        file_path = path.parent / item.filename
+        if not file_path.is_file():
+            raise PackError(f"Brak pliku paczki: {item.filename}")
+        if file_path.stat().st_size != item.size_bytes:
+            raise PackError(f"Zły rozmiar: {item.filename}")
+        if sha256_file(file_path) != item.sha256:
+            raise PackError(f"Zły SHA-256: {item.filename}")
+    return outputs
+
+
+def expected_entries_from_sidecar(payload: dict[str, Any]) -> dict[str, tuple[int, str]]:
+    expected: dict[str, tuple[int, str]] = {}
+    for item in payload.get("entries") or []:
+        relative = normalize_rel(str(item["path"]))
+        expected[relative] = (int(item["size_bytes"]), str(item["sha256"]))
+    if not expected:
+        raise PackError("Sidecar nie zawiera entries.")
+    return expected
+
+
+def verify_zip_against_sidecar(zf: zipfile.ZipFile, expected: dict[str, tuple[int, str]]) -> None:
+    infos = [info for info in zf.infolist() if not info.is_dir()]
+    verify_zip_names(infos)
+    bad = zf.testzip()
+    if bad:
+        raise PackError(f"CRC niepoprawny: {bad}")
+    names = {info.filename for info in infos}
+    if names != set(expected):
+        raise PackError(
+            f"Zawartość różni się od sidecara: missing={sorted(set(expected)-names)[:10]}, extra={sorted(names-set(expected))[:10]}"
+        )
+    for info in infos:
+        size, digest_expected = expected[info.filename]
+        if info.file_size != size:
+            raise PackError(f"Zły rozmiar wpisu: {info.filename}")
+        digest = hashlib.sha256()
+        with zf.open(info) as handle:
+            for chunk in iter(lambda: handle.read(CHUNK_SIZE), b""):
+                digest.update(chunk)
+        if digest.hexdigest() != digest_expected:
+            raise PackError(f"Zły hash wpisu: {info.filename}")
+
+
+def verify_package_sidecar(path: Path) -> dict[str, Any]:
+    path = path.expanduser().resolve()
+    payload = load_sidecar(path)
+    outputs = sidecar_outputs(path, payload)
+    expected = expected_entries_from_sidecar(payload)
+    archive_format = str(payload.get("archive_format"))
+
+    if archive_format == "binary":
+        logical_expected = str(payload.get("logical_zip_sha256") or "")
+        digest = hashlib.sha256()
+        paths = [path.parent / item.filename for item in outputs]
+        for part in paths:
+            with part.open("rb") as handle:
+                for chunk in iter(lambda: handle.read(CHUNK_SIZE), b""):
+                    digest.update(chunk)
+        if logical_expected and digest.hexdigest() != logical_expected:
+            raise PackError("Zły SHA-256 logicznego ZIP-a.")
+        with SplitPartsReader(paths) as reader:
+            with zipfile.ZipFile(reader, "r") as zf:
+                verify_zip_against_sidecar(zf, expected)
+    elif archive_format == "independent":
+        found: set[str] = set()
+        for output in outputs:
+            with zipfile.ZipFile(path.parent / output.filename, "r") as zf:
+                infos = [info for info in zf.infolist() if not info.is_dir()]
+                verify_zip_names(infos)
+                bad = zf.testzip()
+                if bad:
+                    raise PackError(f"CRC niepoprawny w {output.filename}: {bad}")
+                for info in infos:
+                    if info.filename in found:
+                        raise PackError(f"Duplikat między woluminami: {info.filename}")
+                    found.add(info.filename)
+                    if info.filename not in expected:
+                        raise PackError(f"Nadmiarowy wpis: {info.filename}")
+                    size, digest_expected = expected[info.filename]
+                    if info.file_size != size:
+                        raise PackError(f"Zły rozmiar: {info.filename}")
+                    digest = hashlib.sha256()
+                    with zf.open(info) as handle:
+                        for chunk in iter(lambda: handle.read(CHUNK_SIZE), b""):
+                            digest.update(chunk)
+                    if digest.hexdigest() != digest_expected:
+                        raise PackError(f"Zły hash: {info.filename}")
+        if found != set(expected):
+            raise PackError(f"Brakujące wpisy: {sorted(set(expected)-found)[:10]}")
     else:
-        print("Pliki dodatkowe:         nie utworzono — tylko zwykłe ZIP-y systemu i pamięci")
+        raise PackError(f"Nieznany archive_format: {archive_format}")
+
     return {
-        "package_mode": "dual",
-        "base_archive_name": sanitize_zip_name(base_archive_name),
-        "archive_names": names,
-        "package_set_manifest": str(package_set_manifest) if package_set_manifest else None,
-        "artifact_mode": artifact_mode,
-        "manifests": manifests,
+        "ok": True,
+        "package_name": payload.get("package_name"),
+        "profile": payload.get("profile"),
+        "archive_format": archive_format,
+        "outputs": len(outputs),
+        "entries": len(expected),
     }
 
 
-def create_packages_for_state(state: WizardState) -> dict[str, object]:
-    require_ready_state(state)
-    assert state.source_folder is not None
-    assert state.out_dir is not None
-
-    if state.pack_profile == DUAL_PACKAGE_PROFILE:
-        if state.plan is None or set(state.component_plans) != set(DUAL_PACKAGE_COMPONENTS):
-            discover_dual_package_plans(state)
-        return create_dual_split_packages(
-            source_folder=state.source_folder,
-            out_dir=state.out_dir,
-            base_archive_name=state.archive_name,
-            plans=state.component_plans,
-            part_size_mb=state.part_size_mb,
-            compression_level=state.compression_level,
-            force=state.force,
-            include_empty_dirs=state.include_empty_dirs,
-            base_exclude_patterns=state.effective_excludes(),
-            package_version=state.package_version,
-            package_release_name=state.package_release_name,
-            resolved_version_file=state.resolved_version_file,
-            archive_basename_requested=state.archive_basename_requested,
-            append_version_to_name=False,
-            disabled_default_excludes=state.disabled_default_excludes,
-        )
-
-    if state.plan is None:
-        rebuild_plan_quiet_for_pack(state)
-    assert state.plan is not None
-    return create_split_zip_from_plan(
-        source_folder=state.source_folder,
-        out_dir=state.out_dir,
-        archive_name=state.archive_name,
-        plan=state.plan,
-        part_size_mb=state.part_size_mb,
-        compression_level=state.compression_level,
-        force=state.force,
-        include_empty_dirs=state.include_empty_dirs,
-        exclude_patterns=state.effective_excludes(),
-        package_version=state.package_version,
-        package_release_name=state.package_release_name,
-        resolved_version_file=state.resolved_version_file,
-        archive_basename_requested=state.archive_basename_requested,
-        append_version_to_name=False,
-        disabled_default_excludes=state.disabled_default_excludes,
-        pack_profile=state.pack_profile,
-        include_prefixes=state.include_prefixes(),
-    )
+def prepare_destination(destination: Path, clean: bool, force: bool) -> None:
+    destination = destination.expanduser().resolve()
+    dangerous = {Path(destination.anchor).resolve(), Path.home().resolve()}
+    if clean and destination.exists():
+        if destination in dangerous or len(destination.parts) < 3:
+            raise PackError(f"Odmawiam --clean dla zbyt szerokiego celu: {destination}")
+        shutil.rmtree(destination)
+    if destination.exists() and any(destination.iterdir()) and not force:
+        raise PackError("Folder docelowy nie jest pusty. Użyj --force albo --clean.")
+    destination.mkdir(parents=True, exist_ok=True)
 
 
-def rebuild_plan(state: WizardState) -> PackPlan:
-    require_ready_state(state)
-    section("4. Informacje co będzie spakowane — podstawa pakowania")
-    if state.pack_profile == DUAL_PACKAGE_PROFILE:
-        plans = discover_dual_package_plans(state)
-        names = dual_archive_names(state.archive_name)
-        print("\nProfil utworzy dwa oddzielne zestawy zwykłych ZIP-ów:")
-        print(
-            f"  SYSTEM: {names['system']} — {plans['system'].file_count} plików / "
-            f"{human_size(plans['system'].source_total_size)}"
-        )
-        print(
-            f"  MEMORY: {names['memory']} — {plans['memory'].file_count} plików / "
-            f"{human_size(plans['memory'].source_total_size)}"
-        )
+def extract_member(zf: zipfile.ZipFile, info: zipfile.ZipInfo, destination: Path, force: bool) -> None:
+    target = safe_destination_path(destination, info.filename)
+    if info.is_dir():
+        target.mkdir(parents=True, exist_ok=True)
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists() and not force:
+        raise PackError(f"Plik docelowy istnieje: {target}")
+    temp = target.with_name(target.name + f".extract-{uuid.uuid4().hex}.tmp")
+    with zf.open(info, "r") as source, temp.open("xb") as output:
+        shutil.copyfileobj(source, output, length=CHUNK_SIZE)
+    os.replace(temp, target)
+
+
+def extract_package_sidecar(path: Path, destination: Path, *, clean: bool, force: bool) -> dict[str, Any]:
+    report = verify_package_sidecar(path)
+    payload = load_sidecar(path)
+    outputs = sidecar_outputs(path, payload)
+    prepare_destination(destination, clean, force)
+    archive_format = str(payload.get("archive_format"))
+
+    if archive_format == "binary":
+        paths = [path.parent / item.filename for item in outputs]
+        with SplitPartsReader(paths) as reader:
+            with zipfile.ZipFile(reader, "r") as zf:
+                for info in zf.infolist():
+                    extract_member(zf, info, destination, force=True)
     else:
-        assert state.source_folder is not None
-        state.component_plans.clear()
-        state.plan = discover_pack_plan(
-            state.source_folder,
-            state.include_empty_dirs,
-            state.effective_excludes(),
-            state.include_prefixes(),
+        seen: set[str] = set()
+        for output in outputs:
+            with zipfile.ZipFile(path.parent / output.filename, "r") as zf:
+                for info in zf.infolist():
+                    if not info.is_dir() and info.filename in seen:
+                        raise PackError(f"Duplikat przy ekstrakcji: {info.filename}")
+                    if not info.is_dir():
+                        seen.add(info.filename)
+                    extract_member(zf, info, destination, force=True)
+    report["destination"] = str(destination.resolve())
+    return report
+
+
+def _assert_outputs_are_deflated(result: PackageResult) -> None:
+    """Potwierdza, że wpisy testowej paczki faktycznie używają ZIP_DEFLATED."""
+
+    if result.archive_format == "independent":
+        for output in result.outputs:
+            with zipfile.ZipFile(result.sidecar_path.parent / output.filename, "r") as zf:
+                for info in zf.infolist():
+                    if not info.is_dir() and info.compress_type != zipfile.ZIP_DEFLATED:
+                        raise PackError(f"Self-test: wpis nie używa DEFLATE: {info.filename}")
+        return
+    paths = [result.sidecar_path.parent / item.filename for item in result.outputs]
+    with SplitPartsReader(paths) as reader:
+        with zipfile.ZipFile(reader, "r") as zf:
+            for info in zf.infolist():
+                if not info.is_dir() and info.compress_type != zipfile.ZIP_DEFLATED:
+                    raise PackError(f"Self-test: wpis nie używa DEFLATE: {info.filename}")
+
+
+def run_compression_self_test() -> dict[str, Any]:
+    """Pełny test regresji kompresji: independent i binary, verify oraz extract."""
+
+    with tempfile.TemporaryDirectory(prefix="jazn-pack-self-test-") as temp_raw:
+        temp = Path(temp_raw)
+        source = temp / "source"
+        source.mkdir()
+        (source / "latka_jazn").mkdir()
+        (source / "latka_jazn" / "__init__.py").write_text("", encoding="utf-8")
+        (source / "latka_jazn" / "version.py").write_text(
+            'PACKAGE_VERSION = "v0.0.0"\nPACKAGE_RELEASE_NAME = "COMPRESSION-SELF-TEST"\n',
+            encoding="utf-8",
         )
-    assert state.plan is not None
-    print_pack_plan_summary(state)
-    return state.plan
+        (source / "run.py").write_text('print("self-test")\n', encoding="utf-8")
+        (source / "main.py").write_text('print("self-test")\n', encoding="utf-8")
+        (source / "SOURCE_PROVENANCE.json").write_text('{"status":"self-test"}\n', encoding="utf-8")
+        (source / "README.md").write_text("DEFLATE regression test\n" * 256, encoding="utf-8")
+        (source / "memory").mkdir()
+        binary_payload = os.urandom(2_600_000)
+        (source / "memory" / "large.bin").write_bytes(binary_payload)
+        (source / "memory" / "small.json").write_text('{"self_test":true}\n', encoding="utf-8")
+
+        base_rules = default_exclusion_rules()
+        independent_options = PackOptions(
+            source=source,
+            out_dir=temp / "independent",
+            profile="system",
+            archive_format="independent",
+            archive_basename="self_test_independent",
+            part_size_mb=1,
+            compression_level=6,
+            base_excludes=base_rules,
+            sidecars=True,
+        )
+        independent_results = run_pack(independent_options)
+        collision_guard_ok = False
+        try:
+            run_pack(independent_options)
+        except PackError as exc:
+            collision_guard_ok = "Istnieją wcześniejsze pliki tej paczki" in str(exc)
+        if not collision_guard_ok:
+            raise PackError("Self-test: ochrona istniejącej paczki nie zgłosiła oczekiwanego błędu.")
+        independent_options.force = True
+        forced_replace_results = run_pack(independent_options)
+        forced_replace_verify = verify_package_sidecar(forced_replace_results[0].sidecar_path)
+
+        binary_results = run_pack(PackOptions(
+            source=source,
+            out_dir=temp / "binary",
+            profile="memory",
+            archive_format="binary",
+            archive_basename="self_test_binary",
+            part_size_mb=1,
+            compression_level=6,
+            base_excludes=base_rules,
+            sidecars=True,
+        ))
+        independent = independent_results[0]
+        binary = binary_results[0]
+        _assert_outputs_are_deflated(independent)
+        _assert_outputs_are_deflated(binary)
+        independent_verify = verify_package_sidecar(independent.sidecar_path)
+        binary_verify = verify_package_sidecar(binary.sidecar_path)
+        independent_extract = temp / "extract-independent"
+        binary_extract = temp / "extract-binary"
+        extract_package_sidecar(independent.sidecar_path, independent_extract, clean=True, force=True)
+        extract_package_sidecar(binary.sidecar_path, binary_extract, clean=True, force=True)
+        if (independent_extract / "run.py").read_text(encoding="utf-8") != 'print("self-test")\n':
+            raise PackError("Self-test: zawartość independent zmieniła się po ekstrakcji.")
+        if (binary_extract / "memory" / "large.bin").read_bytes() != binary_payload:
+            raise PackError("Self-test: zawartość binary zmieniła się po ekstrakcji.")
+        return {
+            "ok": True,
+            "generator_version": GENERATOR_VERSION,
+            "compression": "ZIP_DEFLATED",
+            "compression_level": 6,
+            "independent": {
+                "volumes": len(independent.outputs),
+                "entries": independent.plan.file_count,
+                "verified": bool(independent_verify.get("ok")),
+                "collision_guard": collision_guard_ok,
+                "force_replace_verified": bool(forced_replace_verify.get("ok")),
+            },
+            "binary": {
+                "volumes": len(binary.outputs),
+                "entries": binary.plan.file_count,
+                "verified": bool(binary_verify.get("ok")),
+                "logical_zip_sha256": binary.logical_zip_sha256,
+            },
+        }
 
 
-def save_preview_json(state: WizardState) -> Path:
-    require_ready_state(state)
-    if state.plan is None or (
-        state.pack_profile == DUAL_PACKAGE_PROFILE
-        and set(state.component_plans) != set(DUAL_PACKAGE_COMPONENTS)
-    ):
-        rebuild_plan(state)
-    assert state.plan is not None
-    assert state.source_folder is not None
-    assert state.out_dir is not None
+# -----------------------------------------------------------------------------
+# Plan i interfejs — warstwa 2.2 POLISHED
+# -----------------------------------------------------------------------------
 
-    out_dir = state.out_dir.resolve()
-    out_dir.mkdir(parents=True, exist_ok=True)
-    preview_path = out_dir / f"{state.archive_name}.pack_preview.json"
-    data: dict[str, object] = {
-        "created_at": now_iso(),
-        "script": Path(__file__).name,
-        "script_version": VERSION,
-        "source_folder": str(state.source_folder.resolve()),
-        "output_dir": str(out_dir),
-        "base_archive_name": state.archive_name,
-        "package_version": state.package_version,
-        "package_release_name": state.package_release_name,
-        "version_file": (
-            str(state.resolved_version_file) if state.resolved_version_file else None
-        ),
+
+ANSI_RESET = "\033[0m"
+ANSI_BOLD = "\033[1m"
+ANSI_DIM = "\033[2m"
+ANSI_CYAN = "\033[36m"
+ANSI_BRIGHT_CYAN = "\033[96m"
+ANSI_GREEN = "\033[32m"
+ANSI_BRIGHT_GREEN = "\033[92m"
+ANSI_YELLOW = "\033[33m"
+ANSI_RED = "\033[31m"
+ANSI_BRIGHT_BLACK = "\033[90m"
+
+
+def _enable_windows_vt() -> None:
+    """Włącza ANSI w nowoczesnym Windows Terminal/PowerShell, gdy to możliwe."""
+    if os.name != "nt":
+        return
+    try:
+        os.system("")
+    except Exception:
+        pass
+
+
+def _color_enabled(stream: Any = None) -> bool:
+    stream = stream or sys.stdout
+    if os.environ.get("NO_COLOR"):
+        return False
+    try:
+        if not stream.isatty():
+            return False
+    except Exception:
+        return False
+    _enable_windows_vt()
+    return True
+
+
+def _paint(text: str, *codes: str, stream: Any = None) -> str:
+    if not _color_enabled(stream):
+        return text
+    return "".join(codes) + text + ANSI_RESET
+
+
+def _ui_width(fallback: int = 88) -> int:
+    try:
+        columns = shutil.get_terminal_size((fallback, 24)).columns
+    except Exception:
+        columns = fallback
+    return max(72, min(columns, 116))
+
+
+def _detail_panel_columns(*, ratio: float = 0.28, minimum: int = 28, maximum: int = 64) -> int:
+    """Zwraca stabilną szerokość prawego panelu jako część szerokości terminala."""
+
+    try:
+        columns = shutil.get_terminal_size((100, 30)).columns
+    except Exception:
+        columns = 100
+    preferred = int(round(max(1, columns) * ratio))
+    return max(minimum, min(preferred, maximum, max(minimum, columns - 42)))
+
+
+def _ellipsize(value: object, width: int) -> str:
+    raw = str(value)
+    if width <= 1:
+        return raw[:width]
+    return raw if len(raw) <= width else raw[: max(1, width - 1)] + "…"
+
+
+def _wrap(value: object, width: int, *, indent: str = "") -> list[str]:
+    raw = str(value)
+    return textwrap.wrap(
+        raw,
+        width=max(10, width),
+        subsequent_indent=indent,
+        replace_whitespace=False,
+        drop_whitespace=True,
+    ) or [""]
+
+
+def ui_rule(char: str = "─", *, width: int | None = None) -> str:
+    return _paint(char * int(width or _ui_width()), ANSI_CYAN)
+
+
+def ui_banner(title: str, subtitle: str = "") -> None:
+    width = _ui_width()
+    print()
+    print(_paint("╭" + "─" * (width - 2) + "╮", ANSI_CYAN))
+    title_line = f"  {title}"
+    print(_paint("│", ANSI_CYAN) + _paint(_ellipsize(title_line, width - 2).ljust(width - 2), ANSI_BOLD, ANSI_BRIGHT_CYAN) + _paint("│", ANSI_CYAN))
+    if subtitle:
+        print(_paint("│", ANSI_CYAN) + _paint(_ellipsize("  " + subtitle, width - 2).ljust(width - 2), ANSI_DIM) + _paint("│", ANSI_CYAN))
+    print(_paint("╰" + "─" * (width - 2) + "╯", ANSI_CYAN))
+
+
+def ui_section(title: str) -> None:
+    width = _ui_width()
+    label = f" {title.strip()} "
+    rest = max(0, width - len(label))
+    print("\n" + _paint(label + "─" * rest, ANSI_CYAN, ANSI_BOLD))
+
+
+def ui_status(message: str, kind: str = "info") -> None:
+    palette = {
+        "ok": ("✓", ANSI_BRIGHT_GREEN),
+        "warn": ("!", ANSI_YELLOW),
+        "error": ("×", ANSI_RED),
+        "info": ("•", ANSI_BRIGHT_CYAN),
+    }
+    marker, color = palette.get(kind, palette["info"])
+    print(_paint(f"{marker} {message}", color, ANSI_BOLD if kind in {"ok", "error"} else ""))
+
+
+def cursor_message_popup(message: object, kind: str = "info", *, title: str | None = None) -> None:
+    """Modalne okno komunikatu używane przez interfejs kursorowy.
+
+    Błędy i ostrzeżenia nie wypadają już do zwykłego logu terminala.
+    Użytkownik zamyka okno Enterem albo Esc, po czym wraca do menu.
+    """
+
+    if not HAS_PROMPT_TOOLKIT or _pt_message_dialog is None:
+        ui_status(str(message), kind)
+        return
+    titles = {
+        "ok": "Zakończono poprawnie",
+        "warn": "Ostrzeżenie",
+        "error": "Błąd",
+        "info": "Informacja",
+    }
+    style = _pt_Style.from_dict({
+        "dialog": "bg:ansiblack",
+        "dialog frame.label": "ansibrightcyan bold",
+        "dialog.body": "bg:ansiblack fg:ansiwhite",
+        "dialog shadow": "bg:ansiblack",
+        "button": "bg:ansicyan fg:ansiblack",
+        "button.focused": "bg:ansibrightcyan fg:ansiblack bold",
+    }) if _pt_Style is not None else None
+    dialog = _pt_message_dialog(
+        title=title or titles.get(kind, titles["info"]),
+        text=str(message),
+        ok_text="OK",
+        style=style,
+    )
+    dialog.run()
+
+
+def ui_message(ui_mode: str, message: object, kind: str = "info", *, title: str | None = None) -> None:
+    """Pokazuje komunikat zgodnie z aktywnym trybem interfejsu."""
+
+    if ui_mode == "kursorowy":
+        cursor_message_popup(message, kind, title=title)
+    else:
+        ui_status(str(message), kind)
+
+
+def ui_key_value(label: str, value: object, *, label_width: int = 18, indent: str = "  ") -> None:
+    width = _ui_width()
+    prefix = indent + _paint(label.ljust(label_width), ANSI_BRIGHT_BLACK)
+    available = max(12, width - len(indent) - label_width)
+    lines = _wrap(value, available, indent=" " * (len(indent) + label_width))
+    print(prefix + lines[0])
+    for line in lines[1:]:
+        print(line)
+
+
+def print_plan(plan: PackPlan, show_files: bool = False) -> None:
+    ui_banner(
+        f"PLAN {plan.profile.upper()} — {plan.version.full_version}",
+        "Zamrożony plan: ta sama lista zasila podgląd, manifest i ZIP",
+    )
+    ui_key_value("Źródło", plan.root)
+    ui_key_value("Skanowanie", plan.scan_method)
+    ui_key_value("Manifest", plan.manifest_builder)
+    ui_key_value("Pliki", plan.file_count)
+    ui_key_value("Rozmiar", human_size(plan.total_size))
+    ui_key_value("Wykluczone", len(plan.excluded))
+    ui_key_value("Plan SHA-256", plan.plan_sha256())
+    if show_files:
+        ui_section("PLIKI W PLANIE")
+        for index, item in enumerate(plan.entries, start=1):
+            marker = "V" if item.is_virtual else "F"
+            print(f"  {_paint(f'{index:>5}.', ANSI_BRIGHT_BLACK)} [{marker}] {item.relative} {_paint(f'({human_size(item.size_bytes)})', ANSI_BRIGHT_BLACK)}")
+        ui_section("PRZYKŁADOWE WYKLUCZENIA")
+        for path, reason in plan.excluded[:100]:
+            print(f"  {_paint('–', ANSI_YELLOW)} {path}  {_paint(f'[{reason}]', ANSI_BRIGHT_BLACK)}")
+
+
+def _suggested_source() -> Path:
+    # Bez pliku konfiguracji pokazujemy neutralny, przewidywalny root systemu.
+    # Użytkownik od razu edytuje go w pełnoekranowym wierszu interfejsu.
+    return Path("C:\\") if os.name == "nt" else Path("/bin")
+
+
+def _display_path(path: Path) -> str:
+    value = str(path)
+    if os.name != "nt" and value == "/bin":
+        return "/bin/"
+    return value
+
+
+def settings_path() -> Path:
+    return Path(__file__).resolve().with_name(SETTINGS_FILE_NAME)
+
+
+def _normalize_ui_mode(value: str | None) -> str:
+    raw = str(value or "").strip().lower()
+    aliases = {
+        "plain": "tekstowy",
+        "text": "tekstowy",
+        "txt": "tekstowy",
+        "tekst": "tekstowy",
+        "tekstowy": "tekstowy",
+        "cursor": "kursorowy",
+        "curses": "kursorowy",
+        "kursor": "kursorowy",
+        "kursorowy": "kursorowy",
+    }
+    mode = aliases.get(raw, raw)
+    if mode not in UI_MODE_CHOICES:
+        return "tekstowy"
+    if mode == "kursorowy" and not HAS_PROMPT_TOOLKIT:
+        return "tekstowy"
+    return mode
+
+
+def default_interactive_state() -> InteractiveState:
+    source = _suggested_source()
+    return InteractiveState(source=source, out_dir=Path(__file__).resolve().parent / "packages")
+
+
+def _load_exclusion_rules(value: object) -> list[ExclusionRule]:
+    if not isinstance(value, list):
+        return default_exclusion_rules()
+    result: list[ExclusionRule] = []
+    for item in value:
+        if isinstance(item, dict):
+            rule = ExclusionRule(
+                scope=str(item.get("scope") or "common"),
+                pattern=str(item.get("pattern") or ""),
+                enabled=bool(item.get("enabled", True)),
+            ).normalized()
+        elif isinstance(item, str):
+            rule = ExclusionRule("common", item, True).normalized()
+        else:
+            continue
+        if rule.pattern:
+            result.append(rule)
+    return result
+
+
+def load_interactive_state() -> InteractiveState:
+    state = default_interactive_state()
+    path = settings_path()
+    if not path.is_file():
+        return state
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8-sig"))
+    except Exception as exc:
+        ui_status(f"Nie można wczytać ustawień {path}: {exc}", "warn")
+        return state
+    if not isinstance(payload, dict):
+        return state
+
+    source_raw = payload.get("source") or payload.get("source_folder")
+    out_raw = payload.get("out_dir") or payload.get("output_dir")
+    if source_raw:
+        state.source = Path(str(source_raw)).expanduser().resolve()
+    if out_raw:
+        state.out_dir = Path(str(out_raw)).expanduser().resolve()
+    else:
+        state.out_dir = state.source.parent / "packages"
+
+    profile = str(payload.get("profile") or payload.get("pack_profile") or state.profile)
+    if profile == "pelna":
+        profile = "dual"
+    if profile in PROFILE_CHOICES:
+        state.profile = profile
+    archive_format = str(payload.get("archive_format") or payload.get("format") or state.archive_format)
+    if archive_format in FORMAT_CHOICES:
+        state.archive_format = archive_format
+    state.archive_basename = str(
+        payload.get("archive_basename")
+        or payload.get("archive_basename_requested")
+        or payload.get("name")
+        or state.archive_basename
+    ).strip() or "jazn_latka"
+    try:
+        state.part_size_mb = max(1, int(payload.get("part_size_mb", state.part_size_mb)))
+    except (TypeError, ValueError):
+        pass
+    try:
+        level = int(payload.get("compression_level", state.compression_level))
+        if 0 <= level <= 9:
+            state.compression_level = level
+    except (TypeError, ValueError):
+        pass
+    state.force = bool(payload.get("force", state.force))
+    state.base_excludes = _load_exclusion_rules(payload.get("base_excludes"))
+    custom = payload.get("manual_excludes") or payload.get("custom_excludes") or payload.get("exclude") or []
+    if isinstance(custom, list):
+        state.custom_excludes = [str(item).strip() for item in custom if str(item).strip()]
+    state.custom_excludes_enabled = bool(
+        state.custom_excludes
+        and payload.get("manual_excludes_enabled", payload.get("custom_excludes_enabled", True))
+    )
+    state.sidecars = bool(payload.get("sidecars", payload.get("diagnostic_files", True)))
+    state.ui_mode = _normalize_ui_mode(str(payload.get("ui_mode") or "tekstowy"))
+    state.ui_auto_start = bool(payload.get("ui_auto_start", False))
+    state.dirty = False
+    return state
+
+
+def save_interactive_state(state: InteractiveState) -> Path:
+    payload = {
+        "schema_version": SETTINGS_SCHEMA,
+        "saved_at_utc": utc_now(),
+        "generator_version": GENERATOR_VERSION,
+        "source": str(state.source.resolve()),
+        "out_dir": str(state.out_dir.resolve()),
+        "profile": state.profile,
+        "archive_format": state.archive_format,
+        "archive_basename": state.archive_basename,
         "part_size_mb": state.part_size_mb,
         "compression_level": state.compression_level,
-        "include_empty_dirs": state.include_empty_dirs,
         "force": state.force,
-        "pack_profile": state.pack_profile,
-        "pack_profile_label": state.profile_label(),
-        "exclude_patterns": state.effective_excludes(),
-        "disabled_default_exclude_patterns": state.disabled_default_excludes,
-        "custom_exclude_patterns": state.custom_excludes,
-        "source_file_count": state.plan.file_count,
-        "source_dir_count": state.plan.dir_count,
-        "source_total_size_bytes": state.plan.source_total_size,
-        "excluded_count": len(state.plan.excluded),
-        "files": [
-            rel_posix(path, state.source_folder.resolve())
-            for path in state.plan.files
+        "base_excludes": [
+            {"scope": item.scope, "pattern": item.pattern, "enabled": item.enabled}
+            for item in state.base_excludes
         ],
-        "dirs": [
-            rel_posix(path, state.source_folder.resolve()) + "/"
-            for path in state.plan.dirs
-        ],
-        "excluded_sample": [
-            {"path": rel, "pattern": pattern}
-            for rel, pattern in state.plan.excluded[:1000]
-        ],
+        "manual_excludes": list(state.custom_excludes),
+        "manual_excludes_enabled": bool(state.custom_excludes and state.custom_excludes_enabled),
+        "custom_excludes": list(state.custom_excludes),
+        "sidecars": state.sidecars,
+        "ui_mode": state.ui_mode,
+        "ui_auto_start": state.ui_auto_start,
+        "appearance": "latka-cyan-polished",
     }
-
-    if state.pack_profile == DUAL_PACKAGE_PROFILE:
-        names = dual_archive_names(state.archive_name)
-        data["package_mode"] = "dual"
-        data["extraction_order"] = ["system", "memory"]
-        data["archive_names_after_join"] = names
-        data["components"] = {
-            component: {
-                "archive_name_after_join": names[component],
-                "source_file_count": state.component_plans[component].file_count,
-                "source_dir_count": state.component_plans[component].dir_count,
-                "source_total_size_bytes": (
-                    state.component_plans[component].source_total_size
-                ),
-                "files": [
-                    rel_posix(path, state.source_folder.resolve())
-                    for path in state.component_plans[component].files
-                ],
-                "dirs": [
-                    rel_posix(path, state.source_folder.resolve()) + "/"
-                    for path in state.component_plans[component].dirs
-                ],
-            }
-            for component in DUAL_PACKAGE_COMPONENTS
-        }
-    else:
-        data["package_mode"] = "single"
-        data["archive_name_after_join"] = state.archive_name
-        data["include_prefixes"] = state.include_prefixes()
-
-    preview_path.write_text(
-        json.dumps(data, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    return preview_path
+    path = settings_path()
+    temp = path.with_name(path.name + f".{uuid.uuid4().hex}.tmp")
+    temp.write_bytes(serialize_json(payload))
+    os.replace(temp, path)
+    state.dirty = False
+    return path
 
 
-def print_pack_plan_compact_summary(state: WizardState) -> None:
-    require_ready_state(state)
-    if state.plan is None:
-        print("Brak aktualnego planu. Wybierz opcję podglądu, żeby przeskanować źródło.")
-        return
-    assert state.source_folder is not None
-    assert state.out_dir is not None
-
-    print("\nPodstawa pakowania została wyliczona z aktualnych ustawień.")
-    print(f"Źródło: {state.source_folder}")
-    print(f"Wyjście: {state.out_dir}")
-    print(f"Profil: {state.profile_label()}")
-    if state.pack_profile == DUAL_PACKAGE_PROFILE:
-        names = dual_archive_names(state.archive_name)
-        print(f"ZIP systemu: {names['system']}")
-        print(f"ZIP pamięci: {names['memory']}")
-        for component, label in (("system", "System"), ("memory", "Pamięć")):
-            plan = state.component_plans.get(component)
-            if plan is not None:
-                print(
-                    f"{label}: {plan.file_count} plików / "
-                    f"{human_size(plan.source_total_size)}"
-                )
-    else:
-        print(f"Nazwa ZIP: {state.archive_name}")
-        print(f"Pliki do spakowania: {state.plan.file_count}")
-        print(f"Rozmiar źródłowy: {human_size(state.plan.source_total_size)}")
-    print(
-        f"Część ZIP: {state.part_size_mb} MiB; "
-        f"kompresja: {state.compression_level}; force: {state.force}"
-    )
+def reset_interactive_settings() -> None:
+    settings_path().unlink(missing_ok=True)
 
 
-def _current_package_archive_names(state: WizardState) -> list[str]:
-    if state.pack_profile == DUAL_PACKAGE_PROFILE:
-        names = dual_archive_names(state.archive_name)
-        return [names["system"], names["memory"]]
-    return [sanitize_zip_name(state.archive_name)]
+def _prompt_key_bindings():
+    if not HAS_PROMPT_TOOLKIT or _pt_KeyBindings is None:
+        return None
+    bindings = _pt_KeyBindings()
+
+    @bindings.add("escape", eager=True)
+    def _cancel(event: Any) -> None:
+        event.app.exit(result=UI_CANCEL_MARKER)
+
+    @bindings.add("c-x", eager=True)
+    def _exit(event: Any) -> None:
+        event.app.exit(result=UI_EXIT_MARKER)
+
+    return bindings
 
 
-def join_current_package_from_menu(state: WizardState) -> None:
-    if state.out_dir is None:
-        raise ValueError("Najpierw ustaw folder zapisu paczki.")
-    out_dir = state.out_dir.expanduser().resolve()
-    results: list[str] = []
-    for base_zip_name in _current_package_archive_names(state):
-        subsection(f"Łączenie: {base_zip_name}")
-        out_zip = out_dir / base_zip_name
-        force = False
-        keep_existing = False
-        if out_zip.exists():
-            print(f"Pełny ZIP już istnieje: {out_zip}")
-            if ask_bool(
-                "Użyć istniejącego ZIP-a bez ponownego sklejania",
-                True,
-                require_explicit=True,
-            ):
-                keep_existing = True
-            else:
-                force = ask_bool(
-                    "Nadpisać pełny ZIP po ponownej walidacji części",
-                    False,
-                    require_explicit=True,
-                )
-                if not force:
-                    print(f"Pominięto: {base_zip_name}")
-                    continue
-        results.append(
-            str(
-                join_split_package_to_zip(
-                    out_dir,
-                    base_zip_name,
-                    force=force,
-                    keep_existing=keep_existing,
-                )
-            )
-        )
-    section("Łączenie zakończone")
-    for result in results:
-        print(f"  - {result}")
+def _prompt_style():
+    if not HAS_PROMPT_TOOLKIT or _pt_Style is None:
+        return None
+    return _pt_Style.from_dict({
+        "prompt": "ansibrightcyan bold",
+        "rprompt": "ansibrightblack",
+        "completion-menu.completion": "bg:ansiblack fg:ansiwhite",
+        "completion-menu.completion.current": "bg:ansicyan fg:ansiblack bold",
+        "scrollbar.background": "bg:ansiblack",
+        "scrollbar.button": "bg:ansicyan",
+    })
 
 
-def test_current_package_from_menu(state: WizardState) -> None:
-    if state.out_dir is None:
-        raise ValueError("Najpierw ustaw folder zapisu paczki.")
-    out_dir = state.out_dir.expanduser().resolve()
-    reports = []
-    for base_zip_name in _current_package_archive_names(state):
-        subsection(f"Test: {base_zip_name}")
-        reports.append(
-            test_split_package(
-                out_dir,
-                base_zip_name,
-                join_if_missing=True,
-                force_join=False,
-                run_crc=True,
-            )
-        )
-    section("Test paczki/paczek OK")
-    print(json.dumps(reports, ensure_ascii=False, indent=2))
+def _control_result(value: str) -> str:
+    raw = value.strip().lower()
+    if raw in {"esc", "escape", "anuluj", "cancel", "wróć", "wroc"}:
+        raise UserCancelledInput()
+    if raw in {"ctrl+x", "ctrlx", "^x", "exit", "quit", "zamknij"}:
+        raise UserRequestedExit()
+    return value
 
 
-def create_dual_split_packages_from_args(
+def cursor_edit_value(
+    title: str,
+    label: str,
+    current: str,
     *,
-    source_folder: Path,
-    out_dir: Path,
-    archive_basename: str,
-    part_size_mb: int,
-    compression_level: int,
-    force: bool,
-    include_empty_dirs: bool,
-    exclude_patterns: list[str],
-    append_version_to_name: bool,
-    version_file: str | Path | None,
-    artifact_mode: str = DEFAULT_ARTIFACT_MODE,
-    verify_after_pack: bool = VERIFY_AFTER_PACK,
-    verify_crc: bool = VERIFY_CRC_AFTER_PACK,
-) -> dict[str, object]:
-    source_folder = source_folder.resolve()
-    out_dir = out_dir.resolve()
-    resolved_version_file = find_version_file(source_folder, version_file)
-    package_version = read_version_from_py(resolved_version_file)
-    package_release_name = normalize_release_name(
-        read_optional_string_from_py(
-            resolved_version_file,
-            RELEASE_NAME_VARIABLES,
+    path_mode: bool = False,
+    help_text: str = "",
+) -> str:
+    """Edytuje wartość w tym samym pełnoekranowym stylu co menu kursorowe."""
+
+    if not HAS_PROMPT_TOOLKIT or any(item is None for item in (
+        _pt_Application,
+        _pt_KeyBindings,
+        _pt_Layout,
+        _pt_HSplit,
+        _pt_VSplit,
+        _pt_Window,
+        _pt_FormattedTextControl,
+        _pt_Style,
+        _pt_TextArea,
+        _pt_get_app,
+        _pt_MouseButton,
+        _pt_MouseEventType,
+    )):
+        raise PackError("Pełnoekranowa edycja wymaga kompletnej biblioteki prompt_toolkit.")
+
+    assert _pt_Application is not None
+    assert _pt_KeyBindings is not None
+    assert _pt_Layout is not None
+    assert _pt_HSplit is not None
+    assert _pt_VSplit is not None
+    assert _pt_Window is not None
+    assert _pt_FormattedTextControl is not None
+    assert _pt_Style is not None
+    assert _pt_TextArea is not None
+    assert _pt_get_app is not None
+    assert _pt_MouseButton is not None
+    assert _pt_MouseEventType is not None
+    pt_get_app = _pt_get_app
+    mouse_button = _pt_MouseButton
+    mouse_event_type = _pt_MouseEventType
+
+    completer = None
+    if path_mode and _pt_PathCompleter is not None:
+        completer = _pt_PathCompleter(only_directories=True, expanduser=True)
+    def _accept_buffer(buffer: Any) -> bool:
+        pt_get_app().exit(result=buffer.text)
+        return True
+
+    editor = _pt_TextArea(
+        text=current,
+        multiline=False,
+        wrap_lines=False,
+        completer=completer,
+        complete_while_typing=False,
+        accept_handler=_accept_buffer,
+        style="class:input",
+    )
+    editor.buffer.cursor_position = len(current)
+    original_editor_mouse_handler = editor.control.mouse_handler
+
+    def editor_mouse_handler(mouse_event: Any) -> object:
+        if (
+            mouse_event.event_type == mouse_event_type.MOUSE_UP
+            and mouse_event.button == mouse_button.RIGHT
+        ):
+            pt_get_app().exit(result=UI_CANCEL_MARKER)
+            return None
+        return original_editor_mouse_handler(mouse_event)
+
+    editor.control.mouse_handler = editor_mouse_handler
+    bindings = _pt_KeyBindings()
+
+    @bindings.add("c-a", eager=True)
+    def _clear_field(event: Any) -> None:
+        editor.buffer.text = ""
+
+    @bindings.add("escape", eager=True)
+    def _cancel(event: Any) -> None:
+        event.app.exit(result=UI_CANCEL_MARKER)
+
+    @bindings.add("c-x", eager=True)
+    def _exit(event: Any) -> None:
+        event.app.exit(result=UI_EXIT_MARKER)
+
+    header = _pt_FormattedTextControl([
+        ("class:header.title", f"  {title}"),
+        ("class:header.subtitle", "  •  edycja wiersza"),
+    ])
+    help_control = _pt_FormattedTextControl(
+        [("class:help", "  " + (help_text or "Wpisz wartość i zatwierdź Enterem."))]
+    )
+    footer = _pt_FormattedTextControl([
+        ("class:footer.key", " Enter "), ("class:footer.text", "zapisz  "),
+        ("class:footer.key", " Ctrl+A "), ("class:footer.text", "wyczyść pole  "),
+        ("class:footer.key", " Esc/PPM "), ("class:footer.text", "anuluj  "),
+        ("class:footer.key", " Ctrl+X "), ("class:footer.text", "wyjdź bez zapisu "),
+    ])
+    layout = _pt_Layout(
+        _pt_HSplit([
+            _pt_Window(height=2, content=header, style="class:header", wrap_lines=False),
+            _pt_Window(height=1, char="─", style="class:border"),
+            _pt_Window(height=2, content=help_control, style="class:help", wrap_lines=True),
+            _pt_Window(height=1),
+            _pt_VSplit([
+                _pt_Window(width=max(12, len(label) + 4), content=_pt_FormattedTextControl(
+                    [("class:field.label", f"  {label}: ")]
+                )),
+                _pt_Window(width=1, content=_pt_FormattedTextControl([("class:field.bracket", "[")])),
+                editor,
+                _pt_Window(width=1, content=_pt_FormattedTextControl([("class:field.bracket", "]")])),
+                _pt_Window(width=2),
+            ]),
+            _pt_Window(),
+            _pt_Window(height=1, char="─", style="class:border"),
+            _pt_Window(height=1, content=footer, style="class:footer", wrap_lines=False),
+        ]),
+        focused_element=editor,
+    )
+    style = _pt_Style.from_dict({
+        "root": "bg:ansiblack fg:ansiwhite",
+        "header": "bg:ansiblack",
+        "header.title": "ansibrightcyan bold",
+        "header.subtitle": "ansibrightblack",
+        "border": "ansicyan",
+        "help": "ansibrightblack",
+        "field.label": "ansibrightcyan bold",
+        "field.bracket": "ansicyan bold",
+        "input": "bg:ansiwhite fg:ansiblack",
+        "footer": "bg:ansiblack",
+        "footer.key": "bg:ansicyan fg:ansiblack bold",
+        "footer.text": "ansibrightblack",
+    })
+    app = _pt_Application(
+        layout=layout,
+        key_bindings=bindings,
+        style=style,
+        full_screen=True,
+        erase_when_done=True,
+        mouse_support=True,
+    )
+    result = app.run()
+    if result == UI_CANCEL_MARKER:
+        raise UserCancelledInput()
+    if result == UI_EXIT_MARKER:
+        raise UserRequestedExit()
+    value = str(result or "").strip()
+    return value or current
+
+
+def ask_text_value(label: str, current: str, *, ui_mode: str, path_mode: bool = False) -> str:
+    if ui_mode == "kursorowy":
+        return cursor_edit_value(
+            f"Edycja: {label}",
+            label,
+            current,
+            path_mode=path_mode,
+            help_text=(
+                "Ścieżka pozostaje edytowana w tym samym interfejsie. "
+                "Możesz użyć uzupełniania katalogów klawiszem Tab."
+                if path_mode else "Wartość jest zapisywana dopiero po naciśnięciu Enter."
+            ),
         )
-        or PACKAGE_RELEASE_NAME
-    )
-    base_archive_name = apply_version_to_archive_name(
-        archive_basename,
-        package_version,
-        package_release_name=package_release_name,
-        enabled=append_version_to_name,
-    )
-    memory_root = source_folder / "memory"
-    if not memory_root.exists() or not memory_root.is_dir():
-        raise FileNotFoundError(f"Brak wymaganego katalogu pamięci: {memory_root}")
-
-    plans = {
-        "system": discover_pack_plan(
-            source_folder,
-            include_empty_dirs,
-            _component_excludes(exclude_patterns, "system"),
-            [],
-        ),
-        "memory": discover_pack_plan(
-            source_folder,
-            include_empty_dirs,
-            _component_excludes(exclude_patterns, "memory"),
-            ["memory/"],
-        ),
-    }
-    return create_dual_split_packages(
-        source_folder=source_folder,
-        out_dir=out_dir,
-        base_archive_name=base_archive_name,
-        plans=plans,
-        part_size_mb=part_size_mb,
-        compression_level=compression_level,
-        force=force,
-        include_empty_dirs=include_empty_dirs,
-        base_exclude_patterns=exclude_patterns,
-        package_version=package_version,
-        package_release_name=package_release_name,
-        resolved_version_file=resolved_version_file,
-        archive_basename_requested=archive_basename,
-        append_version_to_name=append_version_to_name,
-        disabled_default_excludes=[],
-        artifact_mode=artifact_mode,
-        verify_after_pack=verify_after_pack,
-        verify_crc=verify_crc,
-    )
+    prompt_label = _paint(label, ANSI_BRIGHT_CYAN, ANSI_BOLD)
+    value = input(f"{prompt_label} [{current}]: ").strip()
+    _control_result(value)
+    return value or current
 
 
-def show_pack_list_and_offer_json(state: WizardState, ui_mode: str = "plain") -> None:
-    """Pokazuje właściwy plan; dla profilu pełnego wymusza dwa plany komponentów."""
-    needs_rebuild = state.plan is None or (
-        state.pack_profile == DUAL_PACKAGE_PROFILE
-        and set(state.component_plans) != set(DUAL_PACKAGE_COMPONENTS)
-    )
-    if needs_rebuild:
-        rebuild_plan(state)
-    else:
-        section("Lista do spakowania z ustawieniami")
-        print_pack_plan_summary(state)
-    if state.out_dir is not None and ask_bool(
-        "Zapisać pełny podgląd listy pakowania do JSON",
-        False,
-        require_explicit=True,
-    ):
-        preview = save_preview_json(state)
-        print(f"Zapisano podgląd: {preview}")
-
-def rebuild_plan_quiet_for_pack(state: WizardState) -> PackPlan:
-    """Wylicza plan bez pełnej listy; profil domyślny buduje dwa komponenty."""
-    require_ready_state(state)
-    section("Przygotowanie podstawy pakowania")
-    if state.pack_profile == DUAL_PACKAGE_PROFILE:
-        discover_dual_package_plans(state)
-    else:
-        assert state.source_folder is not None
-        state.component_plans.clear()
-        state.plan = discover_pack_plan(
-            state.source_folder,
-            state.include_empty_dirs,
-            state.effective_excludes(),
-            state.include_prefixes(),
-        )
-    assert state.plan is not None
-    return state.plan
-
-def run_wizard(initial_source: str | None = None, *, ui_mode: str | None = None) -> int:
-    settings_snapshot = snapshot_settings_file()
-    state: WizardState | None = None
-    try:
-        activate_process_guard(prompt_user=True)
-        state = initialize_state(initial_source)
-        section(f"Jaźń / Łatka — generator paczki ZIP v{VERSION}")
-        print_bar(100, 100, label="Ładowanie")
-        if state.settings_needs_cleanup:
-            save_settings(state, quiet=True)
-            settings_snapshot = snapshot_settings_file()
-        show_startup_warnings(state)
-        ui_mode = resolve_ui_mode_with_optional_install(ui_mode, state)
-        save_settings(state, quiet=True)
-        settings_snapshot = snapshot_settings_file()
-        prepare_plan_on_startup_if_possible(state)
-    except UserRequestedAppExit:
-        restore_settings_file(settings_snapshot); print("\nZamknięto skrótem Ctrl+X bez zapisywania zmian."); return 130
-    except KeyboardInterrupt:
-        restore_settings_file(settings_snapshot); print("\nPrzerwano przez Ctrl+C. Start aplikacji został anulowany bez tracebacka."); return 130
-    except EOFError:
-        restore_settings_file(settings_snapshot); print("\nWejście terminala zostało zamknięte. Start aplikacji został anulowany bez tracebacka."); return 130
-
+def ask_int_value(label: str, current: int, minimum: int, maximum: int, *, ui_mode: str) -> int:
     while True:
+        raw = ask_text_value(label, str(current), ui_mode=ui_mode)
         try:
-            assert state is not None
-            if not should_use_cursor_menu(ui_mode):
-                show_current_state(state)
-                print(f"Tryb UI:                    {ui_mode_label(ui_mode)}; auto-start: {on_off_label(state.ui_auto_start)}")
-            current_default_choice = default_menu_choice(state)
-            choice = ask_menu_choice(state, current_default_choice, ui_mode)
-            control_word = _plain_control_word(choice)
-            if control_word == "exit": raise UserRequestedAppExit()
-            if control_word == "cancel": continue
+            value = int(raw)
+        except ValueError:
+            ui_status("Podaj liczbę całkowitą.", "warn")
+            continue
+        if minimum <= value <= maximum:
+            return value
+        ui_status(f"Wartość musi być w zakresie {minimum}-{maximum}.", "warn")
 
-            known_menu_choices = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "t", "T", "z", "Z"}
-            if choice not in known_menu_choices:
-                if current_default_choice == "4" and state.source_folder is None:
-                    if apply_source_path_text(state, choice): save_settings(state, quiet=True)
-                    continue
-                if current_default_choice == "5" and state.out_dir is None:
-                    if apply_output_path_text(state, choice): save_settings(state, quiet=True)
-                    continue
 
-            if choice == APP_EXIT_MARKER:
-                restore_settings_file(settings_snapshot); print("Zamknięto skrótem Ctrl+X bez zapisywania zmian."); return 130
-            if choice == "1":
-                configure_profile(state, ui_mode); save_settings(state, quiet=True)
-            elif choice == "2":
-                if not ensure_ready_for_pack_plan(state, ui_mode=ui_mode): save_settings(state, quiet=True); continue
-                show_pack_list_and_offer_json(state, ui_mode)
-                save_settings(state, quiet=True)
-            elif choice == "3":
-                if not ensure_ready_for_pack_plan(state, ui_mode=ui_mode): save_settings(state, quiet=True); continue
-                save_pack_preview_from_main_menu(state, ui_mode)
-            elif choice == "4":
-                configure_source(state); save_settings(state, quiet=True)
-            elif choice == "5":
-                configure_output(state); save_settings(state, quiet=True)
-            elif choice == "6":
-                reset_archive_name_from_version(state); save_settings(state, quiet=True)
-            elif choice == "7":
-                configure_name(state); save_settings(state, quiet=True)
-            elif choice == "8":
-                _ = settings_submenu(state, ui_mode)
-                ui_mode = normalize_ui_mode(state.ui_mode or ui_mode)
-                if ui_mode == "auto": ui_mode = resolve_auto_ui_mode()
-            elif choice.lower() == "t":
-                if state.out_dir is None or not state.archive_name:
-                    if not ensure_ready_for_pack_plan(state, ui_mode=ui_mode):
-                        save_settings(state, quiet=True); continue
-                test_current_package_from_menu(state)
-                pause()
-            elif choice.lower() == "z":
-                if state.out_dir is None or not state.archive_name:
-                    if not ensure_ready_for_pack_plan(state, ui_mode=ui_mode):
-                        save_settings(state, quiet=True); continue
-                join_current_package_from_menu(state)
-                pause()
-            elif choice == "9":
-                if not ensure_ready_for_pack_plan(state, ui_mode=ui_mode): save_settings(state, quiet=True); continue
-                # Nie używamy tutaj rebuild_plan(), bo ta funkcja drukuje pełną listę.
-                # „Pakuj teraz” pokazuje tylko kompaktową podstawę, a pełną listę
-                # dopiero po jawnej odpowiedzi T na poniższe pytanie.
-                if state.plan is None: rebuild_plan_quiet_for_pack(state)
-                print("\nTo zostanie użyte jako podstawa pakowania.")
-                print_pack_plan_compact_summary(state)
-                if ask_bool("Pokazać listę katalogów i plików przed pakowaniem", False, require_explicit=True):
-                    print_pack_items_for_plan(state)
-                if not ask_bool("Rozpocząć pakowanie", True, require_explicit=True):
-                    # Po odmowie wróć do menu z kursorem na ostatniej pozycji: Pakuj teraz.
-                    try:
-                        _store_cursor_key("menu główne", "9", {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"})
-                    except Exception:
-                        pass
-                    continue
-                assert state.source_folder is not None and state.out_dir is not None and state.plan is not None
-                create_packages_for_state(state)
-                save_settings(state, quiet=True); return 0
-            elif choice == "0":
-                exit_action = exit_menu(ui_mode)
-                if exit_action == "save": save_settings(state, quiet=False); print("Zakończono bez pakowania."); return 0
-                if exit_action == "nosave": restore_settings_file(settings_snapshot); print("Zakończono bez zapisywania zmian."); return 0
+def ask_yes_no(label: str, current: bool, *, ui_mode: str, explicit: bool = False) -> bool:
+    if ui_mode == "kursorowy":
+        labels = ["TAK", "NIE"]
+        details = [f"Potwierdź: {label}.", f"Odrzuć: {label}."]
+        selected = 0 if current else 1
+        choice = cursor_select(
+            label,
+            labels,
+            selected,
+            details=details,
+            subtitle="Potwierdzenie",
+        )
+        if choice is None:
+            raise UserCancelledInput()
+        return choice == 0
+    suffix = "T/N" if explicit else ("T/n" if current else "t/N")
+    while True:
+        raw = ask_text_value(f"{label} [{suffix}]", "", ui_mode=ui_mode).strip().lower()
+        if not raw and not explicit:
+            return current
+        if raw in {"t", "tak", "y", "yes", "1", "true"}:
+            return True
+        if raw in {"n", "nie", "no", "0", "false"}:
+            return False
+        ui_status("Wpisz T/Tak albo N/Nie.", "warn")
+
+
+def _cursor_requirements_available() -> bool:
+    return HAS_PROMPT_TOOLKIT and all(
+        item is not None
+        for item in (
+            _pt_Application,
+            _pt_KeyBindings,
+            _pt_Layout,
+            _pt_HSplit,
+            _pt_VSplit,
+            _pt_Window,
+            _pt_FormattedTextControl,
+            _pt_Style,
+        )
+    )
+
+
+def cursor_select(
+    title: str,
+    rows: Sequence[str],
+    selected: int = 0,
+    *,
+    details: Sequence[str] | None = None,
+    status_lines: Sequence[str] | None = None,
+    subtitle: str = "",
+    groups: dict[int, str] | None = None,
+) -> int | None:
+    """Pełnoekranowe menu kursorowe z panelem szczegółów i paskiem skrótów."""
+    # Bezpośrednie kontrole są celowe: Pylance/Pyright nie zawęża typów
+    # opcjonalnych aliasów modułowych na podstawie wyniku pomocniczej funkcji
+    # _cursor_requirements_available(). Po tych warunkach każdy symbol ma typ
+    # nieopcjonalny, a tryb tekstowy nadal działa bez prompt_toolkit.
+    if not HAS_PROMPT_TOOLKIT:
+        raise PackError("Tryb kursorowy wymaga biblioteki prompt_toolkit.")
+    if _pt_Application is None:
+        raise PackError("Brak prompt_toolkit.application.Application.")
+    if _pt_KeyBindings is None:
+        raise PackError("Brak prompt_toolkit.key_binding.KeyBindings.")
+    if _pt_Dimension is None:
+        raise PackError("Brak prompt_toolkit.layout.Dimension.")
+    if _pt_Layout is None:
+        raise PackError("Brak prompt_toolkit.layout.Layout.")
+    if _pt_HSplit is None:
+        raise PackError("Brak prompt_toolkit.layout.containers.HSplit.")
+    if _pt_VSplit is None:
+        raise PackError("Brak prompt_toolkit.layout.containers.VSplit.")
+    if _pt_Window is None:
+        raise PackError("Brak prompt_toolkit.layout.containers.Window.")
+    if _pt_FormattedTextControl is None:
+        raise PackError("Brak prompt_toolkit.layout.controls.FormattedTextControl.")
+    if _pt_Style is None:
+        raise PackError("Brak prompt_toolkit.styles.Style.")
+    if _pt_get_app is None:
+        raise PackError("Brak prompt_toolkit.application.current.get_app.")
+    if _pt_MouseButton is None:
+        raise PackError("Brak prompt_toolkit.mouse_events.MouseButton.")
+    if _pt_MouseEventType is None:
+        raise PackError("Brak prompt_toolkit.mouse_events.MouseEventType.")
+    pt_get_app = _pt_get_app
+    pt_dimension = _pt_Dimension
+    mouse_button = _pt_MouseButton
+    mouse_event_type = _pt_MouseEventType
+    if not rows:
+        return None
+
+    index = max(0, min(selected, len(rows) - 1))
+    details = list(details or [""] * len(rows))
+    if len(details) < len(rows):
+        details.extend([""] * (len(rows) - len(details)))
+    status_lines = list(status_lines or [])
+    groups = dict(groups or {})
+    bindings = _pt_KeyBindings()
+
+    def render_header() -> list[tuple[str, str]]:
+        result = [("class:header.title", f"  {title}")]
+        if subtitle:
+            result.append(("class:header.subtitle", f"  •  {subtitle}"))
+        return result
+
+    def row_mouse_handler(row_index: int):
+        def _handler(mouse_event: Any) -> object:
+            nonlocal index
+            app = pt_get_app()
+            event_type = mouse_event.event_type
+            if (
+                event_type == mouse_event_type.MOUSE_UP
+                and mouse_event.button == mouse_button.RIGHT
+            ):
+                app.exit(result=None)
+                return None
+            if event_type == mouse_event_type.MOUSE_MOVE:
+                if index != row_index:
+                    index = row_index
+                    app.invalidate()
+                return None
+            if event_type == mouse_event_type.MOUSE_UP:
+                index = row_index
+                app.invalidate()
+                app.exit(result=index)
+                return None
+            if event_type == mouse_event_type.SCROLL_UP:
+                index = (index - 1) % len(rows)
+                app.invalidate()
+                return None
+            if event_type == mouse_event_type.SCROLL_DOWN:
+                index = (index + 1) % len(rows)
+                app.invalidate()
+                return None
+            return NotImplemented
+        return _handler
+
+    def render_menu() -> list[Any]:
+        fragments: list[Any] = []
+        for number, row in enumerate(rows):
+            section_name = groups.get(number)
+            if section_name:
+                line_width = 45
+                prefix = f"── {section_name} "
+                fragments.append((
+                    "class:menu.section",
+                    ("\n" if number else "") + "  " + prefix + "─" * max(2, line_width - len(prefix)) + "\n",
+                ))
+            if number == index:
+                fragments.append(("[SetCursorPosition]", ""))
+                handler = row_mouse_handler(number)
+                fragments.append(("class:menu.selected", "  ▶ ", handler))
+                fragments.append(("class:menu.selected", row + "\n", handler))
+            else:
+                fragments.append(("class:menu.item", "    " + row + "\n", row_mouse_handler(number)))
+        return fragments
+
+    def render_detail() -> list[tuple[str, str]]:
+        fragments: list[tuple[str, str]] = [("class:panel.title", "  AKTUALNA KONFIGURACJA\n")]
+        for line in status_lines:
+            fragments.append(("class:panel.label", "  " + line + "\n"))
+        fragments.append(("class:panel.rule", "\n  " + "─" * max(8, _detail_panel_columns() - 4) + "\n"))
+        fragments.append(("class:panel.title", "  WYBRANA OPCJA\n"))
+        detail = details[index] if index < len(details) else ""
+        for line in _wrap(detail or rows[index], max(20, _detail_panel_columns() - 4), indent="  "):
+            fragments.append(("class:panel.text", "  " + line.strip() + "\n"))
+        return fragments
+
+    def render_footer() -> list[tuple[str, str]]:
+        return [
+            ("class:footer.key", " ↑/↓ "), ("class:footer.text", "wybór  "),
+            ("class:footer.key", " Mysz "), ("class:footer.text", "wskaż/kliknij  "),
+            ("class:footer.key", " Enter "), ("class:footer.text", "zatwierdź  "),
+            ("class:footer.key", " Esc/Q/PPM "), ("class:footer.text", "wróć  "),
+            ("class:footer.key", " Ctrl+X "), ("class:footer.text", "wyjdź bez zapisu "),
+        ]
+
+    menu_control = _pt_FormattedTextControl(text=render_menu, focusable=True, show_cursor=False)
+    detail_control = _pt_FormattedTextControl(text=render_detail, focusable=False, show_cursor=False)
+    header_control = _pt_FormattedTextControl(text=render_header, focusable=False, show_cursor=False)
+    footer_control = _pt_FormattedTextControl(text=render_footer, focusable=False, show_cursor=False)
+
+    @bindings.add("up")
+    @bindings.add("k")
+    def _up(event: Any) -> None:
+        nonlocal index
+        index = (index - 1) % len(rows)
+        event.app.invalidate()
+
+    @bindings.add("down")
+    @bindings.add("j")
+    def _down(event: Any) -> None:
+        nonlocal index
+        index = (index + 1) % len(rows)
+        event.app.invalidate()
+
+    @bindings.add("pageup")
+    def _page_up(event: Any) -> None:
+        nonlocal index
+        index = max(0, index - 8)
+        event.app.invalidate()
+
+    @bindings.add("pagedown")
+    def _page_down(event: Any) -> None:
+        nonlocal index
+        index = min(len(rows) - 1, index + 8)
+        event.app.invalidate()
+
+    @bindings.add("home")
+    def _home(event: Any) -> None:
+        nonlocal index
+        index = 0
+        event.app.invalidate()
+
+    @bindings.add("end")
+    def _end(event: Any) -> None:
+        nonlocal index
+        index = len(rows) - 1
+        event.app.invalidate()
+
+    @bindings.add("enter")
+    def _enter(event: Any) -> None:
+        event.app.exit(result=index)
+
+    @bindings.add("escape", eager=True)
+    @bindings.add("q", eager=True)
+    def _escape(event: Any) -> None:
+        event.app.exit(result=None)
+
+    @bindings.add("c-x", eager=True)
+    def _exit(event: Any) -> None:
+        event.app.exit(result=-2)
+
+    style = _pt_Style.from_dict({
+        "root": "bg:ansiblack fg:ansiwhite",
+        "header": "bg:ansiblack",
+        "header.title": "ansibrightcyan bold",
+        "header.subtitle": "ansibrightblack",
+        "border": "ansicyan",
+        "menu": "bg:ansiblack",
+        "menu.item": "ansiwhite",
+        "menu.section": "ansibrightblack bold",
+        "menu.selected": "bg:ansicyan fg:ansiblack bold",
+        "panel": "bg:ansiblack",
+        "panel.title": "ansibrightcyan bold",
+        "panel.label": "ansibrightblack",
+        "panel.rule": "ansicyan",
+        "panel.text": "ansiwhite",
+        "footer": "bg:ansiblack",
+        "footer.key": "bg:ansicyan fg:ansiblack bold",
+        "footer.text": "ansibrightblack",
+    })
+
+    layout = _pt_Layout(
+        _pt_HSplit([
+            _pt_Window(height=2, content=header_control, style="class:header", wrap_lines=False),
+            _pt_Window(height=1, char="─", style="class:border"),
+            _pt_VSplit([
+                _pt_Window(content=menu_control, width=50, style="class:menu", wrap_lines=False, always_hide_cursor=True),
+                _pt_Window(width=1, char="│", style="class:border"),
+                _pt_Window(
+                    content=detail_control,
+                    width=lambda: pt_dimension.exact(_detail_panel_columns()),
+                    style="class:panel",
+                    wrap_lines=True,
+                    always_hide_cursor=True,
+                ),
+            ], padding=1, padding_char=" "),
+            _pt_Window(height=1, char="─", style="class:border"),
+            _pt_Window(height=1, content=footer_control, style="class:footer", wrap_lines=False),
+        ])
+    )
+    app = _pt_Application(
+        layout=layout,
+        key_bindings=bindings,
+        style=style,
+        full_screen=True,
+        erase_when_done=True,
+        mouse_support=True,
+    )
+    result = app.run()
+    if result == -2:
+        raise UserRequestedExit()
+    return result
+
+
+def choose_value(title: str, labels: Sequence[str], *, current: int, ui_mode: str, details: Sequence[str] | None = None) -> int | None:
+    if ui_mode == "kursorowy":
+        return cursor_select(title, labels, current, details=details, subtitle="Wybierz wartość")
+    ui_section(title.upper())
+    for index, label in enumerate(labels, start=1):
+        current_marker = _paint("●", ANSI_BRIGHT_CYAN) if index - 1 == current else " "
+        print(f"  {current_marker} {_paint(f'{index:>2}.', ANSI_BRIGHT_BLACK)} {label}")
+    raw = input(_paint("Wybór [Enter=powrót]: ", ANSI_BRIGHT_CYAN)).strip()
+    _control_result(raw)
+    if not raw:
+        return None
+    try:
+        value = int(raw) - 1
+    except ValueError:
+        return None
+    return value if 0 <= value < len(labels) else None
+
+
+def build_preview_plans(state: InteractiveState, *, print_summaries: bool = True) -> list[PackPlan]:
+    if state.ui_mode != "kursorowy":
+        ui_status("Buduję kanoniczny plan i obliczam SHA-256 plików…", "info")
+    options = state.to_options()
+    plans = build_plans_for_options(
+        options,
+        notice=lambda message, kind: ui_message(state.ui_mode, message, kind),
+    )
+    if print_summaries:
+        for plan in plans:
+            print_plan(plan, show_files=False)
+    return plans
+
+
+def cursor_plan_file_browser(plans: Sequence[PackPlan]) -> None:
+    """Pełnoekranowa lista wszystkich plików planu z szybkim przewijaniem."""
+
+    if not HAS_PROMPT_TOOLKIT:
+        raise PackError("Pełnoekranowa lista plików wymaga biblioteki prompt_toolkit.")
+    required = (
+        _pt_Application,
+        _pt_KeyBindings,
+        _pt_Dimension,
+        _pt_Layout,
+        _pt_HSplit,
+        _pt_VSplit,
+        _pt_Window,
+        _pt_FormattedTextControl,
+        _pt_Style,
+        _pt_get_app,
+        _pt_MouseButton,
+        _pt_MouseEventType,
+    )
+    if any(item is None for item in required):
+        raise PackError("Niepełna instalacja prompt_toolkit — brak kontrolek listy plików.")
+
+    assert _pt_Application is not None
+    assert _pt_KeyBindings is not None
+    assert _pt_Dimension is not None
+    assert _pt_Layout is not None
+    assert _pt_HSplit is not None
+    assert _pt_VSplit is not None
+    assert _pt_Window is not None
+    assert _pt_FormattedTextControl is not None
+    assert _pt_Style is not None
+    assert _pt_get_app is not None
+    assert _pt_MouseButton is not None
+    assert _pt_MouseEventType is not None
+    pt_get_app = _pt_get_app
+    pt_dimension = _pt_Dimension
+    mouse_button = _pt_MouseButton
+    mouse_event_type = _pt_MouseEventType
+
+    grouped_entries: dict[str, list[tuple[str, PackPlan, PlanEntry]]] = {"system": [], "memory": []}
+    for plan in plans:
+        for item in plan.entries:
+            section = "memory" if (
+                item.relative.startswith("memory/")
+                or item.classification.startswith("memory_")
+            ) else "system"
+            grouped_entries[section].append((section, plan, item))
+    entries = grouped_entries["system"] + grouped_entries["memory"]
+    if not entries:
+        ui_status("Plan nie zawiera plików.", "warn")
+        return
+
+    index = 0
+    terminal_rows = shutil.get_terminal_size((100, 30)).lines
+    page_step = max(6, terminal_rows - 9)
+    bindings = _pt_KeyBindings()
+
+    section_labels = {
+        "system": "SYSTEM:",
+        "memory": "PAMIĘĆ:",
+        "combined": "SYSTEM + PAMIĘĆ:",
+    }
+
+    def render_header() -> list[tuple[str, str]]:
+        total_size = sum(plan.total_size for plan in plans)
+        return [
+            ("class:header.title", "  PEŁNA LISTA PLIKÓW PLANU"),
+            ("class:header.subtitle", f"  •  {len(entries)} plików  •  {human_size(total_size)}"),
+        ]
+
+    def file_mouse_handler(row_index: int):
+        def _handler(mouse_event: Any) -> object:
+            nonlocal index
+            app = pt_get_app()
+            event_type = mouse_event.event_type
+            if (
+                event_type == mouse_event_type.MOUSE_UP
+                and mouse_event.button == mouse_button.RIGHT
+            ):
+                app.exit(result=None)
+                return None
+            if event_type == mouse_event_type.MOUSE_MOVE:
+                if index != row_index:
+                    index = row_index
+                    app.invalidate()
+                return None
+            if event_type == mouse_event_type.MOUSE_UP:
+                index = row_index
+                app.invalidate()
+                return None
+            if event_type == mouse_event_type.SCROLL_UP:
+                index = max(0, index - 1)
+                app.invalidate()
+                return None
+            if event_type == mouse_event_type.SCROLL_DOWN:
+                index = min(len(entries) - 1, index + 1)
+                app.invalidate()
+                return None
+            return NotImplemented
+        return _handler
+
+    def render_list() -> list[Any]:
+        fragments: list[Any] = []
+        previous_section: str | None = None
+        for number, (section, plan, item) in enumerate(entries):
+            if section != previous_section:
+                if fragments:
+                    fragments.append(("class:list.section", "\n"))
+                fragments.append((
+                    "class:list.section",
+                    f"  {section_labels[section]}\n",
+                ))
+                previous_section = section
+            marker = "V" if item.is_virtual else "F"
+            number_text = f"{number + 1:>5}."
+            size_text = human_size(item.size_bytes)
+            row = f"[{marker}] {item.relative}  ({size_text})"
+            if number == index:
+                fragments.append(("[SetCursorPosition]", ""))
+                fragments.append(("class:list.selected", f"  ▶ {number_text} {row}\n", file_mouse_handler(number)))
+            else:
+                fragments.append(("class:list.item", f"    {number_text} {row}\n", file_mouse_handler(number)))
+        return fragments
+
+    def render_detail() -> list[tuple[str, str]]:
+        section, plan, item = entries[index]
+        fragments: list[tuple[str, str]] = [
+            ("class:panel.title", "  WYBRANY PLIK\n"),
+            ("class:panel.label", f"  Pozycja      {index + 1}/{len(entries)}\n"),
+            ("class:panel.label", f"  Sekcja       {section_labels[section]}\n"),
+            ("class:panel.label", f"  Typ          {'wirtualny' if item.is_virtual else 'plik źródłowy'}\n"),
+            ("class:panel.label", f"  Rozmiar      {human_size(item.size_bytes)}\n"),
+            ("class:panel.label", f"  Klasyfikacja {item.classification}\n"),
+            ("class:panel.rule", "\n  " + "─" * max(8, _detail_panel_columns() - 4) + "\n"),
+            ("class:panel.title", "  ŚCIEŻKA\n"),
+        ]
+        for line in _wrap(item.relative, max(20, _detail_panel_columns() - 4), indent="  "):
+            fragments.append(("class:panel.text", "  " + line.strip() + "\n"))
+        fragments.extend([
+            ("class:panel.rule", "\n  " + "─" * max(8, _detail_panel_columns() - 4) + "\n"),
+            ("class:panel.title", "  SHA-256\n"),
+        ])
+        for line in _wrap(item.sha256, max(20, _detail_panel_columns() - 4), indent="  "):
+            fragments.append(("class:panel.hash", "  " + line.strip() + "\n"))
+        return fragments
+
+    def render_footer() -> list[tuple[str, str]]:
+        return [
+            ("class:footer.key", " ↑/↓ "), ("class:footer.text", "plik  "),
+            ("class:footer.key", " Mysz "), ("class:footer.text", "wskaż/kliknij/przewiń  "),
+            ("class:footer.key", " Enter/PgDn "), ("class:footer.text", "następna strona  "),
+            ("class:footer.key", " PgUp "), ("class:footer.text", "poprzednia strona  "),
+            ("class:footer.key", " Home/End "), ("class:footer.text", "początek/koniec  "),
+            ("class:footer.key", " Esc/Q/PPM "), ("class:footer.text", "wróć "),
+        ]
+
+    list_control = _pt_FormattedTextControl(text=render_list, focusable=True, show_cursor=False)
+    detail_control = _pt_FormattedTextControl(text=render_detail, focusable=False, show_cursor=False)
+    header_control = _pt_FormattedTextControl(text=render_header, focusable=False, show_cursor=False)
+    footer_control = _pt_FormattedTextControl(text=render_footer, focusable=False, show_cursor=False)
+
+    def _move(event: Any, target: int) -> None:
+        nonlocal index
+        index = max(0, min(len(entries) - 1, target))
+        event.app.invalidate()
+
+    @bindings.add("up")
+    @bindings.add("k")
+    def _up(event: Any) -> None:
+        _move(event, index - 1)
+
+    @bindings.add("down")
+    @bindings.add("j")
+    def _down(event: Any) -> None:
+        _move(event, index + 1)
+
+    @bindings.add("enter")
+    @bindings.add("pagedown")
+    def _page_down(event: Any) -> None:
+        _move(event, index + page_step)
+
+    @bindings.add("pageup")
+    def _page_up(event: Any) -> None:
+        _move(event, index - page_step)
+
+    @bindings.add("home")
+    def _home(event: Any) -> None:
+        _move(event, 0)
+
+    @bindings.add("end")
+    def _end(event: Any) -> None:
+        _move(event, len(entries) - 1)
+
+    @bindings.add("escape", eager=True)
+    @bindings.add("q", eager=True)
+    def _close(event: Any) -> None:
+        event.app.exit(result=None)
+
+    @bindings.add("c-x", eager=True)
+    def _exit(event: Any) -> None:
+        event.app.exit(result=UI_EXIT_MARKER)
+
+    style = _pt_Style.from_dict({
+        "root": "bg:ansiblack fg:ansiwhite",
+        "header": "bg:ansiblack",
+        "header.title": "ansibrightcyan bold",
+        "header.subtitle": "ansibrightblack",
+        "border": "ansicyan",
+        "list": "bg:ansiblack",
+        "list.item": "ansiwhite",
+        "list.section": "ansibrightcyan bold",
+        "list.selected": "bg:ansicyan fg:ansiblack bold",
+        "panel": "bg:ansiblack",
+        "panel.title": "ansibrightcyan bold",
+        "panel.label": "ansibrightblack",
+        "panel.rule": "ansicyan",
+        "panel.text": "ansiwhite",
+        "panel.hash": "ansibrightgreen",
+        "footer": "bg:ansiblack",
+        "footer.key": "bg:ansicyan fg:ansiblack bold",
+        "footer.text": "ansibrightblack",
+    })
+
+    layout = _pt_Layout(
+        _pt_HSplit([
+            _pt_Window(height=2, content=header_control, style="class:header", wrap_lines=False),
+            _pt_Window(height=1, char="─", style="class:border"),
+            _pt_VSplit([
+                _pt_Window(content=list_control, width=72, style="class:list", wrap_lines=False, always_hide_cursor=True),
+                _pt_Window(width=1, char="│", style="class:border"),
+                _pt_Window(
+                    content=detail_control,
+                    width=lambda: pt_dimension.exact(_detail_panel_columns()),
+                    style="class:panel",
+                    wrap_lines=True,
+                    always_hide_cursor=True,
+                ),
+            ], padding=1, padding_char=" "),
+            _pt_Window(height=1, char="─", style="class:border"),
+            _pt_Window(height=1, content=footer_control, style="class:footer", wrap_lines=False),
+        ])
+    )
+    app = _pt_Application(
+        layout=layout,
+        key_bindings=bindings,
+        style=style,
+        full_screen=True,
+        erase_when_done=True,
+        mouse_support=True,
+    )
+    result = app.run()
+    if result == UI_EXIT_MARKER:
+        raise UserRequestedExit()
+
+
+def pack_from_interactive(state: InteractiveState) -> None:
+    options = state.to_options()
+    plans = build_preview_plans(state, print_summaries=state.ui_mode != "kursorowy")
+    preview_hashes = {plan.profile: plan.plan_sha256() for plan in plans}
+    if not ask_yes_no("Rozpocząć pakowanie dokładnie tego planu", False, ui_mode=state.ui_mode, explicit=True):
+        ui_message(state.ui_mode, "Pakowanie anulowane.", "warn")
+        return
+    if state.ui_mode != "kursorowy":
+        ui_status("Plan zatwierdzony. Pakuję bez ponownego skanowania.", "info")
+    results = run_pack_with_plans(options, plans)
+    for result in results:
+        if result.plan.plan_sha256() != preview_hashes[result.profile]:
+            raise PackError(f"Hash planu zmienił się dla profilu {result.profile}.")
+    print_results(results)
+
+
+def show_plan_interactive(state: InteractiveState) -> None:
+    cursor_mode = state.ui_mode == "kursorowy"
+    plans = build_preview_plans(state, print_summaries=not cursor_mode)
+    if cursor_mode:
+        cursor_plan_file_browser(plans)
+        return
+    show_files = ask_yes_no("Pokazać pełną listę plików", True, ui_mode=state.ui_mode)
+    if show_files:
+        for plan in plans:
+            print_plan(plan, show_files=True)
+
+def _sidecar_candidates(folder: Path) -> list[Path]:
+    if not folder.exists() or not folder.is_dir():
+        return []
+    candidates = [path for path in folder.glob("*.package.json") if path.is_file()]
+    return sorted(candidates, key=lambda path: (path.stat().st_mtime_ns, path.name), reverse=True)
+
+
+def resolve_sidecar_path(value: str | Path, *, fallback_folder: Path | None = None) -> Path:
+    """Akceptuje plik sidecar albo katalog i wybiera najnowszy package.json."""
+
+    path = Path(value).expanduser().resolve()
+    if path.is_file():
+        if not path.name.lower().endswith(".package.json"):
+            raise PackError(f"Wybrany plik nie jest sidecarem *.package.json: {path}")
+        return path
+    if path.is_dir():
+        matches = _sidecar_candidates(path)
+        if not matches:
+            raise PackError(f"Folder nie zawiera pliku *.package.json: {path}")
+        if len(matches) > 1:
+            ui_status(
+                f"Folder zawiera {len(matches)} sidecarów; używam najnowszego: {matches[0].name}",
+                "info",
+            )
+        return matches[0]
+    if fallback_folder is not None:
+        fallback_matches = _sidecar_candidates(fallback_folder.expanduser().resolve())
+        if len(fallback_matches) == 1:
+            return fallback_matches[0]
+    raise PackError(f"Nie znaleziono pliku ani folderu sidecara: {path}")
+
+
+def suggested_sidecar_path(state: InteractiveState) -> Path:
+    matches = _sidecar_candidates(state.out_dir.expanduser().resolve())
+    return matches[0] if matches else state.out_dir
+
+
+def verify_interactive(state: InteractiveState) -> None:
+    default = suggested_sidecar_path(state)
+    raw = ask_text_value("Plik lub folder *.package.json", str(default), ui_mode=state.ui_mode, path_mode=False)
+    path = resolve_sidecar_path(raw, fallback_folder=state.out_dir)
+    report = verify_package_sidecar(path)
+    ui_banner("WERYFIKACJA ZAKOŃCZONA", "CRC, SHA-256 i zgodność planu")
+    ui_status("Paczka jest poprawna.", "ok")
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+
+
+def extract_interactive(state: InteractiveState) -> None:
+    sidecar_default = suggested_sidecar_path(state)
+    sidecar_raw = ask_text_value(
+        "Plik lub folder *.package.json",
+        str(sidecar_default),
+        ui_mode=state.ui_mode,
+    )
+    sidecar_path = resolve_sidecar_path(sidecar_raw, fallback_folder=state.out_dir)
+    destination_default = state.source.parent / "jazn_runtime_test"
+    destination_raw = ask_text_value("Folder docelowy", str(destination_default), ui_mode=state.ui_mode, path_mode=True)
+    clean = ask_yes_no("Wyczyścić folder docelowy", False, ui_mode=state.ui_mode)
+    force = ask_yes_no("Pozwolić na nadpisanie plików", False, ui_mode=state.ui_mode)
+    report = extract_package_sidecar(
+        sidecar_path,
+        Path(destination_raw).expanduser().resolve(),
+        clean=clean,
+        force=force,
+    )
+    ui_banner("ROZPAKOWANIE ZAKOŃCZONE", str(report.get("destination") or destination_raw))
+    ui_status("Paczka została zweryfikowana i bezpiecznie rozpakowana.", "ok")
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+
+
+def compression_self_test_interactive() -> None:
+    ui_banner("TEST KOMPRESJI", "Independent + binary + CRC + SHA-256 + extract")
+    ui_status("Uruchamiam izolowany test regresji funkcji ZIP…", "info")
+    report = run_compression_self_test()
+    ui_status("Funkcje kompresji i dzielenia paczek są poprawne.", "ok")
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+
+
+EXCLUSION_SCOPE_LABELS = {
+    "common": "wspólne",
+    "system": "system",
+    "memory": "pamięć",
+}
+
+
+def _choose_exclusion_scope(current: str, *, ui_mode: str) -> str | None:
+    values = ["common", "system", "memory"]
+    labels = ["wspólne — system i pamięć", "system — tylko paczka systemowa", "pamięć — tylko paczka pamięci"]
+    details = [
+        "Reguła działa w każdym profilu planu.",
+        "Reguła jest stosowana tylko do planu systemowego.",
+        "Reguła jest stosowana tylko do planu pamięci.",
+    ]
+    selected = values.index(current) if current in values else 0
+    choice = choose_value("Zakres wykluczenia", labels, current=selected, ui_mode=ui_mode, details=details)
+    return None if choice is None else values[choice]
+
+
+def _edit_base_rule(state: InteractiveState, index: int) -> None:
+    while 0 <= index < len(state.base_excludes):
+        rule = state.base_excludes[index]
+        labels = [
+            f"Wzorzec: [{rule.pattern}]",
+            f"Zakres: [{EXCLUSION_SCOPE_LABELS.get(rule.scope, rule.scope)}]",
+            f"Używanie reguły: [{'WŁĄCZONE' if rule.enabled else 'WYŁĄCZONE'}]",
+            "Usuń regułę",
+            "Wróć",
+        ]
+        details = [
+            "Edytuj wzorzec fnmatch, np. *.zip, memory/ albo **/__pycache__/.",
+            "Wybierz, czy reguła dotyczy obu profili, tylko systemu, czy tylko pamięci.",
+            "Wyłączona reguła pozostaje zapisana, ale nie wpływa na plan.",
+            "Usuń tę regułę z listy podstawowej.",
+            "Powrót do listy reguł podstawowych.",
+        ]
+        choice = choose_value("Reguła podstawowa", labels, current=0, ui_mode=state.ui_mode, details=details)
+        if choice is None or choice == 4:
+            return
+        if choice == 0:
+            value = ask_text_value("Wzorzec", rule.pattern, ui_mode=state.ui_mode)
+            if value.strip() and value.strip() != rule.pattern:
+                rule.pattern = value.strip().replace("\\", "/")
+                state.dirty = True
+        elif choice == 1:
+            scope = _choose_exclusion_scope(rule.scope, ui_mode=state.ui_mode)
+            if scope and scope != rule.scope:
+                rule.scope = scope
+                state.dirty = True
+        elif choice == 2:
+            rule.enabled = not rule.enabled
+            state.dirty = True
+        elif choice == 3:
+            if ask_yes_no("Usunąć wybraną regułę podstawową", False, ui_mode=state.ui_mode, explicit=True):
+                del state.base_excludes[index]
+                state.dirty = True
+                return
+
+
+def edit_base_excludes(state: InteractiveState) -> None:
+    selected = 0
+    while True:
+        rows = [
+            f"[{'ON ' if item.enabled else 'OFF'}] {EXCLUSION_SCOPE_LABELS.get(item.scope, item.scope)}: {item.pattern}"
+            for item in state.base_excludes
+        ]
+        rows.extend(["+ Dodaj regułę podstawową", "Przywróć domyślne reguły", "Wróć"])
+        details = [
+            "Wybierz regułę, aby edytować wzorzec, zakres, stan albo ją usunąć. "
+            "Ochrona sekretów i plików WAL/SHM pozostaje stała."
+            for _ in state.base_excludes
+        ]
+        details.extend([
+            "Dodaj nową edytowalną regułę do listy podstawowej.",
+            "Odtwórz kompletny zestaw reguł dostarczony z generatorem.",
+            "Powrót do menu wykluczeń.",
+        ])
+        choice = choose_value(
+            "Wykluczenia podstawowe",
+            rows,
+            current=min(selected, max(0, len(rows) - 1)),
+            ui_mode=state.ui_mode,
+            details=details,
+        )
+        if choice is None or choice == len(rows) - 1:
+            return
+        selected = choice
+        if choice < len(state.base_excludes):
+            _edit_base_rule(state, choice)
+            continue
+        if choice == len(state.base_excludes):
+            scope = _choose_exclusion_scope("common", ui_mode=state.ui_mode)
+            if scope is None:
                 continue
+            pattern = ask_text_value("Nowy wzorzec", "*", ui_mode=state.ui_mode).strip().replace("\\", "/")
+            if pattern:
+                state.base_excludes.append(ExclusionRule(scope, pattern, True))
+                state.dirty = True
+            continue
+        if choice == len(state.base_excludes) + 1:
+            if ask_yes_no("Przywrócić wszystkie domyślne reguły podstawowe", False, ui_mode=state.ui_mode, explicit=True):
+                state.base_excludes = default_exclusion_rules()
+                state.dirty = True
+
+
+def _edit_manual_rule(state: InteractiveState, index: int) -> None:
+    while 0 <= index < len(state.custom_excludes):
+        pattern = state.custom_excludes[index]
+        labels = [f"Wzorzec: [{pattern}]", "Usuń wzorzec", "Wróć"]
+        details = [
+            "Edytuj ręcznie dołączony wzorzec fnmatch.",
+            "Usuń ten wzorzec z listy ręcznej.",
+            "Powrót do listy ręcznej.",
+        ]
+        choice = choose_value("Wykluczenie ręczne", labels, current=0, ui_mode=state.ui_mode, details=details)
+        if choice is None or choice == 2:
+            return
+        if choice == 0:
+            value = ask_text_value("Wzorzec ręczny", pattern, ui_mode=state.ui_mode).strip().replace("\\", "/")
+            if value and value != pattern:
+                state.custom_excludes[index] = value
+                state.dirty = True
+        elif choice == 1:
+            if ask_yes_no("Usunąć wybrane wykluczenie ręczne", False, ui_mode=state.ui_mode, explicit=True):
+                del state.custom_excludes[index]
+                if not state.custom_excludes:
+                    state.custom_excludes_enabled = False
+                state.dirty = True
+                return
+
+
+def edit_manual_excludes(state: InteractiveState) -> None:
+    selected = 0
+    while True:
+        rows = [f"[{index + 1}] {pattern}" for index, pattern in enumerate(state.custom_excludes)]
+        rows.extend(["+ Dodaj wykluczenie ręczne", "Wróć"])
+        details = ["Wybierz wzorzec, aby go edytować lub usunąć." for _ in state.custom_excludes]
+        details.extend([
+            "Dodaj nowy wzorzec. Po pierwszym dodaniu używanie listy zostanie automatycznie włączone.",
+            "Powrót do menu wykluczeń.",
+        ])
+        choice = choose_value(
+            "Lista wykluczeń ręcznych",
+            rows,
+            current=min(selected, max(0, len(rows) - 1)),
+            ui_mode=state.ui_mode,
+            details=details,
+        )
+        if choice is None or choice == len(rows) - 1:
+            return
+        selected = choice
+        if choice < len(state.custom_excludes):
+            _edit_manual_rule(state, choice)
+            continue
+        pattern = ask_text_value("Nowy wzorzec ręczny", "*.tmp", ui_mode=state.ui_mode).strip().replace("\\", "/")
+        if pattern:
+            state.custom_excludes.append(pattern)
+            state.custom_excludes_enabled = True
+            state.dirty = True
+
+
+def edit_excludes(state: InteractiveState) -> None:
+    selected = 0
+    while True:
+        active_base = sum(1 for item in state.base_excludes if item.enabled)
+        manual_status = "BRAK — OFF"
+        if state.custom_excludes:
+            manual_status = "WŁĄCZONE" if state.custom_excludes_enabled else "WYŁĄCZONE"
+        labels = [
+            f"Podstawowe: [{active_base}/{len(state.base_excludes)} aktywnych]",
+            f"Ręczne używanie: [{manual_status}]",
+            f"Lista ręczna: [{len(state.custom_excludes)}]",
+            "Wróć",
+        ]
+        details = [
+            "Lista domyślnych reguł z możliwością dodawania, edycji, usuwania, włączania i wyłączania.",
+            "Włącza lub wyłącza stosowanie ręcznie dołączonych wzorców. Bez wpisów stan zawsze pozostaje OFF.",
+            "Dodawaj, edytuj i usuwaj osobne wzorce ręczne.",
+            "Powrót do strony głównej programu.",
+        ]
+        choice = choose_value("Wykluczenia", labels, current=selected, ui_mode=state.ui_mode, details=details)
+        if choice is None or choice == 3:
+            return
+        selected = choice
+        if choice == 0:
+            edit_base_excludes(state)
+        elif choice == 1:
+            if not state.custom_excludes:
+                state.custom_excludes_enabled = False
+                ui_message(state.ui_mode, "Lista ręczna jest pusta — używanie pozostaje wyłączone.", "warn")
             else:
-                print("Nieznana opcja.")
-        except UserRequestedAppExit:
-            restore_settings_file(settings_snapshot); print("\nZamknięto skrótem Ctrl+X bez zapisywania zmian."); return 130
-        except KeyboardInterrupt:
-            restore_settings_file(settings_snapshot); print("\nPrzerwano przez Ctrl+C. W trybie kursorowym skrótem zamknięcia aplikacji jest Ctrl+X. Zakończono bez zapisywania zmian."); return 130
-        except EOFError:
-            restore_settings_file(settings_snapshot); print("\nWejście terminala zostało zamknięte. Zamknięto bez zapisywania zmian."); return 130
-        except Exception as exc:
-            save_settings(state, quiet=True); print(f"BŁĄD: {exc}")
-            try: pause()
-            except KeyboardInterrupt:
-                restore_settings_file(settings_snapshot); print("\nPrzerwano przez Ctrl+C. Zakończono bez zapisywania zmian."); return 130
-            except EOFError:
-                restore_settings_file(settings_snapshot); print("\nWejście terminala zostało zamknięte. Zamknięto bez zapisywania zmian."); return 130
+                state.custom_excludes_enabled = not state.custom_excludes_enabled
+                state.dirty = True
+        elif choice == 2:
+            edit_manual_excludes(state)
 
-def parse_args(argv: list[str]) -> argparse.Namespace:
-    help_text = """Jaźń / Łatka — generator paczki ZIP
 
-Najprostsze uruchomienie aplikacji:
-  py _jazn_pack_generator.py
+def edit_interface(state: InteractiveState) -> None:
+    labels = [
+        "Tekstowy — kolorowe, pogrupowane menu",
+        "Kursorowy — pełnoekranowy panel" + ("" if HAS_PROMPT_TOOLKIT else " — niedostępny: brak prompt_toolkit"),
+        f"Automatyczny start zapisanym trybem: {'TAK' if state.ui_auto_start else 'NIE'}",
+    ]
+    details = [
+        "Działa bez dodatkowych bibliotek. Kolory można wyłączyć przez NO_COLOR=1.",
+        "LPM, PPM=wstecz, scroll, strzałki, Enter, Esc/Q, Ctrl+X, panel szczegółów i stały pasek skrótów.",
+        "Po włączeniu generator nie pyta o interfejs przy następnym uruchomieniu.",
+    ]
+    selected = 1 if state.ui_mode == "kursorowy" else 0
+    choice = choose_value("Interfejs", labels, current=selected, ui_mode=state.ui_mode, details=details)
+    if choice is None:
+        return
+    if choice == 0:
+        state.ui_mode = "tekstowy"
+    elif choice == 1:
+        if not HAS_PROMPT_TOOLKIT:
+            ui_status("Zainstaluj: py -m pip install prompt_toolkit", "warn")
+            return
+        state.ui_mode = "kursorowy"
+    elif choice == 2:
+        state.ui_auto_start = not state.ui_auto_start
+    state.dirty = True
 
-Po pierwszym wyborze TXT/Kursorowy aplikacja zapisuje tryb i włącza auto-start:
-przy następnym uruchomieniu użyje zapisanego trybu bez pytania. Auto-start można
-wyłączyć w ustawieniach „Zmień interfejs TXT/Kursorowy”. Tryb tekstowy działa bez
-dodatkowych bibliotek. Tryb kursorowy wymaga prompt_toolkit i daje menu ze strzałkami
-oraz pola ścieżek z Tab/autouzupełnianiem.
 
-Tryb prostego pakowania, zgodny z dawnym generate_Jazn_pack.py:
-  py _jazn_pack_generator.py D:\\.AI\\jazn_latka_local --out D:\\Desktop\\pakiet --force
+PROFILE_UI_LABELS = {
+    "dual": "system + pamięć",
+    "system": "system",
+    "memory": "pamięć",
+    "combined": "system + pamięć razem",
+}
 
-Test nowej paczki ZIP lub obsługa dawnych części .zip.001, .zip.002 itd.:
-  py _jazn_pack_generator.py --parts-dir D:\\Desktop\\pakiet --zip-name jazn_latka_v14.8.6.6.2-runtime_events-in-jsonl-refreshed-ver.zip --test-package
-  py _jazn_pack_generator.py --parts-dir D:\\Desktop\\pakiet --zip-name jazn_latka_v14.8.6.6.2-runtime_events-in-jsonl-refreshed-ver.zip --join-package
+PROFILE_UI_DETAILS = {
+    "dual": "Tworzy dwie oddzielne paczki: jedną z systemem i drugą z katalogiem memory/.",
+    "system": "Pakuje kod i pliki statyczne. Pomija memory/, workspace_runtime/ i bazy poza pamięcią.",
+    "memory": "Pakuje wyłącznie katalog memory/, łącznie z SQLite, bez WAL/SHM i zagnieżdżonych archiwów.",
+    "combined": "Umieszcza system i pamięć w jednej wspólnej paczce.",
+}
 
-Domyślne propozycje ścieżek w aplikacji:
-  folder do pakowania: folder generatora, np. D:\\.AI\\
-  folder zapisu:       folder generatora\\pakiet\\, np. D:\\.AI\\pakiet\\
 
-Pliki robocze tworzone obok aplikacji:
-  __jazn_pack_generator_settings.json   zapamiętane ustawienia użytkownika
-  __jazn_pack_generator.lock.json       tymczasowa blokada jednej instancji
-"""
-    parser = argparse.ArgumentParser(
-        prog="py _jazn_pack_generator.py",
-        description=help_text,
-        formatter_class=argparse.RawTextHelpFormatter,
-        usage="py _jazn_pack_generator.py [SOURCE] [options]",
+def main_menu_rows(state: InteractiveState) -> list[str]:
+    active_base = sum(1 for item in state.base_excludes if item.enabled)
+    if state.custom_excludes:
+        manual = f"{len(state.custom_excludes)} {'ON' if state.custom_excludes_enabled else 'OFF'}"
+    else:
+        manual = "0 OFF"
+    return [
+        "Pakuj teraz",
+        "Pokaż plan i pełną listę plików",
+        f"Nazwa: [{state.archive_basename}]",
+        f"Profil: [{PROFILE_UI_LABELS.get(state.profile, state.profile)}]",
+        f"Źródło: [{_display_path(state.source)}]",
+        f"Wyjście: [{_display_path(state.out_dir)}]",
+        f"Pliki pomocnicze: [{'TAK' if state.sidecars else 'NIE'}]",
+        f"Format: [{state.archive_format}]",
+        f"Limit: [{state.part_size_mb} MiB]",
+        f"Kompresja: [{state.compression_level}]",
+        f"Nadpisywanie: [{'TAK' if state.force else 'NIE'}]",
+        f"Interfejs: [{state.ui_mode}]",
+        f"Wykluczenia: [podstawowe {active_base}/{len(state.base_excludes)}; ręczne {manual}]",
+        "Zapisz ustawienia",
+        "Zweryfikuj istniejącą paczkę",
+        "Bezpiecznie rozpakuj paczkę",
+        "Test kompresji generatora",
+        "Wyjdź",
+    ]
+
+
+def main_menu_details(state: InteractiveState) -> list[str]:
+    return [
+        "Zbuduj podgląd, zatwierdź zamrożony plan i utwórz paczkę z pełną weryfikacją.",
+        "Otwórz pełnoekranową listę wszystkich plików w sekcjach SYSTEM: i PAMIĘĆ:, z nawigacją Enter, PgDn, PgUp, Home i End.",
+        "Bazowa nazwa. Numer i release-name zostaną pobrane z version.py.",
+        PROFILE_UI_DETAILS.get(state.profile, state.profile),
+        f"Edytowany katalog źródłowy: {_display_path(state.source)}. Musi zawierać latka_jazn/version.py.",
+        f"Edytowany folder wynikowy: {_display_path(state.out_dir)}. Musi leżeć poza katalogiem źródłowym.",
+        "Twórz package.json, parts.sha256 oraz join.ps1 dla formatu binary.",
+        "auto wybiera independent, a przy zbyt dużym pliku binary .zip.001.",
+        "Maksymalny rozmiar woluminu. Pojedynczy większy plik może wymusić binary.",
+        "Wybierz poziom DEFLATE 0–9 z listy. Poziom 6 jest zalecanym kompromisem.",
+        "Gdy wyłączone, istniejąca paczka o tej samej nazwie nie zostanie ruszona.",
+        "Wybór trybu tekstowego/kursorowego i automatycznego startu.",
+        "Edytuj reguły podstawowe oraz osobną listę ręczną z niezależnym przełącznikiem używania.",
+        "Zapisz konfigurację atomowo obok skryptu.",
+        "Sprawdź sidecar, SHA-256, CRC, kompletność oraz wersję bez rozpakowywania.",
+        "Najpierw zweryfikuj, potem rozpakuj z ochroną przed path traversal.",
+        "Uruchom izolowany test ZIP_DEFLATED dla paczek independent i binary, wraz z verify i extract.",
+        "Zakończ. Przy zmianach generator zapyta, czy zapisać ustawienia.",
+    ]
+
+
+def cursor_main_menu(state: InteractiveState, selected: int = 0) -> tuple[int | None, int]:
+    """Stały ekran główny z edycją pól i modalnymi wyborami opcji."""
+
+    required = (
+        _pt_Application,
+        _pt_KeyBindings,
+        _pt_Dimension,
+        _pt_Layout,
+        _pt_HSplit,
+        _pt_VSplit,
+        _pt_Window,
+        _pt_FormattedTextControl,
+        _pt_Style,
+        _pt_TextArea,
+        _pt_DynamicContainer,
+        _pt_ScrollablePane,
+        _pt_get_app,
+        _pt_Float,
+        _pt_FloatContainer,
+        _pt_ConditionalContainer,
+        _pt_Condition,
+        _pt_MouseButton,
+        _pt_MouseEventType,
     )
-    parser.add_argument(
-        "source",
-        nargs="?",
-        help="Opcjonalny folder do spakowania. Jeśli podasz SOURCE, program działa w prostym trybie pakowania CLI.",
-    )
-    parser.add_argument(
-        "--ui",
-        choices=("tekstowy", "kursorowy"),
-        default=None,
-        help="Wymuś tryb interfejsu aplikacji interaktywnej: TXT albo kursorowy.",
-    )
-    parser.add_argument("--out", help="Folder wyjściowy dla prostego trybu pakowania CLI.")
-    parser.add_argument("--name", help="Nazwa bazowa ZIP dla prostego trybu CLI, np. jazn_latka.")
-    parser.add_argument("--profile", choices=tuple(PACK_PROFILES.keys()), default=DEFAULT_PACK_PROFILE, help="Profil CLI: pelna = osobne ZIP-y systemu i pamięci; system = sam system; memory = sama pamięć; full = system i pamięć razem w jednym ZIP-ie (jak 1.2_FINAL).")
-    parser.add_argument("--version-file", default=VERSION_FILE or None, help="Ścieżka do version.py; domyślnie <SOURCE>\\latka_jazn\\version.py.")
-    parser.add_argument("--no-version-suffix", action="store_true", help="Nie dopisuj automatycznie _v<wersja> do nazwy ZIP-a w trybie CLI.")
-    parser.add_argument("--part-size-mb", type=int, default=PART_SIZE_MB, help="Rozmiar jednej części ZIP w MiB.")
-    parser.add_argument("--compresslevel", type=int, default=COMPRESSION_LEVEL, choices=range(0, 10), metavar="0-9", help="Poziom kompresji ZIP_DEFLATED.")
-    parser.add_argument("--force", action="store_true", default=FORCE_OVERWRITE, help="Nadpisz istniejące pliki wyjściowe w trybie CLI.")
-    parser.add_argument("--diagnostic-files", action="store_true", help="Oprócz zwykłych ZIP-ów utwórz manifesty, pliki SHA256 oraz helper rozpakowania. Domyślnie powstają wyłącznie ZIP-y.")
-    parser.add_argument("--skip-verify-after-pack", action="store_true", help="Pomiń automatyczną weryfikację SHA256 i otwarcie ZIP-a po pakowaniu. Niezalecane.")
-    parser.add_argument("--skip-crc-after-pack", action="store_true", help="Po pakowaniu sprawdź strukturę ZIP, ale pomiń pełny test CRC wszystkich wpisów. Niezalecane.")
-    parser.add_argument("--no-empty-dirs", action="store_true", help="Nie zapisuj pustych katalogów w trybie CLI.")
-    parser.add_argument("--exclude", action="append", default=[], help="Dodatkowy wzorzec wykluczenia, np. docs/ albo *.log. Można podać wiele razy.")
-    parser.add_argument("--no-default-excludes", action="store_true", help="Nie używaj domyślnych wykluczeń; zostaw tylko --exclude.")
-    parser.add_argument("--parts-dir", help="Folder z częściami paczki do --test-package albo --join-package.")
-    parser.add_argument("--zip-name", help="Nazwa pełnego ZIP-a dla --test-package/--join-package; gdy brak, skrypt spróbuje wykryć jedną paczkę w --parts-dir.")
-    parser.add_argument("--zip-out", help="Opcjonalna ścieżka pełnego ZIP-a po sklejeniu. Domyślnie: <parts-dir>/<zip-name>.")
-    parser.add_argument("--join-package", action="store_true", help="Połącz dawne binarne części .zip.001, .zip.002 itd.; nowe woluminy ZIP nie wymagają łączenia.")
-    parser.add_argument("--test-package", action="store_true", help="Przetestuj paczkę: części, SHA256, central directory i CRC zipfile.testzip.")
-    parser.add_argument("--skip-part-hash", action="store_true", help="Dla --test-package/--join-package pomiń SHA256 pojedynczych części.")
-    parser.add_argument("--skip-crc", action="store_true", help="Dla --test-package pomiń pełny test CRC zipfile.testzip.")
-    parser.add_argument("--force-join", action="store_true", help="Dla --join-package/--test-package nadpisz istniejący pełny ZIP, jeśli trzeba go skleić ponownie.")
-    parser.add_argument("--pack", action="store_true", help="Wymuś prosty tryb pakowania CLI. Wymaga SOURCE.")
-    parser.add_argument(
-        "--reset-settings",
-        action="store_true",
-        help="Usuń plik ustawień aplikacji i zakończ.",
-    )
-    parser.add_argument(
-        "--version",
-        action="store_true",
-        help="Pokaż wersję generatora i zakończ.",
-    )
-    return parser.parse_args(argv)
+    if not HAS_PROMPT_TOOLKIT or any(item is None for item in required):
+        raise PackError("Tryb kursorowy wymaga kompletnej biblioteki prompt_toolkit.")
 
+    assert _pt_Application is not None
+    assert _pt_KeyBindings is not None
+    assert _pt_Dimension is not None
+    assert _pt_Layout is not None
+    assert _pt_HSplit is not None
+    assert _pt_VSplit is not None
+    assert _pt_Window is not None
+    assert _pt_FormattedTextControl is not None
+    assert _pt_Style is not None
+    assert _pt_TextArea is not None
+    assert _pt_DynamicContainer is not None
+    assert _pt_ScrollablePane is not None
+    assert _pt_get_app is not None
+    assert _pt_Float is not None
+    assert _pt_FloatContainer is not None
+    assert _pt_ConditionalContainer is not None
+    assert _pt_Condition is not None
+    assert _pt_MouseButton is not None
+    assert _pt_MouseEventType is not None
 
+    # Lokalne aliasy są celowe: Pylance nie przenosi zawsze zawężenia typu
+    # opcjonalnych aliasów modułowych do funkcji zagnieżdżonych.
+    pt_vsplit = _pt_VSplit
+    pt_window = _pt_Window
+    pt_formatted_text_control = _pt_FormattedTextControl
+    pt_dynamic_container = _pt_DynamicContainer
+    pt_scrollable_pane = _pt_ScrollablePane
+    pt_get_app = _pt_get_app
+    pt_dimension = _pt_Dimension
+    mouse_button = _pt_MouseButton
+    mouse_event_type = _pt_MouseEventType
 
-def run_package_maintenance_from_args(args: argparse.Namespace) -> int:
-    """CLI dla testowania i łączenia już wygenerowanej paczki."""
-    raw_parts_dir = str(args.parts_dir or "").strip()
-    if not raw_parts_dir:
-        print("BŁĄD: --test-package/--join-package wymaga --parts-dir.", file=sys.stderr)
-        return 2
-    try:
-        parts_dir = Path(normalize_path_text(raw_parts_dir)).expanduser().resolve()
-        if not parts_dir.exists() or not parts_dir.is_dir():
-            print(f"BŁĄD: folder części nie istnieje albo nie jest folderem: {parts_dir}", file=sys.stderr)
+    row_count = len(main_menu_rows(state))
+    index = max(0, min(selected, row_count - 1))
+    editing = False
+    edit_index: int | None = None
+    edit_original = ""
+    status_message = ""
+
+    popup_active = False
+    popup_title = ""
+    popup_labels: list[str] = []
+    popup_details: list[str] = []
+    popup_values: list[Any] = []
+    popup_index = 0
+    popup_row_index: int | None = None
+
+    bindings = _pt_KeyBindings()
+    path_completer = _pt_PathCompleter(only_directories=True, expanduser=True) if _pt_PathCompleter else None
+
+    inline_fields = {
+        MENU_NAME: ("Nazwa", "", False),
+        MENU_SOURCE: ("Źródło", "", True),
+        MENU_OUTPUT: ("Wyjście", "", True),
+        MENU_LIMIT: ("Limit", " MiB", False),
+    }
+
+    def current_inline_value(row_index: int) -> str:
+        if row_index == MENU_NAME:
+            return state.archive_basename
+        if row_index == MENU_SOURCE:
+            return _display_path(state.source)
+        if row_index == MENU_OUTPUT:
+            return _display_path(state.out_dir)
+        if row_index == MENU_LIMIT:
+            return str(state.part_size_mb)
+        raise PackError(f"Wiersz {row_index} nie jest polem edycyjnym.")
+
+    def option_spec(row_index: int) -> tuple[str, list[Any], Sequence[str], Sequence[str], int]:
+        if row_index == MENU_PROFILE:
+            values: list[Any] = ["dual", "system", "memory", "combined"]
+            labels = [
+                "system + pamięć osobno",
+                "tylko system",
+                "tylko pamięć",
+                "system + pamięć razem",
+            ]
+            details = [
+                "Tworzy dwie niezależne paczki: systemową i pamięciową.",
+                "Pakuje kod i pliki statyczne bez katalogu memory/.",
+                "Pakuje wyłącznie katalog memory/, w tym pliki SQLite.",
+                "Umieszcza system i pamięć w jednej wspólnej paczce.",
+            ]
+            return "Wybierz profil", values, labels, details, values.index(state.profile)
+        if row_index == MENU_SIDECARS:
+            values = [False, True]
+            labels = ["NIE — tylko package.json", "TAK — pełny zestaw pomocniczy"]
+            details = [
+                "Zostanie utworzony obowiązkowy package.json bez dodatkowych sum i skryptu join.",
+                "Powstaną także parts.sha256, pełny SHA-256 oraz join.ps1 dla formatu binary.",
+            ]
+            return "Pliki pomocnicze", values, labels, details, 1 if state.sidecars else 0
+        if row_index == MENU_FORMAT:
+            values = ["auto", "independent", "binary"]
+            labels = [
+                "auto — dobór automatyczny",
+                "independent — samodzielne ZIP-y",
+                "binary — .zip.001/.002…",
+            ]
+            details = [
+                "Wybiera independent, chyba że rozmiar pliku wymaga podziału binarnego.",
+                "Każdy wolumin jest kompletnym archiwum ZIP.",
+                "Jeden logiczny ZIP jest dzielony bajtowo na kolejne części.",
+            ]
+            return "Wybierz format", values, labels, details, values.index(state.archive_format)
+        if row_index == MENU_COMPRESSION:
+            values = list(COMPRESSION_CHOICES)
+            labels = list(COMPRESSION_UI_LABELS)
+            details = list(COMPRESSION_UI_DETAILS)
+            return "Poziom kompresji", values, labels, details, values.index(state.compression_level)
+        if row_index == MENU_FORCE:
+            values = [False, True]
+            labels = ["NIE — chroń istniejące paczki", "TAK — zastąp istniejące paczki"]
+            details = [
+                "Generator przerwie operację, gdy znajdzie pliki wynikowe o tej samej nazwie.",
+                "Generator wykona transakcyjną podmianę istniejących plików wynikowych.",
+            ]
+            return "Nadpisywanie", values, labels, details, 1 if state.force else 0
+        raise PackError(f"Wiersz {row_index} nie ma modalnego wyboru.")
+
+    editor: Any = None
+    popup_menu_window: Any = None
+    row_windows: list[Any] = []
+
+    def finish_edit(app: Any, raw_value: str) -> bool:
+        nonlocal editing, edit_index, status_message
+        if edit_index is None:
+            return True
+        value = str(raw_value).strip() or edit_original
+        try:
+            if edit_index == MENU_NAME:
+                new_value = sanitize_archive_stem(value)
+                changed = new_value != state.archive_basename
+                state.archive_basename = new_value
+            elif edit_index == MENU_SOURCE:
+                new_value = Path(value).expanduser().resolve()
+                changed = new_value != state.source
+                state.source = new_value
+            elif edit_index == MENU_OUTPUT:
+                new_value = Path(value).expanduser().resolve()
+                changed = new_value != state.out_dir
+                state.out_dir = new_value
+            elif edit_index == MENU_LIMIT:
+                new_value = int(value)
+                if not 1 <= new_value <= 1024 * 1024:
+                    raise ValueError("Limit musi być w zakresie 1–1048576 MiB.")
+                changed = new_value != state.part_size_mb
+                state.part_size_mb = new_value
+            else:
+                changed = False
+        except (OSError, ValueError, PackError) as exc:
+            status_message = f"BŁĄD: {exc}"
+            app.invalidate()
+            return False
+
+        if changed:
+            state.dirty = True
+            status_message = "Wartość została zmieniona."
+        else:
+            status_message = "Wartość bez zmian."
+        editing = False
+        edit_index = None
+        app.layout.focus(row_windows[index])
+        app.invalidate()
+        return True
+
+    def accept_editor(buffer: Any) -> bool:
+        return finish_edit(pt_get_app(), buffer.text)
+
+    editor = _pt_TextArea(
+        text="",
+        multiline=False,
+        wrap_lines=False,
+        complete_while_typing=False,
+        accept_handler=accept_editor,
+        style="class:inline.input",
+        height=1,
+    )
+    original_inline_mouse_handler = editor.control.mouse_handler
+
+    def inline_editor_mouse_handler(mouse_event: Any) -> object:
+        if (
+            mouse_event.event_type == mouse_event_type.MOUSE_UP
+            and mouse_event.button == mouse_button.RIGHT
+        ):
+            if editing:
+                cancel_edit(pt_get_app())
+            return None
+        return original_inline_mouse_handler(mouse_event)
+
+    editor.control.mouse_handler = inline_editor_mouse_handler
+
+    def start_edit(app: Any, row_index: int) -> None:
+        nonlocal editing, edit_index, edit_original, status_message
+        edit_index = row_index
+        edit_original = current_inline_value(row_index)
+        editing = True
+        status_message = "Edycja w aktywnym wierszu — Enter zapisuje, Esc anuluje."
+        editor.buffer.completer = path_completer if inline_fields[row_index][2] else None
+        editor.buffer.text = edit_original
+        editor.buffer.cursor_position = len(edit_original)
+        app.layout.focus(editor)
+        app.invalidate()
+
+    def cancel_edit(app: Any) -> None:
+        nonlocal editing, edit_index, status_message
+        editing = False
+        edit_index = None
+        status_message = "Edycję anulowano."
+        app.layout.focus(row_windows[index])
+        app.invalidate()
+
+    def open_option_popup(app: Any, row_index: int) -> None:
+        nonlocal popup_active, popup_title, popup_labels, popup_details
+        nonlocal popup_values, popup_index, popup_row_index, status_message
+        title, values, labels, details, current = option_spec(row_index)
+        popup_active = True
+        popup_title = title
+        popup_values = list(values)
+        popup_labels = list(labels)
+        popup_details = list(details)
+        popup_index = current
+        popup_row_index = row_index
+        status_message = ""
+        if popup_menu_window is not None:
+            app.layout.focus(popup_menu_window)
+        app.invalidate()
+
+    def close_option_popup(app: Any, *, cancelled: bool = False) -> None:
+        nonlocal popup_active, popup_row_index, status_message
+        popup_active = False
+        popup_row_index = None
+        if cancelled:
+            status_message = "Wybór anulowano — wartość bez zmian."
+        app.layout.focus(row_windows[index])
+        app.invalidate()
+
+    def apply_option_popup(app: Any) -> None:
+        nonlocal status_message
+        if not popup_active or popup_row_index is None or not popup_values:
+            return
+        value = popup_values[popup_index]
+        changed = False
+        if popup_row_index == MENU_PROFILE:
+            changed = value != state.profile
+            state.profile = str(value)
+            status_message = f"Profil: {PROFILE_UI_LABELS.get(state.profile, state.profile)}"
+        elif popup_row_index == MENU_SIDECARS:
+            changed = bool(value) != state.sidecars
+            state.sidecars = bool(value)
+            status_message = f"Pliki pomocnicze: {'TAK' if state.sidecars else 'NIE'}"
+        elif popup_row_index == MENU_FORMAT:
+            changed = value != state.archive_format
+            state.archive_format = str(value)
+            status_message = f"Format: {state.archive_format}"
+        elif popup_row_index == MENU_COMPRESSION:
+            changed = int(value) != state.compression_level
+            state.compression_level = int(value)
+            status_message = f"Kompresja: {state.compression_level}"
+        elif popup_row_index == MENU_FORCE:
+            changed = bool(value) != state.force
+            state.force = bool(value)
+            status_message = f"Nadpisywanie: {'TAK' if state.force else 'NIE'}"
+        if changed:
+            state.dirty = True
+        else:
+            status_message += " — bez zmian"
+        close_option_popup(app)
+
+    def render_header() -> list[tuple[str, str]]:
+        return [
+            ("class:header.title", f"Narzędzia Jaźni — v{GENERATOR_VERSION} "),
+            ("class:header.subtitle", "Interaktywny generator paczek"),
+        ]
+
+    def activate_row(app: Any, row_index: int) -> None:
+        nonlocal index, status_message
+        if editing or popup_active:
+            return
+        index = max(0, min(row_count - 1, row_index))
+        status_message = ""
+        app.layout.focus(row_windows[index])
+        app.invalidate()
+        if index in inline_fields:
+            start_edit(app, index)
+        elif index in {MENU_PROFILE, MENU_SIDECARS, MENU_FORMAT, MENU_COMPRESSION, MENU_FORCE}:
+            open_option_popup(app, index)
+        else:
+            app.exit(result=index)
+
+    def menu_row_mouse_handler(row_index: int):
+        def _handler(mouse_event: Any) -> object:
+            nonlocal index, status_message
+            app = pt_get_app()
+            event_type = mouse_event.event_type
+            if (
+                event_type == mouse_event_type.MOUSE_UP
+                and mouse_event.button == mouse_button.RIGHT
+            ):
+                if popup_active:
+                    close_option_popup(app, cancelled=True)
+                elif editing:
+                    cancel_edit(app)
+                else:
+                    app.exit(result=None)
+                return None
+            if event_type == mouse_event_type.MOUSE_MOVE and not editing and not popup_active:
+                if index != row_index:
+                    index = row_index
+                    status_message = ""
+                    app.layout.focus(row_windows[index])
+                    app.invalidate()
+                return None
+            if event_type == mouse_event_type.MOUSE_UP:
+                activate_row(app, row_index)
+                return None
+            if event_type == mouse_event_type.SCROLL_UP and not editing and not popup_active:
+                index = max(0, index - 1)
+                status_message = ""
+                app.layout.focus(row_windows[index])
+                app.invalidate()
+                return None
+            if event_type == mouse_event_type.SCROLL_DOWN and not editing and not popup_active:
+                index = min(row_count - 1, index + 1)
+                status_message = ""
+                app.layout.focus(row_windows[index])
+                app.invalidate()
+                return None
+            return NotImplemented
+        return _handler
+
+    def render_row(row_index: int) -> list[Any]:
+        rows = main_menu_rows(state)
+        handler = menu_row_mouse_handler(row_index)
+        if row_index == index:
+            return [
+                ("[SetCursorPosition]", ""),
+                ("class:menu.selected", "  ▶ ", handler),
+                ("class:menu.selected", rows[row_index], handler),
+            ]
+        return [("class:menu.item", "    " + rows[row_index], handler)]
+
+    def make_edit_row(row_index: int) -> Any:
+        label, suffix, _ = inline_fields[row_index]
+        prefix_text = f"  ▶ {label}: ["
+        return pt_vsplit([
+            pt_window(
+                width=len(prefix_text),
+                content=pt_formatted_text_control([("class:inline.label", prefix_text)]),
+                dont_extend_width=True,
+            ),
+            editor,
+            pt_window(
+                width=len(suffix) + 1,
+                content=pt_formatted_text_control([("class:inline.label", suffix + "]")]),
+                dont_extend_width=True,
+            ),
+        ], height=1)
+
+    for row_index in range(row_count):
+        control = pt_formatted_text_control(
+            text=lambda row_index=row_index: render_row(row_index),
+            focusable=True,
+            show_cursor=False,
+        )
+        row_windows.append(pt_window(
+            height=1,
+            content=control,
+            style="class:menu",
+            wrap_lines=False,
+            always_hide_cursor=True,
+        ))
+
+    def row_container(row_index: int) -> Any:
+        if editing and edit_index == row_index and row_index in inline_fields:
+            return make_edit_row(row_index)
+        return row_windows[row_index]
+
+    group_names = MAIN_MENU_GROUPS
+    menu_children: list[Any] = []
+    for row_index in range(row_count):
+        group = group_names.get(row_index)
+        if group:
+            if menu_children:
+                menu_children.append(_pt_Window(height=1, style="class:menu"))
+            prefix = f"── {group} "
+            menu_children.append(_pt_Window(
+                height=1,
+                content=_pt_FormattedTextControl([
+                    ("class:menu.section", "  " + prefix + "─" * max(2, 54 - len(prefix)))
+                ]),
+                style="class:menu",
+                wrap_lines=False,
+            ))
+        menu_children.append(pt_dynamic_container(lambda row_index=row_index: row_container(row_index)))
+
+    menu_pane = pt_scrollable_pane(
+        _pt_HSplit(menu_children),
+        keep_cursor_visible=True,
+        keep_focused_window_visible=True,
+        show_scrollbar=True,
+    )
+
+    def render_detail() -> list[tuple[str, str]]:
+        details = main_menu_details(state)
+        fragments: list[tuple[str, str]] = [("class:panel.title", "  AKTUALNA KONFIGURACJA\n")]
+        for line in _state_status_lines(state):
+            fragments.append(("class:panel.label", "  " + line + "\n"))
+        fragments.append(("class:panel.rule", "\n  " + "─" * max(8, _detail_panel_columns() - 4) + "\n"))
+        fragments.append(("class:panel.title", "  WYBRANA OPCJA\n"))
+        for line in _wrap(details[index], max(20, _detail_panel_columns() - 4), indent="  "):
+            fragments.append(("class:panel.text", "  " + line.strip() + "\n"))
+        if index in inline_fields and not editing and not popup_active:
+            fragments.append(("class:panel.hint", "\n  Enter: edytuj pole w tym wierszu.\n"))
+        elif index in {MENU_PROFILE, MENU_SIDECARS, MENU_FORMAT, MENU_COMPRESSION, MENU_FORCE} and not editing and not popup_active:
+            fragments.append(("class:panel.hint", "\n  Enter: otwórz okno wyboru.\n"))
+        if status_message:
+            style_name = "class:panel.error" if status_message.startswith("BŁĄD:") else "class:panel.hint"
+            fragments.append((style_name, "\n  " + status_message + "\n"))
+        return fragments
+
+    def render_footer() -> list[tuple[str, str]]:
+        if popup_active:
+            return [
+                ("class:footer.key", " ↑/↓ "), ("class:footer.text", "wybór  "),
+                ("class:footer.key", " Mysz "), ("class:footer.text", "wskaż/kliknij  "),
+                ("class:footer.key", " Enter "), ("class:footer.text", "zastosuj  "),
+                ("class:footer.key", " Esc/Q/PPM "), ("class:footer.text", "anuluj "),
+            ]
+        if editing:
+            return [
+                ("class:footer.key", " Enter "), ("class:footer.text", "zapisz  "),
+                ("class:footer.key", " Ctrl+A "), ("class:footer.text", "wyczyść  "),
+                ("class:footer.key", " Esc "), ("class:footer.text", "anuluj  "),
+                ("class:footer.key", " Tab "), ("class:footer.text", "uzupełnij ścieżkę "),
+            ]
+        return [
+            ("class:footer.key", " ↑/↓ "), ("class:footer.text", "wybór  "),
+            ("class:footer.key", " Mysz "), ("class:footer.text", "wskaż/kliknij/przewiń  "),
+            ("class:footer.key", " PgUp/PgDn "), ("class:footer.text", "strona  "),
+            ("class:footer.key", " Enter "), ("class:footer.text", "edytuj/wybierz/otwórz  "),
+            ("class:footer.key", " Esc/PPM "), ("class:footer.text", "wstecz/wyjście  "),
+            ("class:footer.key", " Ctrl+X "), ("class:footer.text", "bez zapisu "),
+        ]
+
+    def popup_width() -> int:
+        terminal_width = shutil.get_terminal_size((100, 30)).columns
+        available = max(32, terminal_width - 8)
+        title_width = len(popup_title) + 6
+        label_width = max((len(label) for label in popup_labels), default=24) + 8
+        detail_width = min(
+            max((len(line) for detail in popup_details for line in str(detail).splitlines()), default=36) + 4,
+            72,
+        )
+        return min(max(38, title_width, label_width, detail_width), available, 76)
+
+    def popup_detail_height() -> int:
+        if not popup_details:
             return 2
-        base_zip_name = infer_base_zip_name(parts_dir, args.zip_name)
-        zip_out = Path(normalize_path_text(args.zip_out)).expanduser().resolve() if str(args.zip_out or "").strip() else None
-        if args.join_package:
-            out_path = join_split_package_to_zip(
-                parts_dir,
-                base_zip_name,
-                zip_out=zip_out,
-                skip_part_hash=bool(args.skip_part_hash),
-                force=bool(args.force_join),
-                keep_existing=False,
-            )
-            print(f"Gotowe: {out_path}")
-        if args.test_package:
-            report = test_split_package(
-                parts_dir,
-                base_zip_name,
-                zip_out=zip_out,
-                skip_part_hash=bool(args.skip_part_hash),
-                join_if_missing=True,
-                force_join=bool(args.force_join),
-                run_crc=not bool(args.skip_crc),
-            )
-            print(json.dumps(report, ensure_ascii=False, indent=2))
-        return 0
-    except KeyboardInterrupt:
-        print("\nPrzerwano przez użytkownika.", file=sys.stderr)
-        return 130
-    except Exception as exc:
-        print(f"BŁĄD: {exc}", file=sys.stderr)
-        return 1
+        detail = popup_details[popup_index] if popup_index < len(popup_details) else ""
+        return max(2, min(5, len(_wrap(detail, max(24, popup_width() - 4)))))
 
-def main(argv: list[str] | None = None) -> int:
-    raw_argv = sys.argv[1:] if argv is None else argv
-    args = parse_args(raw_argv)
+    def popup_height() -> int:
+        terminal_height = shutil.get_terminal_size((100, 30)).lines
+        desired = max(2, len(popup_labels)) + popup_detail_height() + 6
+        return min(max(10, desired), max(10, terminal_height - 4))
 
-    try:
-        if args.version:
-            print(f"_jazn_pack_generator.py v{VERSION}")
-            return 0
+    def popup_row_mouse_handler(row_index: int):
+        def _handler(mouse_event: Any) -> object:
+            nonlocal popup_index
+            app = pt_get_app()
+            event_type = mouse_event.event_type
+            if (
+                event_type == mouse_event_type.MOUSE_UP
+                and mouse_event.button == mouse_button.RIGHT
+            ):
+                close_option_popup(app, cancelled=True)
+                return None
+            if event_type == mouse_event_type.MOUSE_MOVE:
+                if popup_index != row_index:
+                    popup_index = row_index
+                    app.invalidate()
+                return None
+            if event_type == mouse_event_type.MOUSE_UP:
+                popup_index = row_index
+                app.invalidate()
+                apply_option_popup(app)
+                return None
+            if event_type == mouse_event_type.SCROLL_UP:
+                popup_index = (popup_index - 1) % max(1, len(popup_labels))
+                app.invalidate()
+                return None
+            if event_type == mouse_event_type.SCROLL_DOWN:
+                popup_index = (popup_index + 1) % max(1, len(popup_labels))
+                app.invalidate()
+                return None
+            return NotImplemented
+        return _handler
 
-        if args.reset_settings:
-            removed = delete_settings_files()
-            if removed:
-                print("Usunięto ustawienia:")
-                for path in removed:
-                    print(f"  - {path}")
+    def render_popup_rows() -> list[Any]:
+        fragments: list[Any] = []
+        for number, label in enumerate(popup_labels):
+            if number == popup_index:
+                fragments.append(("[SetCursorPosition]", ""))
+                fragments.append(("class:popup.selected", f"  ▶ {label}\n", popup_row_mouse_handler(number)))
             else:
-                print("Nie znaleziono pliku ustawień do usunięcia.")
-            return 0
+                fragments.append(("class:popup.item", f"    {label}\n", popup_row_mouse_handler(number)))
+        return fragments
 
-        if args.test_package or args.join_package:
-            return run_package_maintenance_from_args(args)
+    def render_popup_detail() -> list[tuple[str, str]]:
+        detail = popup_details[popup_index] if popup_index < len(popup_details) else ""
+        fragments: list[tuple[str, str]] = []
+        for line in _wrap(detail, max(24, popup_width() - 4), indent="  "):
+            fragments.append(("class:popup.detail", "  " + line.strip() + "\n"))
+        return fragments
 
-        # Prosty tryb zgodny z dawnym generate_Jazn_pack.py.
-        if args.source or args.pack:
-            return run_direct_pack_from_args(args)
+    popup_menu_control = _pt_FormattedTextControl(
+        text=render_popup_rows,
+        focusable=True,
+        show_cursor=False,
+    )
+    popup_detail_control = _pt_FormattedTextControl(
+        text=render_popup_detail,
+        focusable=False,
+        show_cursor=False,
+    )
+    popup_menu_window = _pt_Window(
+        content=popup_menu_control,
+        height=lambda: max(2, len(popup_labels)),
+        style="class:popup",
+        wrap_lines=False,
+        always_hide_cursor=True,
+    )
 
-        return run_wizard(None, ui_mode=args.ui)
-    finally:
-        # Dodatkowe jawne sprzątanie locka, obok atexit.
-        _release_process_lock()
+    popup_frame = _pt_HSplit([
+        _pt_Window(height=1, char="─", style="class:popup.border"),
+        _pt_Window(
+            height=2,
+            content=_pt_FormattedTextControl(
+                text=lambda: [
+                    ("class:popup.title", f"  {popup_title}\n"),
+                    ("class:popup.subtitle", "  Wybierz wartość i zatwierdź Enterem."),
+                ]
+            ),
+            style="class:popup",
+            wrap_lines=False,
+        ),
+        _pt_Window(height=1, char="─", style="class:popup.border"),
+        popup_menu_window,
+        _pt_Window(height=1, char="─", style="class:popup.border"),
+        _pt_Window(
+            content=popup_detail_control,
+            height=popup_detail_height,
+            style="class:popup",
+            wrap_lines=True,
+        ),
+        _pt_Window(height=1, char="─", style="class:popup.border"),
+    ], style="class:popup", modal=True)
+    popup_visible = _pt_Condition(lambda: popup_active)
+    popup_layer = _pt_ConditionalContainer(
+        content=popup_frame,
+        filter=popup_visible,
+    )
+
+    header_control = _pt_FormattedTextControl(text=render_header, focusable=False, show_cursor=False)
+    detail_control = _pt_FormattedTextControl(text=render_detail, focusable=False, show_cursor=False)
+    footer_control = _pt_FormattedTextControl(text=render_footer, focusable=False, show_cursor=False)
+
+    def focus_index(event: Any, target: int) -> None:
+        nonlocal index, status_message
+        if editing or popup_active:
+            return
+        index = max(0, min(row_count - 1, target))
+        status_message = ""
+        event.app.layout.focus(row_windows[index])
+        event.app.invalidate()
+
+    def popup_move(event: Any, delta: int) -> None:
+        nonlocal popup_index
+        if not popup_labels:
+            return
+        popup_index = (popup_index + delta) % len(popup_labels)
+        event.app.invalidate()
+
+    @bindings.add("up")
+    def _up(event: Any) -> None:
+        if popup_active:
+            popup_move(event, -1)
+        elif not editing:
+            focus_index(event, index - 1)
+
+    @bindings.add("k")
+    def _key_k(event: Any) -> None:
+        if popup_active:
+            popup_move(event, -1)
+        elif editing:
+            editor.buffer.insert_text("k")
+        else:
+            focus_index(event, index - 1)
+
+    @bindings.add("down")
+    def _down(event: Any) -> None:
+        if popup_active:
+            popup_move(event, 1)
+        elif not editing:
+            focus_index(event, index + 1)
+
+    @bindings.add("j")
+    def _key_j(event: Any) -> None:
+        if popup_active:
+            popup_move(event, 1)
+        elif editing:
+            editor.buffer.insert_text("j")
+        else:
+            focus_index(event, index + 1)
+
+    @bindings.add("pageup")
+    def _page_up(event: Any) -> None:
+        if popup_active:
+            popup_move(event, -1)
+        else:
+            focus_index(event, index - 8)
+
+    @bindings.add("pagedown")
+    def _page_down(event: Any) -> None:
+        if popup_active:
+            popup_move(event, 1)
+        else:
+            focus_index(event, index + 8)
+
+    @bindings.add("home")
+    def _home(event: Any) -> None:
+        nonlocal popup_index
+        if popup_active:
+            popup_index = 0
+            event.app.invalidate()
+        elif editing:
+            editor.buffer.cursor_position = 0
+        else:
+            focus_index(event, 0)
+
+    @bindings.add("end")
+    def _end(event: Any) -> None:
+        nonlocal popup_index
+        if popup_active:
+            popup_index = max(0, len(popup_labels) - 1)
+            event.app.invalidate()
+        elif editing:
+            editor.buffer.cursor_position = len(editor.buffer.text)
+        else:
+            focus_index(event, row_count - 1)
+
+    @bindings.add("c-a", eager=True)
+    def _clear_or_home(event: Any) -> None:
+        if popup_active:
+            return
+        if editing:
+            editor.buffer.text = ""
+        else:
+            focus_index(event, 0)
+
+    @bindings.add("enter", eager=True)
+    def _enter(event: Any) -> None:
+        if popup_active:
+            apply_option_popup(event.app)
+            return
+        if editing:
+            finish_edit(event.app, editor.buffer.text)
+            return
+        if index in inline_fields:
+            start_edit(event.app, index)
+            return
+        if index in {MENU_PROFILE, MENU_SIDECARS, MENU_FORMAT, MENU_COMPRESSION, MENU_FORCE}:
+            open_option_popup(event.app, index)
+            return
+        event.app.exit(result=index)
+
+    @bindings.add("escape", eager=True)
+    def _escape(event: Any) -> None:
+        if popup_active:
+            close_option_popup(event.app, cancelled=True)
+        elif editing:
+            cancel_edit(event.app)
+        else:
+            event.app.exit(result=None)
+
+    @bindings.add("q", eager=True)
+    def _q(event: Any) -> None:
+        if popup_active:
+            close_option_popup(event.app, cancelled=True)
+        elif editing:
+            editor.buffer.insert_text("q")
+        else:
+            event.app.exit(result=None)
+
+    @bindings.add("c-x", eager=True)
+    def _exit(event: Any) -> None:
+        event.app.exit(result=-2)
+
+    style = _pt_Style.from_dict({
+        "root": "bg:ansiblack fg:ansiwhite",
+        "header": "bg:ansiblack",
+        "header.title": "ansibrightcyan bold",
+        "header.subtitle": "ansibrightblack",
+        "border": "ansicyan",
+        "menu": "bg:ansiblack",
+        "menu.item": "ansiwhite",
+        "menu.section": "ansibrightblack bold",
+        "menu.selected": "bg:ansicyan fg:ansiblack bold",
+        "inline.label": "bg:ansicyan fg:ansiblack bold",
+        "inline.input": "bg:ansiwhite fg:ansiblack",
+        "panel": "bg:ansiblack",
+        "panel.title": "ansibrightcyan bold",
+        "panel.label": "ansibrightblack",
+        "panel.rule": "ansicyan",
+        "panel.text": "ansiwhite",
+        "panel.hint": "ansibrightgreen",
+        "panel.error": "ansibrightred bold",
+        "popup": "bg:ansiwhite fg:ansiblack",
+        "popup.border": "bg:ansiwhite fg:ansicyan bold",
+        "popup.title": "bg:ansiwhite fg:ansicyan bold",
+        "popup.subtitle": "bg:ansiwhite fg:ansibrightblack",
+        "popup.item": "bg:ansiwhite fg:ansiblack",
+        "popup.selected": "bg:ansicyan fg:ansiblack bold",
+        "popup.detail": "bg:ansiwhite fg:ansiblack",
+        "footer": "bg:ansiblack",
+        "footer.key": "bg:ansicyan fg:ansiblack bold",
+        "footer.text": "ansibrightblack",
+    })
+
+    base_layout = _pt_HSplit([
+        _pt_Window(height=2, content=header_control, style="class:header", wrap_lines=False),
+        _pt_Window(height=1, char="─", style="class:border"),
+        _pt_VSplit([
+            menu_pane,
+            _pt_Window(width=1, char="│", style="class:border"),
+            _pt_Window(
+                content=detail_control,
+                width=lambda: pt_dimension.exact(_detail_panel_columns()),
+                style="class:panel",
+                wrap_lines=True,
+                always_hide_cursor=True,
+            ),
+        ], padding=1, padding_char=" "),
+        _pt_Window(height=1, char="─", style="class:border"),
+        _pt_Window(height=1, content=footer_control, style="class:footer", wrap_lines=False),
+    ])
+
+    root_container = _pt_FloatContainer(
+        content=base_layout,
+        floats=[
+            _pt_Float(
+                width=popup_width,
+                height=popup_height,
+                content=popup_layer,
+            )
+        ],
+    )
+
+    layout = _pt_Layout(root_container, focused_element=row_windows[index])
+    app = _pt_Application(
+        layout=layout,
+        key_bindings=bindings,
+        style=style,
+        full_screen=True,
+        erase_when_done=True,
+        mouse_support=True,
+    )
+    result = app.run()
+    if result == -2:
+        raise UserRequestedExit()
+    return result, index
+
+def _state_status_lines(state: InteractiveState) -> list[str]:
+    return [
+        f"Profil      {PROFILE_UI_LABELS.get(state.profile, state.profile)}",
+        f"Format      {state.archive_format}",
+        f"Limit       {state.part_size_mb} MiB",
+        f"Kompresja   {state.compression_level}",
+        f"Sidecary    {'TAK' if state.sidecars else 'NIE'}",
+        f"Force       {'TAK' if state.force else 'NIE'}",
+        f"Zmiany      {'NIEZAPISANE' if state.dirty else 'zapisane'}",
+    ]
+
+
+def _text_menu_group(index: int) -> str | None:
+    return MAIN_MENU_GROUPS.get(index)
+
+
+def render_text_main_menu(state: InteractiveState, rows: Sequence[str]) -> None:
+    ui_banner(
+        f"Jaźń / Łatka — generator paczek v{GENERATOR_VERSION}",
+        "Tryb tekstowy • jeden kanoniczny plan • CRC i SHA-256",
+    )
+    ui_key_value("Profil / format", f"{state.profile} / {state.archive_format}")
+    ui_key_value("Źródło", _display_path(state.source))
+    ui_key_value("Wyjście", _display_path(state.out_dir))
+    ui_key_value("Nazwa bazowa", state.archive_basename)
+    ui_key_value("Stan ustawień", "niezapisane zmiany" if state.dirty else "zapisane")
+    for index, row in enumerate(rows):
+        group = _text_menu_group(index)
+        if group:
+            if index != MENU_PACK:
+                print()
+            ui_section(group)
+        accent = index in {MENU_PACK, MENU_PLAN, MENU_VERIFY, MENU_EXTRACT, MENU_SELF_TEST, MENU_EXIT}
+        number = _paint(f"{index + 1:>2}.", ANSI_BRIGHT_CYAN if accent else ANSI_BRIGHT_BLACK, ANSI_BOLD if accent else "")
+        print(f"  {number} {row}")
+    print("\n" + _paint("  Esc/Q = wyjście  •  Ctrl+X = wyjście bez zapisu", ANSI_BRIGHT_BLACK))
+
+
+def handle_menu_choice(state: InteractiveState, choice: int) -> bool:
+    if choice == MENU_PACK:
+        pack_from_interactive(state)
+    elif choice == MENU_PLAN:
+        show_plan_interactive(state)
+    elif choice == MENU_NAME:
+        state.archive_basename = sanitize_archive_stem(
+            ask_text_value("Bazowa nazwa", state.archive_basename, ui_mode=state.ui_mode)
+        )
+        state.dirty = True
+    elif choice == MENU_PROFILE:
+        labels = ["dual — system i pamięć osobno", "system", "memory", "combined"]
+        details = [
+            "Dwie niezależne paczki: statyczny system i osobna pamięć.",
+            "Kod i pliki statyczne bez memory/ i workspace_runtime/.",
+            "Tylko memory/, w tym SQLite, ale bez WAL/SHM i archiwów.",
+            "System i pamięć w jednej paczce.",
+        ]
+        values = ["dual", "system", "memory", "combined"]
+        selected_new = choose_value("Profil", labels, current=values.index(state.profile), ui_mode=state.ui_mode, details=details)
+        if selected_new is not None:
+            state.profile = values[selected_new]
+            state.dirty = True
+    elif choice == MENU_SOURCE:
+        state.source = Path(ask_text_value("Folder źródłowy", _display_path(state.source), ui_mode=state.ui_mode, path_mode=True)).expanduser().resolve()
+        state.dirty = True
+    elif choice == MENU_OUTPUT:
+        state.out_dir = Path(ask_text_value("Folder wyjściowy", _display_path(state.out_dir), ui_mode=state.ui_mode, path_mode=True)).expanduser().resolve()
+        state.dirty = True
+    elif choice == MENU_SIDECARS:
+        state.sidecars = not state.sidecars
+        state.dirty = True
+    elif choice == MENU_FORMAT:
+        labels = ["auto", "independent — samodzielne ZIP-y", "binary — .zip.001/.002"]
+        details = [
+            "Independent, chyba że pojedynczy plik przekracza limit części.",
+            "Każdy wolumin jest pełnym ZIP-em i można go otworzyć osobno.",
+            "Jeden logiczny ZIP dzielony bajtowo; przed rozpakowaniem trzeba połączyć części.",
+        ]
+        values = ["auto", "independent", "binary"]
+        selected_new = choose_value("Format", labels, current=values.index(state.archive_format), ui_mode=state.ui_mode, details=details)
+        if selected_new is not None:
+            state.archive_format = values[selected_new]
+            state.dirty = True
+    elif choice == MENU_LIMIT:
+        state.part_size_mb = ask_int_value("Limit części MiB", state.part_size_mb, 1, 1024 * 1024, ui_mode=state.ui_mode)
+        state.dirty = True
+    elif choice == MENU_COMPRESSION:
+        selected_new = choose_value(
+            "Poziom kompresji",
+            COMPRESSION_UI_LABELS,
+            current=COMPRESSION_CHOICES.index(state.compression_level),
+            ui_mode=state.ui_mode,
+            details=COMPRESSION_UI_DETAILS,
+        )
+        if selected_new is not None:
+            state.compression_level = COMPRESSION_CHOICES[selected_new]
+            state.dirty = True
+    elif choice == MENU_FORCE:
+        state.force = not state.force
+        state.dirty = True
+    elif choice == MENU_INTERFACE:
+        edit_interface(state)
+    elif choice == MENU_EXCLUDES:
+        edit_excludes(state)
+    elif choice == MENU_SAVE:
+        ui_message(state.ui_mode, f"Zapisano ustawienia: {save_interactive_state(state)}", "ok")
+    elif choice == MENU_VERIFY:
+        verify_interactive(state)
+    elif choice == MENU_EXTRACT:
+        extract_interactive(state)
+    elif choice == MENU_SELF_TEST:
+        compression_self_test_interactive()
+    elif choice == MENU_EXIT:
+        return False
+    return True
+
+
+def startup_ui_choice(state: InteractiveState, ui_override: str | None = None) -> str:
+    if ui_override:
+        mode = _normalize_ui_mode(ui_override)
+        if ui_override.strip().lower() in {"kursorowy", "cursor", "kursor"} and mode != "kursorowy":
+            raise PackError("Tryb kursorowy wymaga biblioteki prompt_toolkit.")
+        return mode
+    if state.ui_auto_start:
+        return _normalize_ui_mode(state.ui_mode)
+    labels = ["Kursorowy — pełnoekranowy panel", "Tekstowy — kolorowe menu"]
+    details = [
+        "Najwygodniejszy w Windows Terminal: LPM, PPM=wstecz, scroll, strzałki, Enter, Esc/Q i Ctrl+X.",
+        "Działa bez prompt_toolkit; zachowuje ramki, grupy i czytelne statusy.",
+    ]
+    if HAS_PROMPT_TOOLKIT:
+        choice = cursor_select(
+            f"Jaźń / Łatka — v{GENERATOR_VERSION}",
+            labels,
+            0,
+            details=details,
+            subtitle="Wybierz interfejs",
+            status_lines=["Silnik      canonical plan", "Weryfikacja CRC + SHA-256", "Wygląd      polished cyan"],
+        )
+        return "kursorowy" if choice == 0 else "tekstowy"
+
+    ui_banner(f"Jaźń / Łatka — generator paczek v{GENERATOR_VERSION}")
+    ui_status("Tryb kursorowy jest niedostępny: brak prompt_toolkit.", "warn")
+    print("  Instalacja: py -m pip install prompt_toolkit")
+    print("  Uruchamiam tryb tekstowy.")
+    return "tekstowy"
+
+
+def cursor_exit_summary(state: InteractiveState) -> bool:
+    """Pokazuje wyjście w trybie kursorowym; True oznacza zakończenie programu."""
+
+    active_base = sum(1 for item in state.base_excludes if item.enabled)
+    manual = "OFF"
+    if state.custom_excludes:
+        manual = "ON" if state.custom_excludes_enabled else "OFF"
+    status = [
+        f"Źródło      {_ellipsize(_display_path(state.source), 42)}",
+        f"Wyjście     {_ellipsize(_display_path(state.out_dir), 42)}",
+        f"Profil      {PROFILE_UI_LABELS.get(state.profile, state.profile)}",
+        f"Format      {state.archive_format}",
+        f"Wykluczenia podstawowe {active_base}/{len(state.base_excludes)}",
+        f"Wykluczenia ręczne     {len(state.custom_excludes)} {manual}",
+        f"Ustawienia  {'NIEZAPISANE ZMIANY' if state.dirty else 'zapisane'}",
+    ]
+    if state.dirty:
+        labels = ["Zapisz ustawienia i wyjdź", "Wyjdź bez zapisu", "Wróć do programu"]
+        details = [
+            "Zapisz bieżącą konfigurację atomowo obok skryptu i zakończ.",
+            "Zakończ program, pozostawiając ostatnio zapisany plik konfiguracji bez zmian.",
+            "Anuluj wyjście i wróć do strony głównej.",
+        ]
+    else:
+        labels = ["Wyjdź", "Wróć do programu"]
+        details = [
+            "Zakończ program. Wszystkie ustawienia są już zapisane.",
+            "Anuluj wyjście i wróć do strony głównej.",
+        ]
+    choice = cursor_select(
+        "Wyjście — podsumowanie",
+        labels,
+        0,
+        details=details,
+        status_lines=status,
+        subtitle="Sprawdź konfigurację przed zamknięciem",
+    )
+    if choice is None:
+        return False
+    if state.dirty:
+        if choice == 0:
+            save_interactive_state(state)
+            return True
+        if choice == 1:
+            return True
+        return False
+    return choice == 0
+
+
+def interactive(ui_override: str | None = None) -> int:
+    state = load_interactive_state()
+    selected = 0
+    try:
+        state.ui_mode = startup_ui_choice(state, ui_override)
+        while True:
+            rows = main_menu_rows(state)
+            if state.ui_mode == "kursorowy":
+                choice, selected = cursor_main_menu(state, selected)
+                if choice is None or choice == MENU_EXIT:
+                    if cursor_exit_summary(state):
+                        return 0
+                    continue
+            else:
+                render_text_main_menu(state, rows)
+                raw = input(_paint("Wybór: ", ANSI_BRIGHT_CYAN, ANSI_BOLD)).strip()
+                _control_result(raw)
+                try:
+                    choice = int(raw) - 1
+                except ValueError:
+                    continue
+                if not 0 <= choice < len(rows):
+                    continue
+            try:
+                if not handle_menu_choice(state, choice):
+                    break
+            except UserCancelledInput:
+                continue
+            except PackError as exc:
+                ui_message(state.ui_mode, str(exc), "error")
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                ui_message(state.ui_mode, str(exc), "error")
+    except UserRequestedExit:
+        ui_status("Zamknięto bez automatycznego zapisu ustawień.", "warn")
+        return 0
+
+    if state.ui_mode == "tekstowy" and state.dirty:
+        try:
+            if ask_yes_no("Zapisać zmienione ustawienia", True, ui_mode=state.ui_mode):
+                ui_status(f"Zapisano ustawienia: {save_interactive_state(state)}", "ok")
+        except (UserCancelledInput, UserRequestedExit):
+            pass
+    return 0
+
+
+def print_results(results: Sequence[PackageResult]) -> None:
+    ui_banner("PAKOWANIE ZAKOŃCZONE POPRAWNIE", "Wynik przeszedł kontrolę planu, SHA-256 i CRC")
+    for result in results:
+        ui_section(result.package_name)
+        ui_key_value("Profil", result.profile)
+        ui_key_value("Format", result.archive_format)
+        ui_key_value("Pliki planu", result.plan.file_count)
+        ui_key_value("Woluminy", len(result.outputs))
+        ui_key_value("Plan SHA-256", result.plan.plan_sha256())
+        ui_key_value("Set SHA-256", result.package_set_sha256)
+        if result.logical_zip_sha256:
+            ui_key_value("ZIP SHA-256", result.logical_zip_sha256)
+        if result.archive_format == "binary":
+            ui_status(
+                "Części .zip.001/.002 nie są samodzielnymi ZIP-ami. Użyj pliku .join.ps1 "
+                "albo polecenia extract/verify z plikiem .package.json.",
+                "warn",
+            )
+        print(_paint("  Pliki wynikowe:", ANSI_BRIGHT_CYAN, ANSI_BOLD))
+        for path in result.committed_paths:
+            print(f"    {_paint('✓', ANSI_BRIGHT_GREEN)} {path}")
+    print()
+    ui_status("Paczka jest gotowa do przeniesienia, weryfikacji lub rozpakowania.", "ok")
+
+
+def parser() -> argparse.ArgumentParser:
+    root = argparse.ArgumentParser(description="Jaźń / Łatka — kanoniczny generator paczek ZIP")
+    root.add_argument("--version", action="version", version=GENERATOR_VERSION)
+    sub = root.add_subparsers(dest="command")
+
+    pack = sub.add_parser("pack", help="Zbuduj i zweryfikuj paczkę")
+    pack.add_argument("source", type=Path)
+    pack.add_argument("--out", type=Path)
+    pack.add_argument("--profile", choices=PROFILE_CHOICES, default=DEFAULT_PROFILE)
+    pack.add_argument("--format", dest="archive_format", choices=FORMAT_CHOICES, default=DEFAULT_FORMAT)
+    pack.add_argument("--name", default="jazn_latka")
+    pack.add_argument("--part-size-mb", type=int, default=DEFAULT_PART_SIZE_MB)
+    pack.add_argument("--compresslevel", type=int, default=DEFAULT_COMPRESSION_LEVEL)
+    pack.add_argument("--force", action="store_true")
+    pack.add_argument("--exclude", action="append", default=[])
+    pack.add_argument("--no-sidecars", action="store_true")
+
+    plan = sub.add_parser("plan", help="Pokaż kanoniczny plan bez pakowania")
+    plan.add_argument("source", type=Path)
+    plan.add_argument("--profile", choices=("system", "memory", "combined"), default="system")
+    plan.add_argument("--exclude", action="append", default=[])
+    plan.add_argument("--files", action="store_true")
+    plan.add_argument("--json", type=Path)
+
+    verify = sub.add_parser("verify", help="Zweryfikuj paczkę na podstawie *.package.json")
+    verify.add_argument("sidecar", type=Path)
+
+    extract = sub.add_parser("extract", help="Zweryfikuj i bezpiecznie rozpakuj paczkę")
+    extract.add_argument("sidecar", type=Path)
+    extract.add_argument("destination", type=Path)
+    extract.add_argument("--force", action="store_true")
+    extract.add_argument("--clean", action="store_true")
+
+    sub.add_parser("self-test", help="Przetestuj kompresję independent i binary")
+    return root
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if not argv:
+        return interactive()
+    if argv[0] == "--ui":
+        if len(argv) != 2:
+            raise PackError("Użycie: --ui tekstowy|kursorowy")
+        return interactive(ui_override=argv[1])
+    if argv[0] == "--reset-settings":
+        reset_interactive_settings()
+        print(f"Usunięto ustawienia: {settings_path()}")
+        return 0
+    # Łagodna kompatybilność: pierwszy argument będący ścieżką oznacza pack.
+    if argv[0] not in {"pack", "plan", "verify", "extract", "self-test", "-h", "--help", "--version"}:
+        argv.insert(0, "pack")
+    args = parser().parse_args(argv)
+
+    if args.command == "pack":
+        if args.part_size_mb <= 0:
+            raise PackError("--part-size-mb musi być > 0")
+        if not 0 <= args.compresslevel <= 9:
+            raise PackError("--compresslevel musi być w zakresie 0-9")
+        out_dir = args.out or (args.source.expanduser().resolve().parent / "packages")
+        options = PackOptions(
+            source=args.source,
+            out_dir=out_dir,
+            profile=args.profile,
+            archive_format=args.archive_format,
+            archive_basename=args.name,
+            part_size_mb=args.part_size_mb,
+            compression_level=args.compresslevel,
+            force=args.force,
+            custom_excludes=list(args.exclude),
+            custom_excludes_enabled=bool(args.exclude),
+            sidecars=not args.no_sidecars,
+        )
+        results = run_pack(options)
+        print_results(results)
+        return 0
+
+    if args.command == "plan":
+        plan = build_plan(args.source, args.profile, args.exclude)
+        print_plan(plan, show_files=args.files)
+        if args.json:
+            payload = {
+                "generator_version": GENERATOR_VERSION,
+                "profile": plan.profile,
+                "version": plan.version.full_version,
+                "scan_method": plan.scan_method,
+                "manifest_builder": plan.manifest_builder,
+                "plan_sha256": plan.plan_sha256(),
+                "file_count": plan.file_count,
+                "total_size_bytes": plan.total_size,
+                "entries": [
+                    {
+                        "path": item.relative,
+                        "size_bytes": item.size_bytes,
+                        "sha256": item.sha256,
+                        "classification": item.classification,
+                    }
+                    for item in plan.entries
+                ],
+                "excluded": [{"path": p, "reason": r} for p, r in plan.excluded],
+            }
+            args.json.write_bytes(serialize_json(payload))
+        return 0
+
+    if args.command == "verify":
+        print(json.dumps(verify_package_sidecar(args.sidecar), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.command == "extract":
+        print(json.dumps(
+            extract_package_sidecar(args.sidecar, args.destination, clean=args.clean, force=args.force),
+            ensure_ascii=False,
+            indent=2,
+        ))
+        return 0
+
+    if args.command == "self-test":
+        print(json.dumps(run_compression_self_test(), ensure_ascii=False, indent=2))
+        return 0
+
+    parser().print_help()
+    return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except KeyboardInterrupt:
+        print(_paint("\nPrzerwano przez użytkownika.", ANSI_YELLOW, stream=sys.stderr), file=sys.stderr)
+        raise SystemExit(130)
+    except PackError as exc:
+        print(_paint(f"BŁĄD: {exc}", ANSI_RED, ANSI_BOLD, stream=sys.stderr), file=sys.stderr)
+        raise SystemExit(2)
