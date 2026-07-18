@@ -137,3 +137,21 @@ def test_snapshot_failure_does_not_replace_existing_destination(tmp_path: Path) 
     else:
         raise AssertionError("invalid source must fail")
     assert destination.read_bytes() == b"existing-safe-copy"
+
+
+def test_performance_overrides_preserve_fingerprints_and_payload(tmp_path: Path) -> None:
+    from latka_jazn.tools import chat_export_reader as reader_module
+    from latka_jazn.tools import chat_export_store as store_module
+    from latka_jazn.tools.chat_export_performance import install_performance_overrides
+
+    source = _conversation()
+    original_graph = reader_module.build_conversation_graph(source)
+    original_raw = original_graph.raw_tree_sha256
+    original_semantic = original_graph.semantic_tree_sha256
+    install_performance_overrides()
+    optimized_graph = reader_module.build_conversation_graph(source)
+    assert optimized_graph.raw_tree_sha256 == original_raw
+    assert optimized_graph.semantic_tree_sha256 == original_semantic
+    blob, raw_size = store_module._compressed_payload(optimized_graph)
+    assert json.loads(__import__("zlib").decompress(blob).decode("utf-8")) == source
+    assert raw_size > len(blob)
