@@ -294,7 +294,7 @@ _DOMAIN_PATTERNS: dict[str, tuple[str, ...]] = {
     "book": ("rozdzial", "ksiazk", "manuskrypt", "scena", "kanon", "fabula", "bohater"),
     "travel": ("wyjazd", "podroz", "gorlitz", "gliwic", "jezior", "wakacj"),
     "nature": ("las", "laka", "jezior", "ogrod", "ptak", "drzew", "slonc"),
-    "work": ("praca", "pracodawc", "stanowisk", "zmiana", "produkcj"),
+    "work": ("prac", "pracodawc", "stanowisk", "zmiana", "produkcj"),
     "daily_life": ("codzien", "poranek", "wieczor", "noc", "rano", "dom", "spacer", "obiad"),
     "system_identity": ("jazn", "tozsamosc", "swiadomosc", "autonomia", "pamiec latki", "rozwoj jazni"),
     "image": ("obraz", "grafik", "ilustrac", "portret", "rysunek"),
