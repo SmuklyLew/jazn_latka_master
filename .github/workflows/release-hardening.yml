@@ -70,17 +70,18 @@ jobs:
           normalized(Path("PACKAGE_INTEGRITY_MANIFEST.json"), temp / "manifest-current.normalized.json")
           normalized(temp / "PACKAGE_INTEGRITY_MANIFEST.json", temp / "manifest-candidate.normalized.json")
           PY
+          target_branch="${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}"
           if cmp -s "$RUNNER_TEMP/manifest-current.normalized.json" "$RUNNER_TEMP/manifest-candidate.normalized.json"; then
             echo "Canonical manifest semantics are already synchronized."
-          elif [ "$GITHUB_HEAD_REF" = "update/v15.1.0.1" ] || [ "$GITHUB_REF" = "refs/heads/update/v15.1.0.1" ]; then
+          elif [ "$target_branch" = "update/v15.1.0.1" ] || [ "$target_branch" = "tools/upgrade-import-eksport-chat-html-and-journal-experience" ]; then
             cp "$RUNNER_TEMP/PACKAGE_INTEGRITY_MANIFEST.json" PACKAGE_INTEGRITY_MANIFEST.json
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add PACKAGE_INTEGRITY_MANIFEST.json
             git commit -m "release: rebuild PACKAGE_INTEGRITY_MANIFEST for v15.1.0.1"
-            git push origin HEAD:update/v15.1.0.1
+            git push origin "HEAD:${target_branch}"
           else
-            echo "Manifest drift detected outside update/v15.1.0.1." >&2
+            echo "Manifest drift detected outside an explicitly allowed release or importer branch: ${target_branch}." >&2
             exit 2
           fi
 
