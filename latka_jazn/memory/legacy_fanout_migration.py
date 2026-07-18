@@ -98,8 +98,11 @@ class LegacyMigrationCandidate:
     def to_short_term(self, *, approved_by: str, now: datetime | None = None) -> ShortTermMemoryRecord:
         if not approved_by.strip():
             raise ValueError("approved_by is required for migration to L2")
+        journal_source = self.legacy_table == "dziennik_entries"
+        source_type = "legacy_dziennik_json" if journal_source else "legacy_memory_sqlite"
+        domain = "legacy_journal_migration" if journal_source else "legacy_migration"
         evidence = SourceEvidence(
-            source_type="legacy_memory_sqlite",
+            source_type=source_type,
             source_id=f"{self.legacy_table}:{self.legacy_record_id}",
             source_sha256=self.source_sha256,
             metadata={
@@ -113,14 +116,18 @@ class LegacyMigrationCandidate:
         return policy.create(
             kind=self.memory_kind,
             content=self.content,
-            domain="legacy_migration",
+            domain=domain,
             mode="source_review",
             truth_status=self.truth_status,
             confidence=self.confidence,
             importance=self.importance,
             evidence=(evidence,),
             created_at_utc=now or datetime.now(timezone.utc),
-            tags=("legacy_migration", self.legacy_table, "suspected_fanout" if self.suspected_fanout else "independent_candidate"),
+            tags=(
+                "legacy_migration",
+                self.legacy_table,
+                "suspected_fanout" if self.suspected_fanout else "independent_candidate",
+            ),
         )
 
 
@@ -220,7 +227,7 @@ class LegacyFanoutMigrationStore:
         self.store = store
         self.store.con.executescript(MIGRATION_SQL)
 
-    def stage_scan(self, scanner: LegacyMemoryScanner) -> dict[str, int]:
+    def stage_scan(self, scanner: Any) -> dict[str, int]:
         inventory = scanner.inventory()
         run_id = hashlib.sha256(f"{scanner.source_sha256}|{SCHEMA_VERSION}".encode()).hexdigest()
         inserted = fanout = 0
