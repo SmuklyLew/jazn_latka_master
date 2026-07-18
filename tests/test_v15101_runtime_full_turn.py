@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 import sqlite3
 
 from latka_jazn.config import JaznConfig
@@ -30,6 +31,21 @@ def _legacy_semantic_counts(path: Path) -> dict[str, int]:
         }
     finally:
         con.close()
+
+
+def _safe_failure_diagnostic(result: dict) -> str:
+    payload = {
+        "ok": result.get("ok"),
+        "normal_response_blocked": result.get("normal_response_blocked"),
+        "canonical_persistence": result.get("canonical_persistence"),
+        "runtime_truth_gate": result.get("runtime_truth_gate"),
+        "final_visible_integrity": result.get("final_visible_integrity"),
+        "final_visible_integrity_consensus": result.get("final_visible_integrity_consensus"),
+        "memory_v151": result.get("memory_v151"),
+        "conversation_route": (result.get("conversation_decision") or {}).get("route"),
+        "conversation_intent": (result.get("conversation_decision") or {}).get("detected_user_intent"),
+    }
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
 
 
 def test_full_runtime_turn_commits_v151_without_legacy_fanout(tmp_path: Path, monkeypatch) -> None:
@@ -68,7 +84,7 @@ def test_full_runtime_turn_commits_v151_without_legacy_fanout(tmp_path: Path, mo
         )
 
         after_legacy = _legacy_semantic_counts(legacy_path)
-        assert result["ok"] is True
+        assert result["ok"] is True, _safe_failure_diagnostic(result)
         assert result["canonical_persistence"]["committed"] is True
         assert result["memory_v151"]["available"] is True
         assert result["memory_v151"]["store"]["ready"] is True
