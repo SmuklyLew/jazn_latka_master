@@ -73,11 +73,11 @@ def test_full_runtime_turn_commits_v151_without_legacy_fanout(tmp_path: Path, mo
         legacy_path = session.config.memory_db_path
         before_legacy = _legacy_semantic_counts(legacy_path)
 
-        # A health-check intentionally skips semantic persistence. Use a substantive,
-        # deterministic read-only handler so the general candidate staging path runs
-        # while final text remains valid with the null adapter.
+        # A health-check intentionally skips semantic persistence. Use the exact
+        # deterministic classifier phrase for the read-only architecture audit so
+        # general candidate staging runs while final text remains valid with null adapter.
         result = session.process_user_text(
-            "Audytuj architekturę i możliwości Jaźni.",
+            "Audyt architektury Jaźni.",
             client="isolated-v151-test",
             lifecycle="persistent_daemon_async_job",
             process_reused=True,
