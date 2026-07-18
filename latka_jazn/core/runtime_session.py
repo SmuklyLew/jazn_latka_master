@@ -39,6 +39,32 @@ class JaznRuntimeSession:
         self.no_carryover = no_carryover
         self._turn_count = 0
 
+    def _memory_v151_status_payload(self) -> dict[str, Any]:
+        install_status = getattr(self, "memory_v151_install_status", None)
+        if install_status is None:
+            return {
+                "available": False,
+                "reason": "installer_not_initialized",
+                "install": None,
+                "store": None,
+                "truth_boundary": (
+                    "Minimalna lub testowa sesja nie uruchomiła instalatora pamięci v15.1. "
+                    "Brak statusu nie jest dowodem pustej ani uszkodzonej pamięci."
+                ),
+            }
+        return {
+            "available": True,
+            "install": install_status.to_dict(),
+            "store": inspect_memory_tier_store(
+                install_status.database_path,
+                full=False,
+            ).to_dict(),
+            "truth_boundary": (
+                "Status L1/L2/L3 jest diagnostyką po zatwierdzeniu tury. "
+                "Nie dowodzi poprawnego recall ani aktywnej tożsamości."
+            ),
+        }
+
     def process_user_text(
         self,
         user_text: str,
@@ -161,17 +187,7 @@ class JaznRuntimeSession:
             if not commit_status.get("committed"):
                 result["ok"] = False
 
-            result["memory_v151"] = {
-                "install": self.memory_v151_install_status.to_dict(),
-                "store": inspect_memory_tier_store(
-                    self.memory_v151_install_status.database_path,
-                    full=False,
-                ).to_dict(),
-                "truth_boundary": (
-                    "Status L1/L2/L3 jest diagnostyką po zatwierdzeniu tury. "
-                    "Nie dowodzi poprawnego recall ani aktywnej tożsamości."
-                ),
-            }
+            result["memory_v151"] = self._memory_v151_status_payload()
 
             if result["ok"]:
                 self.state.update(
