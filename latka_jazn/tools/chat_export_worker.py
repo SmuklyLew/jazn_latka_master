@@ -4,6 +4,10 @@ import argparse
 import json
 import sys
 
+from latka_jazn.tools.chat_export_performance import install_performance_overrides
+
+install_performance_overrides()
+
 from latka_jazn.tools.chat_export_importer import ChatExportImporter
 
 
