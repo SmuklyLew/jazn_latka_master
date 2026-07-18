@@ -8,7 +8,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: release-hardening-${{ github.workflow }}-${{ github.ref }}
+  group: release-hardening-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.head_ref || github.ref_name }}
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
@@ -78,7 +78,7 @@ jobs:
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add PACKAGE_INTEGRITY_MANIFEST.json
-            git commit -m "release: rebuild PACKAGE_INTEGRITY_MANIFEST for v15.1.0.1"
+            git commit -m "release: rebuild PACKAGE_INTEGRITY_MANIFEST for v15.1.0.1 [skip ci]"
             git push origin "HEAD:${target_branch}"
           else
             echo "Manifest drift detected outside an explicitly allowed release, importer, or hotfix branch: ${target_branch}." >&2
