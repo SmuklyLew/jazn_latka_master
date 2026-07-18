@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from latka_jazn.memory.dziennik_migration import DziennikJsonScanner
 from latka_jazn.memory.legacy_fanout_migration import LegacyFanoutMigrationStore, LegacyMemoryScanner
 from latka_jazn.memory.memory_tier_store import MemoryTierStore
 
@@ -35,17 +36,27 @@ def database_path(value: str) -> Path:
 
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(
-        description="Bezpieczna migracja starego fan-out pamięci do kolejki review v15.1.0.1."
+        description="Bezpieczna migracja starego fan-out pamięci i dziennik.json do kolejki review v15.1.0.1."
     )
     root.add_argument("--json", action="store_true")
     sub = root.add_subparsers(dest="command", required=True)
 
-    inspect = sub.add_parser("inspect", help="zbadaj starą bazę bez zapisu")
+    inspect = sub.add_parser("inspect", help="zbadaj starą bazę SQLite bez zapisu")
     inspect.add_argument("legacy_database", type=existing_file)
 
-    stage = sub.add_parser("stage", help="zapisz kandydatów do kolejki review, bez tworzenia L2/L3")
+    inspect_journal = sub.add_parser("inspect-journal", help="zbadaj dziennik.json bez zapisu")
+    inspect_journal.add_argument("journal", type=existing_file)
+
+    stage = sub.add_parser("stage", help="zapisz kandydatów SQLite do review, bez tworzenia L2/L3")
     stage.add_argument("legacy_database", type=existing_file)
     stage.add_argument("--target", required=True, type=database_path)
+
+    stage_journal = sub.add_parser(
+        "stage-journal",
+        help="zapisz wpisy dziennik.json jako pojedynczych kandydatów review, bez tworzenia L2/L3",
+    )
+    stage_journal.add_argument("journal", type=existing_file)
+    stage_journal.add_argument("--target", required=True, type=database_path)
 
     candidates = sub.add_parser("candidates", help="pokaż kandydatów oczekujących na decyzję")
     candidates.add_argument("--target", required=True, type=existing_file)
@@ -64,30 +75,41 @@ def parser() -> argparse.ArgumentParser:
     return root
 
 
+def _scanner(args: argparse.Namespace):
+    if args.command in {"inspect-journal", "stage-journal"}:
+        return DziennikJsonScanner(args.journal)
+    return LegacyMemoryScanner(args.legacy_database)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
-        if args.command == "inspect":
-            with LegacyMemoryScanner(args.legacy_database) as scanner:
+        if args.command in {"inspect", "inspect-journal"}:
+            with _scanner(args) as scanner:
                 payload = {
                     "ok": True,
+                    "source_kind": "dziennik_json" if args.command == "inspect-journal" else "legacy_memory_sqlite",
                     "source_path": str(scanner.path),
                     "source_sha256": scanner.source_sha256,
                     "inventory": scanner.inventory(),
                     "candidate_count": sum(1 for _ in scanner.candidates()),
                     "read_only": True,
+                    "automatic_l2": False,
+                    "automatic_l3": False,
                 }
-        elif args.command == "stage":
+        elif args.command in {"stage", "stage-journal"}:
             args.target.parent.mkdir(parents=True, exist_ok=True)
-            with MemoryTierStore(args.target) as store, LegacyMemoryScanner(args.legacy_database) as scanner:
+            with MemoryTierStore(args.target) as store, _scanner(args) as scanner:
                 migration = LegacyFanoutMigrationStore(store)
                 report = migration.stage_scan(scanner)
                 payload = {
                     "ok": True,
+                    "source_kind": "dziennik_json" if args.command == "stage-journal" else "legacy_memory_sqlite",
                     "target": str(args.target),
                     "source_sha256": scanner.source_sha256,
                     "stage_report": report,
                     "memory_records_after_stage": store.stats()["memory_records"],
+                    "automatic_l2": False,
                     "automatic_l3": False,
                     "validation": store.validate(full=False),
                 }
