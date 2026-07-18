@@ -73,7 +73,7 @@ jobs:
           target_branch="${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}"
           if cmp -s "$RUNNER_TEMP/manifest-current.normalized.json" "$RUNNER_TEMP/manifest-candidate.normalized.json"; then
             echo "Canonical manifest semantics are already synchronized."
-          elif [ "$target_branch" = "update/v15.1.0.1" ] || [ "$target_branch" = "tools/upgrade-import-eksport-chat-html-and-journal-experience" ] || [ "$target_branch" = "hotfix/generator-kandydatow" ]; then
+          elif [ "$target_branch" = "update/v15.1.0.1" ] || [ "$target_branch" = "tools/upgrade-import-eksport-chat-html-and-journal-experience" ] || [[ "$target_branch" == hotfix/* ]]; then
             cp "$RUNNER_TEMP/PACKAGE_INTEGRITY_MANIFEST.json" PACKAGE_INTEGRITY_MANIFEST.json
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
