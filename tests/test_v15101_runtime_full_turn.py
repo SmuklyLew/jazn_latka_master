@@ -73,11 +73,11 @@ def test_full_runtime_turn_commits_v151_without_legacy_fanout(tmp_path: Path, mo
         legacy_path = session.config.memory_db_path
         before_legacy = _legacy_semantic_counts(legacy_path)
 
-        # A health-check intentionally skips semantic persistence. Use the exact
-        # deterministic classifier phrase for the read-only architecture audit so
-        # general candidate staging runs while final text remains valid with null adapter.
+        # Health-checks intentionally skip semantic persistence, while ordinary and
+        # static fallback routes require model-guided speech. The time route is both
+        # deterministic and dynamic, and it truthfully discloses degraded local time.
         result = session.process_user_text(
-            "Audyt architektury Jaźni.",
+            "Jaka jest godzina?",
             client="isolated-v151-test",
             lifecycle="persistent_daemon_async_job",
             process_reused=True,
