@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+from collections import Counter
 from pathlib import Path
 from typing import Any
+import json
 import re
+import unicodedata
 
 from latka_jazn.tools.memory_rebuild_common import canonical_json, fts_queries, norm, now_utc, schema_version, uid
-from latka_jazn.tools.memory_rebuild_journal_reader import JournalReader
+from latka_jazn.tools.memory_rebuild_journal_reader import (
+    JournalReader, classify_journal_raw, label_values,
+)
 from latka_jazn.tools.memory_rebuild_sql import JOURNAL_SQL
 from latka_jazn.tools.memory_rebuild_store import Store
 
@@ -97,6 +102,67 @@ class JournalStore(Store):
                 "entries_seen": len(items), "inserted": inserted, "updated_revisions": updated,
                 "linked_existing": linked, "invalid_entries": reader.invalid}
 
+    def reclassify(self, dry_run: bool = False, sample_limit: int = 100) -> dict[str, Any]:
+        """Recompute derived truth labels without changing source content or revisions."""
+        rows = self.con.execute(
+            """SELECT entry_id,source_record_id,title,raw_json,truth_status,revision,content_sha256
+               FROM journal_entries WHERE status='active' ORDER BY entry_id"""
+        ).fetchall()
+        changes: list[dict[str, Any]] = []
+        review_required = 0
+        for row in rows:
+            try:
+                raw = json.loads(str(row["raw_json"]))
+            except (TypeError, json.JSONDecodeError):
+                raw = {}
+            if not isinstance(raw, dict):
+                raw = {}
+            classification = classify_journal_raw(raw)
+            if classification.review_reasons:
+                review_required += 1
+            stored = norm(row["truth_status"]).lower()
+            if stored == classification.truth_status:
+                continue
+            changes.append({
+                "entry_id": row["entry_id"],
+                "source_record_id": row["source_record_id"],
+                "title": row["title"],
+                "from_truth_status": stored,
+                "to_truth_status": classification.truth_status,
+                "profile": classification.profile,
+                "evidence": list(classification.evidence),
+                "review_reasons": list(classification.review_reasons),
+                "revision": int(row["revision"]),
+                "content_sha256": row["content_sha256"],
+            })
+
+        if changes and not dry_run:
+            with self.transaction():
+                for change in changes:
+                    self.con.execute(
+                        "UPDATE journal_entries SET truth_status=?,updated_at_utc=? WHERE entry_id=?",
+                        (change["to_truth_status"], now_utc(), change["entry_id"]),
+                    )
+                    self.con.execute(
+                        "UPDATE journal_fts_docs SET truth_status=? WHERE entry_id=?",
+                        (change["to_truth_status"], change["entry_id"]),
+                    )
+
+        return {
+            "ok": True,
+            "status": "dry_run_ok" if dry_run else "reclassified",
+            "dry_run": dry_run,
+            "entries_seen": len(rows),
+            "changed": len(changes),
+            "unchanged": len(rows) - len(changes),
+            "classification_review_count": review_required,
+            "change_samples": changes[:max(0, sample_limit)],
+            "source_content_modified": False,
+            "source_revisions_modified": False,
+            "automatic_l2": False,
+            "automatic_l3": False,
+        }
+
     def counts(self) -> dict[str, int]:
         return {
             "sources": self.con.execute("SELECT COUNT(*) FROM journal_sources").fetchone()[0],
@@ -115,36 +181,150 @@ class JournalStore(Store):
                 return [dict(row) for row in rows]
         return []
 
+    def classification_audit(self, limit: int = 50) -> dict[str, Any]:
+        rows = self.con.execute(
+            """SELECT entry_id,source_record_id,title,summary,content,raw_json,truth_status,
+                      event_time_start,timestamp_status
+               FROM journal_entries WHERE status='active'
+               ORDER BY COALESCE(event_time_start,updated_at_utc),entry_id"""
+        ).fetchall()
+        stored_truth = Counter()
+        recomputed_truth = Counter()
+        profiles = Counter()
+        domains = Counter()
+        timestamps = Counter()
+        mismatches: list[dict[str, Any]] = []
+        review_items: list[dict[str, Any]] = []
+        label_counts: Counter[str] = Counter()
 
-_LEK_PATTERN = re.compile(r"\blek(?:i|u|iem|owi|ów|om|ami|ach)?\b")
+        for row in rows:
+            try:
+                raw = json.loads(str(row["raw_json"]))
+            except (TypeError, json.JSONDecodeError):
+                raw = {}
+            if not isinstance(raw, dict):
+                raw = {}
+            classification = classify_journal_raw(raw)
+            domain_report = infer_domains_report(
+                f"{row['title']} {row['summary']} {row['content']}",
+                labels=" ".join(label_values(raw)),
+            )
+            stored = norm(row["truth_status"]).lower()
+            stored_truth[stored] += 1
+            recomputed_truth[classification.truth_status] += 1
+            profiles[classification.profile] += 1
+            timestamps[norm(row["timestamp_status"]).lower() or "missing"] += 1
+            domains.update(domain_report["domains"])
+            label_counts.update(classification.source_labels)
+
+            base = {
+                "entry_id": row["entry_id"],
+                "source_record_id": row["source_record_id"],
+                "title": row["title"],
+                "stored_truth_status": stored,
+                "recomputed_truth_status": classification.truth_status,
+                "profile": classification.profile,
+                "domains": domain_report["domains"],
+                "classification_evidence": list(classification.evidence),
+                "domain_evidence": domain_report["evidence"],
+            }
+            if stored != classification.truth_status:
+                mismatches.append(base)
+            reasons = list(classification.review_reasons)
+            if norm(row["timestamp_status"]).lower() == "missing" or not norm(row["event_time_start"]):
+                reasons.append("missing_timestamp")
+            if reasons:
+                review_items.append({**base, "review_reasons": sorted(set(reasons))})
+
+        return {
+            "ok": True,
+            "entries": len(rows),
+            "stored_truth_status_counts": dict(sorted(stored_truth.items())),
+            "recomputed_truth_status_counts": dict(sorted(recomputed_truth.items())),
+            "profile_counts": dict(sorted(profiles.items())),
+            "domain_counts": dict(sorted(domains.items())),
+            "timestamp_status_counts": dict(sorted(timestamps.items())),
+            "truth_mismatch_count": len(mismatches),
+            "truth_mismatch_samples": mismatches[:max(0, limit)],
+            "classification_review_count": len(review_items),
+            "classification_review_samples": review_items[:max(0, limit)],
+            "source_label_counts": dict(label_counts.most_common(100)),
+            "automatic_l2": False,
+            "automatic_l3": False,
+        }
 
 
-def _domain_term_matches(value: str, term: str) -> bool:
-    if term == "lek":
-        return bool(_LEK_PATTERN.search(value))
-    return term in value
+def _fold(value: str) -> str:
+    text = norm(value).replace("ł", "l").replace("Ł", "L")
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    return re.sub(r"\s+", " ", text.lower()).strip()
+
+
+_EXACT_TERM_PATTERNS: dict[str, re.Pattern[str]] = {
+    "lek": re.compile(r"\blek(?:i|u|iem|owi|ów|ow|om|ami|ach)?\b", re.IGNORECASE),
+    "sen": re.compile(r"\bsen(?:u|em|owi|ow|om|ami|ach|y)?\b"),
+    "ai": re.compile(r"\bai\b"),
+    "api": re.compile(r"\bapi\b"),
+    "log": re.compile(r"\blog(?:i|u|iem|ow|ami|ach)?\b"),
+}
+
+
+def _domain_term_matches(value: str, term: str, original: str) -> bool:
+    pattern = _EXACT_TERM_PATTERNS.get(term)
+    if pattern is not None:
+        target = original if term == "lek" else value
+        return bool(pattern.search(target))
+    folded = _fold(term)
+    if " " in folded:
+        return folded in value
+    return bool(re.search(rf"(?<!\w){re.escape(folded)}\w*", value))
+
+
+_DOMAIN_PATTERNS: dict[str, tuple[str, ...]] = {
+    "relationship": ("kasia", "katarzyna", "krzysztof", "relacj", "blisk", "zaufan", "przytul", "wiez", "intymn"),
+    "social": ("rozmow", "spotkan", "rodzin", "przyjac", "wspolnot", "spoleczn"),
+    "scientific": ("badani", "nauk", "eksperyment", "hipotez", "neuro", "psycholog", "teori"),
+    "intellectual": ("analiz", "wniosk", "nauczy", "zrozum", "refleksj", "filozof", "semant", "jezyk"),
+    "emotional": ("emoc", "uczuc", "smut", "rado", "wzrus", "tesk", "wdziecz", "spokoj", "niepok", "strach", "obaw"),
+    "creative": ("tworc", "piosenk", "tekst", "wyobraz", "kreatyw", "narrac"),
+    "technical": ("python", "kod", "runtime", "github", "sqlite", "test", "manifest", "modul", "system"),
+    "health": ("zdrow", "lek", "lekarz", "migren", "padacz", "aura", "napad", "bezsenn", "zmeczon"),
+    "music": ("muzyk", "piosenk", "utwor", "melodi", "rytm", "refren", "akord", "reggae"),
+    "book": ("rozdzial", "ksiazk", "manuskrypt", "scena", "kanon", "fabula", "bohater"),
+    "travel": ("wyjazd", "podroz", "gorlitz", "gliwic", "jezior", "wakacj"),
+    "nature": ("las", "laka", "jezior", "ogrod", "ptak", "drzew", "slonc"),
+    "work": ("prac", "pracodawc", "stanowisk", "zmiana", "produkcj"),
+    "daily_life": ("codzien", "poranek", "wieczor", "noc", "rano", "dom", "spacer", "obiad"),
+    "system_identity": ("jazn", "tozsamosc", "swiadomosc", "autonomia", "pamiec latki", "rozwoj jazni"),
+    "image": ("obraz", "grafik", "ilustrac", "portret", "rysunek"),
+    "video": ("film", "wideo", "video", "nagran"),
+    "reading": ("czytam", "przeczyt", "poradnik", "artykul", "dokument", "pdf", "cytat"),
+}
+
+
+def infer_domains_report(text: str, *, labels: str = "") -> dict[str, Any]:
+    original = norm(f"{labels} {text}").lower()
+    value = _fold(original)
+    evidence: list[str] = []
+    domains: list[str] = []
+    for name, terms in _DOMAIN_PATTERNS.items():
+        hits = [term for term in terms if _domain_term_matches(value, term, original)]
+        if hits:
+            domains.append(name)
+            evidence.extend(f"{name}:{term}" for term in hits[:6])
+    if re.search(r"(?<!\w)lęk\w*", original):
+        domains.append("emotional")
+        evidence.append("emotional:lęk")
+    if not domains:
+        domains = ["daily_life"]
+        evidence.append("fallback:daily_life")
+    return {
+        "domains": sorted(set(domains)),
+        "evidence": sorted(set(evidence)),
+        "classifier": schema_version("journal_domain_classification"),
+    }
 
 
 def infer_domains(text: str) -> list[str]:
-    value = norm(text).lower()
-    patterns = {
-        "relationship": ("kasia", "relacj", "blisko", "zaufan", "przytul"),
-        "social": ("rozmow", "spotkan", "rodzin", "przyjac"),
-        "scientific": ("badani", "nauk", "eksperyment", "hipotez"),
-        "intellectual": ("analiz", "wniosk", "nauczy", "zrozum"),
-        "emotional": ("emoc", "uczuc", "smut", "rado", "lęk", "wzrus"),
-        "creative": ("twórc", "piosenk", "tekst", "wyobraź"),
-        "technical": ("python", "kod", "runtime", "github", "sqlite", "test"),
-        "health": ("zdrow", "lek", "lekarz", "migren", "padacz", "aura"),
-        "music": ("muzyk", "piosenk", "utwór", "melodi"),
-        "book": ("rozdział", "książk", "manuskrypt", "scena", "kanon"),
-        "travel": ("wyjazd", "podróż", "görlitz", "gliwic", "jezior"),
-        "nature": ("las", "łąk", "jezior", "ogród", "ptak"),
-        "work": ("praca", "pracodawc", "stanowisk"),
-    }
-    domains = [
-        name
-        for name, terms in patterns.items()
-        if any(_domain_term_matches(value, term) for term in terms)
-    ]
-    return sorted(set(domains or ["daily_life"]))
+    return list(infer_domains_report(text)["domains"])

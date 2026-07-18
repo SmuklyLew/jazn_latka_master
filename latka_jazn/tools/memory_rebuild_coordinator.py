@@ -148,6 +148,30 @@ class MemoryRebuildCoordinator:
                 catalog.fail(operation, exc)
                 raise
 
+    def reclassify_journal(self, dry_run: bool = False, limit: int = 100) -> dict[str, Any]:
+        """Refresh derived journal truth labels while preserving raw source and revisions."""
+        self.init()
+        with CatalogStore(self.paths.import_catalog) as catalog:
+            operation = catalog.begin(
+                "reclassify_journal_dry_run" if dry_run else "reclassify_journal",
+                None,
+                DATABASE_FILENAMES["journal"],
+            )
+            try:
+                with JournalStore(self.paths.journal) as journal:
+                    result = journal.reclassify(dry_run=dry_run, sample_limit=limit)
+                    result["validation"] = journal.validate(full=False)
+                with ExperienceStore(self.paths.experience) as experience:
+                    candidate_count = experience.counts()["candidates"]
+                result["existing_candidate_count"] = candidate_count
+                result["candidate_rebuild_recommended"] = bool(candidate_count and result["changed"])
+                result["operation_id"] = operation
+                catalog.finish(operation, result)
+                return result
+            except BaseException as exc:
+                catalog.fail(operation, exc)
+                raise
+
     def build_experience_candidates(self, source: str, limit: int | None = None) -> dict[str, Any]:
         self.init()
         if source not in {"journal", "chats", "all"}:
@@ -187,6 +211,65 @@ class MemoryRebuildCoordinator:
             except BaseException as exc:
                 catalog.fail(operation, exc)
                 raise
+
+    def audit_classifiers(self, limit: int = 50) -> dict[str, Any]:
+        """Audit derived classifications without altering source or memory tiers."""
+        self.init()
+        with JournalStore(self.paths.journal) as journal:
+            journal_report = journal.classification_audit(limit)
+
+        with ChatExportArchiveStore(self.paths.archive_chats) as archive:
+            has_segments = archive.con.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='conversation_segments'"
+            ).fetchone() is not None
+            if has_segments:
+                segment_count = archive.con.execute("SELECT COUNT(*) FROM conversation_segments").fetchone()[0]
+                profile_count = archive.con.execute("SELECT COUNT(*) FROM conversation_topic_profiles").fetchone()[0]
+                domain_counts = {
+                    str(row[0]): int(row[1])
+                    for row in archive.con.execute(
+                        "SELECT primary_domain,COUNT(*) FROM conversation_segments GROUP BY primary_domain ORDER BY primary_domain"
+                    )
+                }
+                mode_counts = {
+                    str(row[0]): int(row[1])
+                    for row in archive.con.execute(
+                        "SELECT mode,COUNT(*) FROM conversation_segments GROUP BY mode ORDER BY mode"
+                    )
+                }
+                truth_counts = {
+                    str(row[0]): int(row[1])
+                    for row in archive.con.execute(
+                        "SELECT truth_status,COUNT(*) FROM conversation_segments GROUP BY truth_status ORDER BY truth_status"
+                    )
+                }
+                low_confidence = archive.con.execute(
+                    "SELECT COUNT(*) FROM conversation_segments WHERE confidence < 0.45"
+                ).fetchone()[0]
+            else:
+                segment_count = profile_count = low_confidence = 0
+                domain_counts = mode_counts = truth_counts = {}
+            chat_report = {
+                "topic_tables_present": has_segments,
+                "analysis_required": not has_segments or segment_count == 0,
+                "conversation_topic_profiles": profile_count,
+                "conversation_segments": segment_count,
+                "domain_counts": domain_counts,
+                "mode_counts": mode_counts,
+                "truth_status_counts": truth_counts,
+                "low_confidence_segments": low_confidence,
+            }
+
+        return {
+            "ok": True,
+            "journal": journal_report,
+            "chats": chat_report,
+            "truth_boundary": TRUTH_BOUNDARY,
+            "source_data_modified": False,
+            "automatic_experience": False,
+            "automatic_l2": False,
+            "automatic_l3": False,
+        }
 
     def verify(self, full: bool = True) -> dict[str, Any]:
         self.init()
