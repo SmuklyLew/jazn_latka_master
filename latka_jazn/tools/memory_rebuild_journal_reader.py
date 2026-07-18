@@ -18,7 +18,7 @@ CLASSIFICATION_SCHEMA_VERSION = schema_version("journal_classification")
 _LABEL_FIELDS = ("type", "entry_type", "kind", "category", "mode", "tags")
 
 _BOOK_LABEL_RE = re.compile(
-    r"(?:^|\s)(?:fabula|fragment fabuly|fragment ksiazki|scena|roleplay|manuskrypt|"
+    r"(?:^|\s)(?:fabula|fabuly|fragment fabuly|fragment ksiazki|scena|roleplay|manuskrypt|"
     r"rozdzial|analiza fabuly|historia wyobrazona|scena ksiazkowa)(?:$|\s)",
     re.IGNORECASE,
 )
@@ -32,8 +32,13 @@ _SOURCE_LABEL_RE = re.compile(
     r"konfiguracja|notatka systemowa|log systemowy|telemetria)(?:$|\s)",
     re.IGNORECASE,
 )
+_MEDIA_REACTION_LABEL_RE = re.compile(
+    r"(?:^|\s)(?:przezycie filmowe|reakcja|reakcja na|wrazenia z filmu|"
+    r"wrazenia muzyczne|odbior filmu|odbior muzyki)(?:$|\s)",
+    re.IGNORECASE,
+)
 _MEDIA_ANALYSIS_LABEL_RE = re.compile(
-    r"(?:^|\s)(?:analiza|analiza utworu|refleksja filmowa|przezycie filmowe|"
+    r"(?:^|\s)(?:analiza|analiza utworu|refleksja filmowa|"
     r"film|muzyka|utwor|obraz|wideo|video)(?:$|\s)",
     re.IGNORECASE,
 )
@@ -142,6 +147,8 @@ def classify_journal_raw(raw: dict[str, Any]) -> JournalClassification:
         profile = "draft"
     elif matches["source_recorded"]:
         profile = "system_meta"
+    elif _MEDIA_REACTION_LABEL_RE.search(labels):
+        profile = "media_reaction"
     elif _MEDIA_ANALYSIS_LABEL_RE.search(labels):
         profile = "media_analysis"
     elif _KNOWLEDGE_LABEL_RE.search(labels):
