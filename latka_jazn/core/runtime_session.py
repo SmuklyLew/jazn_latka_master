@@ -9,6 +9,7 @@ from latka_jazn.core.runtime_truth_gate import apply_runtime_truth_gate
 from latka_jazn.core.visible_integrity import enforce_integrity_consensus
 from latka_jazn.core.turn_execution import TurnExecutionContext
 from latka_jazn.core.turn_timeout import runtime_turn_timeout_seconds
+from latka_jazn.memory.memory_tier_status import inspect_memory_tier_store
 from latka_jazn.memory.runtime_memory_v151 import RuntimeMemoryWriteContext
 from latka_jazn.memory.runtime_memory_v151_install import install_runtime_memory_v151
 
@@ -160,6 +161,18 @@ class JaznRuntimeSession:
             if not commit_status.get("committed"):
                 result["ok"] = False
 
+            result["memory_v151"] = {
+                "install": self.memory_v151_install_status.to_dict(),
+                "store": inspect_memory_tier_store(
+                    self.memory_v151_install_status.database_path,
+                    full=False,
+                ).to_dict(),
+                "truth_boundary": (
+                    "Status L1/L2/L3 jest diagnostyką po zatwierdzeniu tury. "
+                    "Nie dowodzi poprawnego recall ani aktywnej tożsamości."
+                ),
+            }
+
             if result["ok"]:
                 self.state.update(
                     user_text=user_text,
@@ -185,6 +198,9 @@ class JaznRuntimeSession:
                     save_status=save_status,
                 )
                 session_provenance["final_visible_integrity_valid"] = bool(integrity.get("valid"))
+                session_provenance["memory_v151_ready"] = bool(
+                    ((result.get("memory_v151") or {}).get("store") or {}).get("ready")
+                )
                 result["session_provenance"] = session_provenance
 
             turn_context.finalize_total(status="completed" if result["ok"] else "rejected")
