@@ -5,15 +5,25 @@ import argparse
 import json
 import os
 from pathlib import Path
+import queue
 import subprocess
 import sys
+import threading
 import time
-from typing import Any
+from typing import Any, Callable
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from latka_jazn.tools.chat_export_importer import ChatExportImporter
 from latka_jazn.tools.chat_export_reader import sha256_file
 from latka_jazn.tools.chat_export_store import ChatExportArchiveStore
 from latka_jazn.tools.chat_export_topics import ChatExportTopicStore
+from latka_jazn.tools.sqlite_archive_snapshot import create_sqlite_snapshot
+
+
+ProgressCallback = Callable[[dict[str, Any]], None]
 
 
 def emit(payload: Any, *, json_mode: bool) -> None:
@@ -60,6 +70,23 @@ def build_parser() -> argparse.ArgumentParser:
     imp.add_argument("--worker-timeout", type=float, default=300.0)
     imp.add_argument("--continue-on-error", action="store_true")
     imp.add_argument("--no-final-full-check", action="store_true")
+    imp.add_argument(
+        "--snapshot-before",
+        type=database_path,
+        help="przed pierwszym zapisem utwórz zweryfikowany snapshot istniejącej bazy",
+    )
+    imp.add_argument(
+        "--snapshot-full-check",
+        action="store_true",
+        help="przed atomową publikacją snapshotu wykonaj pełny integrity_check",
+    )
+    imp.add_argument(
+        "--progress-every",
+        type=int,
+        default=5,
+        help="worker emituje postęp co N rozmów",
+    )
+    imp.add_argument("--no-progress", action="store_true", help="nie pokazuj etapów workera")
 
     verify = sub.add_parser("verify", help="sprawdź integralność bazy")
     verify.add_argument("--database", required=True, type=database_path)
@@ -131,36 +158,130 @@ def command_plan(args: argparse.Namespace) -> int:
     return 0 if all(item.get("ok") for item in reports) else 2
 
 
-def run_worker(source: Path, database: Path, *, dry_run: bool, timeout: float) -> dict[str, Any]:
+def format_progress(payload: dict[str, Any]) -> str:
+    stage = str(payload.get("stage") or "progress")
+    elapsed = payload.get("elapsed_seconds")
+    parts = [stage]
+    for key in ("conversations", "nodes", "messages"):
+        if payload.get(key) is not None:
+            parts.append(f"{key}={payload[key]}")
+    if payload.get("source_sha256"):
+        parts.append(f"sha256={str(payload['source_sha256'])[:12]}…")
+    if elapsed is not None:
+        parts.append(f"czas={elapsed}s")
+    return " | ".join(parts)
+
+
+def _drain_stream(stream: Any, name: str, events: "queue.Queue[tuple[str, str | None]]") -> None:
+    try:
+        for line in iter(stream.readline, ""):
+            events.put((name, line.rstrip("\r\n")))
+    finally:
+        events.put((name, None))
+
+
+def run_worker(
+    source: Path,
+    database: Path,
+    *,
+    dry_run: bool,
+    timeout: float,
+    progress_every: int = 5,
+    progress_callback: ProgressCallback | None = None,
+) -> dict[str, Any]:
     command = [
-        sys.executable, "-X", "utf8", "-m", "latka_jazn.tools.chat_export_worker",
-        "--source", str(source), "--database", str(database), "--quick-validation",
+        sys.executable,
+        "-X",
+        "utf8",
+        "-m",
+        "latka_jazn.tools.chat_export_worker",
+        "--source",
+        str(source),
+        "--database",
+        str(database),
+        "--quick-validation",
+        "--progress-jsonl",
+        "--progress-every",
+        str(max(1, int(progress_every))),
     ]
     if dry_run:
         command.append("--dry-run")
     env = dict(os.environ)
     env.setdefault("PYTHONUTF8", "1")
-    completed = subprocess.run(
+    process = subprocess.Popen(
         command,
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
         encoding="utf-8",
         errors="replace",
         env=env,
-        timeout=max(1.0, timeout),
-        check=False,
+        bufsize=1,
     )
-    lines = [line for line in completed.stdout.splitlines() if line.strip()]
-    if completed.returncode or not lines:
+    assert process.stdout is not None and process.stderr is not None
+    events: "queue.Queue[tuple[str, str | None]]" = queue.Queue()
+    threads = [
+        threading.Thread(target=_drain_stream, args=(process.stdout, "stdout", events), daemon=True),
+        threading.Thread(target=_drain_stream, args=(process.stderr, "stderr", events), daemon=True),
+    ]
+    for thread in threads:
+        thread.start()
+
+    deadline = time.monotonic() + max(1.0, float(timeout))
+    closed = set()
+    final_payload: dict[str, Any] | None = None
+    stderr_lines: list[str] = []
+    try:
+        while len(closed) < 2 or process.poll() is None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                process.kill()
+                process.wait(timeout=10)
+                raise subprocess.TimeoutExpired(command, timeout)
+            try:
+                stream_name, line = events.get(timeout=min(0.2, remaining))
+            except queue.Empty:
+                continue
+            if line is None:
+                closed.add(stream_name)
+                continue
+            if stream_name == "stderr":
+                stderr_lines.append(line)
+                continue
+            if not line.strip():
+                continue
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                stderr_lines.append(f"worker stdout (non-json): {line}")
+                continue
+            if payload.get("event") == "progress":
+                if progress_callback is not None:
+                    progress_callback(payload)
+            else:
+                final_payload = payload
+        return_code = process.wait(timeout=max(1.0, deadline - time.monotonic()))
+    finally:
+        for stream in (process.stdout, process.stderr):
+            try:
+                stream.close()
+            except Exception:
+                pass
+        for thread in threads:
+            thread.join(timeout=1.0)
+
+    if return_code or final_payload is None:
         return {
             "ok": False,
             "status": "worker_failed",
             "source": str(source),
             "source_sha256": sha256_file(source) if source.is_file() else None,
-            "worker_exit_code": completed.returncode,
-            "stderr": completed.stderr.strip(),
+            "worker_exit_code": return_code,
+            "stderr": "\n".join(stderr_lines).strip(),
         }
-    return json.loads(lines[-1])
+    if stderr_lines:
+        final_payload.setdefault("worker_warnings", stderr_lines)
+    return final_payload
 
 
 def command_import(args: argparse.Namespace) -> int:
@@ -170,6 +291,42 @@ def command_import(args: argparse.Namespace) -> int:
         reverse=True,
     )
     args.database.parent.mkdir(parents=True, exist_ok=True)
+    snapshot: dict[str, Any] | None = None
+    if args.snapshot_before is not None:
+        if args.dry_run:
+            raise ValueError("--snapshot-before cannot be combined with --dry-run")
+        if not args.database.is_file():
+            raise FileNotFoundError("--snapshot-before requires an existing database")
+        if args.snapshot_before.resolve() == args.database.resolve():
+            raise ValueError("snapshot path must differ from database path")
+        if not args.json:
+            print(f"Tworzę snapshot: {args.snapshot_before}", file=sys.stderr, flush=True)
+        report = create_sqlite_snapshot(
+            args.database,
+            args.snapshot_before,
+            full_integrity_check=args.snapshot_full_check,
+            progress=(
+                None
+                if args.no_progress
+                else lambda done, total: print(
+                    f"    snapshot {done}/{total} stron",
+                    file=sys.stderr,
+                    flush=True,
+                )
+            ),
+        )
+        snapshot = report.to_dict()
+        if not report.ok:
+            raise RuntimeError("snapshot validation failed")
+
+    def show_progress(payload: dict[str, Any]) -> None:
+        if args.no_progress:
+            return
+        if args.json:
+            print(json.dumps(payload, ensure_ascii=False, sort_keys=True), file=sys.stderr, flush=True)
+        else:
+            print(f"    {format_progress(payload)}", file=sys.stderr, flush=True)
+
     results = []
     started = time.monotonic()
     for index, source in enumerate(sources, 1):
@@ -177,9 +334,21 @@ def command_import(args: argparse.Namespace) -> int:
             print(f"[{index}/{len(sources)}] Importuję {source.name}…", file=sys.stderr, flush=True)
         source_started = time.monotonic()
         try:
-            result = run_worker(source, args.database, dry_run=args.dry_run, timeout=args.worker_timeout)
+            result = run_worker(
+                source,
+                args.database,
+                dry_run=args.dry_run,
+                timeout=args.worker_timeout,
+                progress_every=args.progress_every,
+                progress_callback=show_progress,
+            )
         except subprocess.TimeoutExpired:
-            result = {"ok": False, "status": "worker_timeout", "source": str(source), "timeout_seconds": args.worker_timeout}
+            result = {
+                "ok": False,
+                "status": "worker_timeout",
+                "source": str(source),
+                "timeout_seconds": args.worker_timeout,
+            }
         result["wall_seconds"] = round(time.monotonic() - source_started, 6)
         results.append(result)
         if not args.json:
@@ -201,6 +370,7 @@ def command_import(args: argparse.Namespace) -> int:
         "ok": ok,
         "database": str(args.database),
         "dry_run": args.dry_run,
+        "snapshot_before": snapshot,
         "elapsed_seconds": round(time.monotonic() - started, 6),
         "results": results,
         "final_validation": validation,
@@ -298,13 +468,13 @@ def command_review(args: argparse.Namespace) -> int:
                 candidate_type=args.candidate_type,
             )
         status = None if str(args.status).lower() == "all" else args.status
-        queue = topics.review_queue(status=status, limit=args.limit)
+        review_queue = topics.review_queue(status=status, limit=args.limit)
         validation = topics.archive.validate(full=False)
     payload = {
         "ok": bool(validation.get("ok")),
         "database": str(args.database),
         "inserted": inserted,
-        "queue": queue,
+        "queue": review_queue,
         "validation": validation,
         "truth_boundary": (
             "Kolejka zawiera wyłącznie kandydatów do ręcznego przeglądu. "
@@ -333,10 +503,16 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return handlers[args.command](args)
     except KeyboardInterrupt:
-        print("Przerwano. Zakończony eksport pozostaje zatwierdzony; bieżąca transakcja jest cofana.", file=sys.stderr)
+        print(
+            "Przerwano. Zakończony eksport pozostaje zatwierdzony; bieżąca transakcja jest cofana.",
+            file=sys.stderr,
+        )
         return 130
     except Exception as exc:
-        emit({"ok": False, "error_type": type(exc).__name__, "error": str(exc)}, json_mode=getattr(args, "json", False))
+        emit(
+            {"ok": False, "error_type": type(exc).__name__, "error": str(exc)},
+            json_mode=getattr(args, "json", False),
+        )
         return 1
 
 
