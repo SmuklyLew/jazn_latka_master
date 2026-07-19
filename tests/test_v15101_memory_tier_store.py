@@ -166,6 +166,7 @@ def test_outbox_is_idempotent_claimable_and_completable(tmp_path) -> None:
                     aggregate_id="memory-1",
                     payload={"memory_id": "memory-1"},
                     idempotency_key="refresh:memory-1",
+                    available_at_utc=BASE,
                 )
         assert store.stats()["memory_outbox"] == 1
         claimed = store.claim_outbox(limit=10, now=BASE + timedelta(days=1))

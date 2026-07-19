@@ -3,11 +3,11 @@
   "version": "v15.1.0.1",
   "runtime_version": "v15.1.0.1",
   "package_version": "v15.1.0.1",
-  "generated_at_utc": "2026-07-19T00:02:31.127568+00:00",
-  "updated_at_utc": "2026-07-19T00:02:31.127568+00:00",
+  "generated_at_utc": "2026-07-19T01:17:44.775907+00:00",
+  "updated_at_utc": "2026-07-19T01:17:44.775907+00:00",
   "start_file": "run.py",
-  "file_count": 520,
-  "static_file_count": 520,
+  "file_count": 529,
+  "static_file_count": 529,
   "mutable_runtime_file_count": 0,
   "runtime_mutable_file_count": 0,
   "excluded_file_count": 1,
@@ -230,6 +230,24 @@
       "path": "docs/tools/MEMORY_REBUILD_DIALOGUE_CONTEXT.md",
       "size_bytes": 4281,
       "sha256": "9e0aa308174190627cd67593cfe3e6f4533e89b1e474db523561fcf13af8ec7f",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
+      "path": "docs/tools/MEMORY_RESTORE.md",
+      "size_bytes": 7205,
+      "sha256": "a897aa243dc0f91ccb55e8125a92d612e51042124023d18e127b4ce828a37a21",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
+      "path": "docs/tools/MEMORY_RESTORE_VALIDATION.md",
+      "size_bytes": 767,
+      "sha256": "6dc9e08f9c270b5268440963f91f262a89b0e3d890acd16bd2347e689f34337e",
       "mutable_runtime": false,
       "classification": "static_project_file",
       "archive": false,
@@ -4070,6 +4088,51 @@
       "hash_policy": "sha256_file_bytes"
     },
     {
+      "path": "latka_jazn/tools/memory_restore.py",
+      "size_bytes": 965,
+      "sha256": "2ef8def7f32b41f04c920a818d3ec2be16a71d25eee5ad4ce332f5075266f35b",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
+      "path": "latka_jazn/tools/memory_restore_runner.py",
+      "size_bytes": 17777,
+      "sha256": "f1a2a0bd8065617a4b6f98f1e80f3e19119bde495c40611f3830092a9831a470",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
+      "path": "latka_jazn/tools/memory_restore_storage.py",
+      "size_bytes": 8294,
+      "sha256": "1386fad15013f0c1829f50f6788cd3b956393f68a5d21c57da017cfbd528d110",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
+      "path": "latka_jazn/tools/memory_restore_types.py",
+      "size_bytes": 10862,
+      "sha256": "0e6bff96c7b3fff87d9dddba541898b731ef2f0df54986a47ce7e1938d3c9ecf",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
+      "path": "latka_jazn/tools/memory_restore_ui.py",
+      "size_bytes": 14585,
+      "sha256": "9b52e8c0880a83f751db79421b043d0304e21ddbb74c623cc583fe8e23f5610b",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
       "path": "latka_jazn/tools/migration_report.py",
       "size_bytes": 240,
       "sha256": "0fc58960073813724eb9d6c6e150a908a48df3cab50977fbf57e1e9ad0bd6bdf",
@@ -4358,6 +4421,15 @@
       "hash_policy": "sha256_file_bytes"
     },
     {
+      "path": "tests/test_memory_restore_tool.py",
+      "size_bytes": 10920,
+      "sha256": "bc0f3fa26eaabb4111c9ff7ea81b54907d9d1d1cb202fb866e933a583a4c9494",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
       "path": "tests/test_package_generator_release_version.py",
       "size_bytes": 1995,
       "sha256": "581a98dea339d2c3c15d8d09b81fb5064f01721d2590d9725353258fa26a57d7",
@@ -4593,8 +4665,8 @@
     },
     {
       "path": "tests/test_v15101_memory_tier_store.py",
-      "size_bytes": 8757,
-      "sha256": "f69a1ace55596f7389b0d788b86c925341b18e6e579a8a42a62dcc9fcee67a6d",
+      "size_bytes": 8800,
+      "sha256": "fb8143f3be7305012a3903c5b07da55656ae6e88a5c0b2e498feda9cfe74683d",
       "mutable_runtime": false,
       "classification": "static_project_file",
       "archive": false,
@@ -4721,6 +4793,15 @@
       "path": "tools/package_smoke_ci.py",
       "size_bytes": 3801,
       "sha256": "0f5ad03293a4756f4b40db268a614dbb0bff196b1b2092224a87eef2791409e8",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
+      "path": "tools/restore_memory.py",
+      "size_bytes": 4334,
+      "sha256": "8214197d552747b15a4cfe2a7baadc5a6744c340a61c6708548f21d9ed376396",
       "mutable_runtime": false,
       "classification": "static_project_file",
       "archive": false,
