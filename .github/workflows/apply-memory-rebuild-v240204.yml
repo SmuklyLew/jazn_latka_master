@@ -87,6 +87,22 @@ jobs:
           print({'extracted_files': len(expected)})
           PY
           rm -f tools/restore_memory.py
+          python -X utf8 - <<'PY'
+          from pathlib import Path
+
+          path = Path('latka_jazn/tools/memory_rebuild_coordinator.py')
+          text = path.read_text(encoding='utf-8')
+          old = """                    if not continue_on_error:
+                        break
+"""
+          new = """                    if not continue_on_error:
+                        raise
+"""
+          if text.count(old) != 1:
+              raise SystemExit('expected exactly one fail-fast coordinator snippet')
+          path.write_text(text.replace(old, new), encoding='utf-8')
+          print({'coordinator_fail_fast_contract': 'restored'})
+          PY
 
       - name: Install dependencies
         run: |
