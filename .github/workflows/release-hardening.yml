@@ -2,6 +2,8 @@ name: release-hardening
 
 on:
   push:
+    branches:
+      - master
   pull_request:
 
 permissions:
@@ -73,7 +75,7 @@ jobs:
           target_branch="${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}"
           if cmp -s "$RUNNER_TEMP/manifest-current.normalized.json" "$RUNNER_TEMP/manifest-candidate.normalized.json"; then
             echo "Canonical manifest semantics are already synchronized."
-          elif [ "$target_branch" = "update/v15.1.0.1" ] || [ "$target_branch" = "tools/upgrade-import-eksport-chat-html-and-journal-experience" ] || [[ "$target_branch" == hotfix/* ]]; then
+          elif [ "$target_branch" = "update/v15.1.0.1" ] || [ "$target_branch" = "tools/upgrade-import-eksport-chat-html-and-journal-experience" ] || [[ "$target_branch" == hotfix/* ]] || [[ "$target_branch" == upgrade/* ]]; then
             cp "$RUNNER_TEMP/PACKAGE_INTEGRITY_MANIFEST.json" PACKAGE_INTEGRITY_MANIFEST.json
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -81,7 +83,7 @@ jobs:
             git commit -m "release: rebuild PACKAGE_INTEGRITY_MANIFEST for v15.1.0.1 [skip ci]"
             git push origin "HEAD:${target_branch}"
           else
-            echo "Manifest drift detected outside an explicitly allowed release, importer, or hotfix branch: ${target_branch}." >&2
+            echo "Manifest drift detected outside an explicitly allowed release, importer, hotfix, or upgrade branch: ${target_branch}." >&2
             exit 2
           fi
 

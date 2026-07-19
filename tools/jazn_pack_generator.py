@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 r"""
-_jazn_pack_generator.py
+jazn_pack_generator.py
 
 Interaktywna wersja skryptu pakującego Jaźń / Łatkę.
 
@@ -129,11 +129,11 @@ VERIFY_AFTER_PACK = True
 VERIFY_CRC_AFTER_PACK = True
 
 # Plik z ustawieniami jest zapisywany obok tego skryptu.
-SETTINGS_FILE_NAME = "__jazn_pack_generator_settings.json"
+SETTINGS_FILE_NAME = "jazn_pack_generator_settings.json"
 LEGACY_SETTINGS_FILE_NAME = ""
-PROCESS_LOCK_FILE_NAME = "__jazn_pack_generator.lock.json"
+PROCESS_LOCK_FILE_NAME = "jazn_pack_generator.lock.json"
 PACKAGE_INTEGRITY_MANIFEST_NAME = "PACKAGE_INTEGRITY_MANIFEST.json"
-LEGACY_PROCESS_LOCK_FILE_NAMES = ("_jazn_pack_generate.lock.json",)
+LEGACY_PROCESS_LOCK_FILE_NAMES = ("jazn_pack_generate.lock.json",)
 
 # Bazowe bezpieczne wykluczenia. Profil "pełny" celowo NIE usuwa pamięci.
 BASE_SAFE_EXCLUDE_PATTERNS: list[str] = [
@@ -143,8 +143,8 @@ BASE_SAFE_EXCLUDE_PATTERNS: list[str] = [
     ".codex/",
     ".venv/",
     ".archives/",
-    "__jazn_pack_generator.lock.json",
-    "__jazn_pack_generator_settings.json",
+    "jazn_pack_generator.lock.json",
+    "jazn_pack_generator_settings.json",
     "*.before.py",
 
     # Python / test / cache
@@ -998,8 +998,8 @@ def save_settings(state: WizardState, *, quiet: bool = True) -> Path:
 def snapshot_settings_file() -> dict[str, tuple[bool, str]]:
     """Zapamiętuje stan plików ustawień z początku sesji.
 
-    Obejmuje nową nazwę `__jazn_pack_generator_settings.json` oraz starą
-    `_jazn_pack_legacy_disabled.json`, żeby wyjście bez zapisywania nie
+    Obejmuje nową nazwę `jazn_pack_generator_settings.json` oraz starą
+    `jazn_pack_legacy_disabled.json`, żeby wyjście bez zapisywania nie
     zostawiało przypadkowej migracji po sesji testowej.
     """
     snapshot: dict[str, tuple[bool, str]] = {}
@@ -1049,8 +1049,8 @@ def _read_lock_file(path: Path) -> dict[str, object] | None:
 def cleanup_legacy_process_locks(*, prompt_user: bool = True) -> None:
     """Usuwa lub obsługuje locki po starych nazwach skryptu.
 
-    v4.16 działa jako `_jazn_pack_generator.py` i używa
-    `__jazn_pack_generator.lock.json`. Pliki `_jazn_pack_generate.lock.json`
+    v4.16 działa jako `jazn_pack_generator.py` i używa
+    `jazn_pack_generator.lock.json`. Pliki `jazn_pack_generate.lock.json`
     zostają tylko po przerwanych starszych wersjach. Jeżeli zapisany PID już nie
     żyje, lock jest usuwany. Jeżeli żyje i wygląda na starszy generator, pytamy
     o zamknięcie procesu, tak jak przy aktualnym locku.
@@ -3955,7 +3955,7 @@ def settings_origin_label(state: WizardState) -> str:
 def settings_have_pack_list_changes(state: WizardState) -> bool:
     """Czy plik ustawień wnosi realne, użytkowe zmiany dla listy pakowania.
 
-    Sam fakt istnienia `__jazn_pack_generator_settings.json` nie powinien oznaczać w menu
+    Sam fakt istnienia `jazn_pack_generator_settings.json` nie powinien oznaczać w menu
     "użytkownika", jeśli plik zawiera tylko wartości domyślne i puste ścieżki.
     """
     if not state.settings_loaded_from:
@@ -5642,7 +5642,7 @@ def exit_menu(ui_mode: str = "plain") -> str:
         choice = ask_cursor_choice(
             title="Wyjście",
             options=[
-                ("1", "Wyjdź i zapisz nowe ustawienia", "Zapisuje __jazn_pack_generator_settings.json."),
+                ("1", "Wyjdź i zapisz nowe ustawienia", "Zapisuje jazn_pack_generator_settings.json."),
                 ("2", "Wyjdź bez zapisywania", "Przywraca ustawienia z początku sesji."),
                 ("3", "Powrót do menu", "Nie zamyka aplikacji."),
             ],
@@ -5773,7 +5773,7 @@ def show_startup_warnings(state: WizardState) -> None:
     for warning in state.startup_warnings:
         print("UWAGA: " + warning.replace("\n", "\n       "))
     if state.settings_needs_cleanup:
-        print("Niepoprawne zapisane źródło zostało wyczyszczone z __jazn_pack_generator_settings.json.")
+        print("Niepoprawne zapisane źródło zostało wyczyszczone z jazn_pack_generator_settings.json.")
 
 
 def ensure_ready_for_pack_plan(state: WizardState, *, ui_mode: str = "plain") -> bool:
@@ -12909,7 +12909,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     help_text = """Jaźń / Łatka — generator paczki ZIP
 
 Najprostsze uruchomienie aplikacji:
-  py _jazn_pack_generator.py
+  py jazn_pack_generator.py
 
 Po pierwszym wyborze TXT/Kursorowy aplikacja zapisuje tryb i włącza auto-start:
 przy następnym uruchomieniu użyje zapisanego trybu bez pytania. Auto-start można
@@ -12918,25 +12918,25 @@ dodatkowych bibliotek. Tryb kursorowy wymaga prompt_toolkit i daje menu ze strza
 oraz pola ścieżek z Tab/autouzupełnianiem.
 
 Tryb prostego pakowania, zgodny z dawnym generate_Jazn_pack.py:
-  py _jazn_pack_generator.py D:\\.AI\\jazn_latka_local --out D:\\Desktop\\pakiet --force
+  py jazn_pack_generator.py D:\\.AI\\jazn_latka_local --out D:\\Desktop\\pakiet --force
 
 Test nowej paczki ZIP lub obsługa dawnych części .zip.001, .zip.002 itd.:
-  py _jazn_pack_generator.py --parts-dir D:\\Desktop\\pakiet --zip-name jazn_latka_v14.8.6.6.2-runtime_events-in-jsonl-refreshed-ver.zip --test-package
-  py _jazn_pack_generator.py --parts-dir D:\\Desktop\\pakiet --zip-name jazn_latka_v14.8.6.6.2-runtime_events-in-jsonl-refreshed-ver.zip --join-package
+  py jazn_pack_generator.py --parts-dir D:\\Desktop\\pakiet --zip-name jazn_latka_v14.8.6.6.2-runtime_events-in-jsonl-refreshed-ver.zip --test-package
+  py jazn_pack_generator.py --parts-dir D:\\Desktop\\pakiet --zip-name jazn_latka_v14.8.6.6.2-runtime_events-in-jsonl-refreshed-ver.zip --join-package
 
 Domyślne propozycje ścieżek w aplikacji:
   folder do pakowania: folder generatora, np. D:\\.AI\\
   folder zapisu:       folder generatora\\pakiet\\, np. D:\\.AI\\pakiet\\
 
 Pliki robocze tworzone obok aplikacji:
-  __jazn_pack_generator_settings.json   zapamiętane ustawienia użytkownika
-  __jazn_pack_generator.lock.json       tymczasowa blokada jednej instancji
+  jazn_pack_generator_settings.json   zapamiętane ustawienia użytkownika
+  jazn_pack_generator.lock.json       tymczasowa blokada jednej instancji
 """
     parser = argparse.ArgumentParser(
-        prog="py _jazn_pack_generator.py",
+        prog="py jazn_pack_generator.py",
         description=help_text,
         formatter_class=argparse.RawTextHelpFormatter,
-        usage="py _jazn_pack_generator.py [SOURCE] [options]",
+        usage="py jazn_pack_generator.py [SOURCE] [options]",
     )
     parser.add_argument(
         "source",
@@ -13034,7 +13034,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.version:
-            print(f"_jazn_pack_generator.py v{VERSION}")
+            print(f"jazn_pack_generator.py v{VERSION}")
             return 0
 
         if args.reset_settings:

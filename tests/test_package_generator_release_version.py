@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-GENERATOR_PATH = ROOT / "tools" / "_jazn_pack_generator.py"
+GENERATOR_PATH = ROOT / "tools" / "jazn_pack_generator.py"
 
 # Deliberately synthetic values: regression tests must never copy the active
 # runtime version or release name from latka_jazn/version.py. The repository's
@@ -19,6 +19,8 @@ FIXTURE_VERSION_FULL = f"{FIXTURE_PACKAGE_VERSION}-{FIXTURE_RELEASE_NAME}"
 
 
 def _load_generator():
+    if not GENERATOR_PATH.is_file():
+        raise FileNotFoundError(f"canonical package generator is missing: {GENERATOR_PATH}")
     module_name = "jazn_pack_generator_release_version_test"
     spec = importlib.util.spec_from_file_location(module_name, GENERATOR_PATH)
     assert spec is not None and spec.loader is not None
