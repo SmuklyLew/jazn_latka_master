@@ -49,6 +49,8 @@ def _fold(text: str) -> str:
 
 
 _TERM_PATTERNS: dict[str, re.Pattern[str]] = {
+    # Short terms require token-aware matching. Generic prefix matching would make
+    # ``lek`` match ``lekkość`` and ``sen`` match ``sensoryczna``.
     "lek": re.compile(r"\blek(?:i|u|iem|owi|ów|ow|om|ami|ach)?\b", re.IGNORECASE),
     "sen": re.compile(r"\bsen(?:u|em|owi|ow|om|ami|ach|y)?\b"),
     "ai": re.compile(r"\bai\b"),
@@ -209,12 +211,17 @@ class ConversationDomainClassifier:
         role: str = "user",
         title: str | None = None,
         metadata: dict[str, Any] | None = None,
+        context: str | None = None,
     ) -> ConversationDomainReport:
         text_original = (text or "").lower()
         title_original = (title or "").lower()
+        context_original = (context or "").lower()
         text_folded = _fold(text_original)
         title_folded = _fold(title_original)
-        combined = " ".join(part for part in (title_folded, text_folded) if part)
+        context_folded = _fold(context_original)
+        combined = " ".join(
+            part for part in (title_folded, context_folded, text_folded) if part
+        )
         metadata = metadata or {}
         scores = {key: 0.0 for key in DOMAIN_KEYS}
         evidence: list[str] = []
@@ -231,6 +238,14 @@ class ConversationDomainClassifier:
             text_folded, text_original, self.DOMAIN_TERMS, scores, evidence,
             prefix="text", base=0.18, per_hit=0.16, cap=1.0,
         )
+        if context_folded:
+            self._apply_terms(
+                context_folded, context_original, self.DOMAIN_TERMS, scores, evidence,
+                prefix="context", base=0.18, per_hit=0.16, cap=0.75,
+            )
+            evidence.append("context:previous_user_turn")
+        # The title is a prior, not the classified payload. Its contribution is
+        # deliberately capped so a long-lived thread may change topics safely.
         if title_folded:
             self._apply_terms(
                 title_folded, title_original, self.DOMAIN_TERMS, scores, evidence,
@@ -260,6 +275,11 @@ class ConversationDomainClassifier:
             text_folded, text_original, self.MODE_TERMS, mode_scores, evidence,
             prefix="mode_text", base=0.20, per_hit=0.18, cap=1.0,
         )
+        if context_folded:
+            self._apply_terms(
+                context_folded, context_original, self.MODE_TERMS, mode_scores, evidence,
+                prefix="mode_context", base=0.20, per_hit=0.18, cap=0.75,
+            )
         if title_folded:
             self._apply_terms(
                 title_folded, title_original, self.MODE_TERMS, mode_scores, evidence,

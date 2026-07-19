@@ -167,13 +167,17 @@ class ConversationTopicSegmenter:
             current = []
             current_chars = 0
 
+        previous_user_text: str | None = None
         for node in message_nodes:
             report = self.classifier.classify(
                 node.text,
                 role=node.role or "unknown",
                 title=graph.title,
                 metadata={"content_type": node.content_type},
+                context=previous_user_text if node.role == "assistant" else None,
             )
+            if node.role == "user":
+                previous_user_text = node.text
             if current:
                 prior = current[0][1]
                 changed = report.primary_domain != prior.primary_domain or report.mode != prior.mode
