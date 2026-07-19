@@ -36,6 +36,8 @@ class ExportSourceInfo:
     html_member: str | None
     crc_checked: bool
     crc_ok: bool
+    conversation_members: tuple[str, ...] = ()
+    shared_conversations_members: tuple[str, ...] = ()
     format_version: str = "chatgpt-export/unknown"
     schema_version: str = SCHEMA_VERSION
 
@@ -43,8 +45,24 @@ class ExportSourceInfo:
     def resolved_path(self) -> Path:
         return Path(self.path).expanduser().resolve()
 
+    @property
+    def has_canonical_conversations(self) -> bool:
+        return bool(self.conversation_members or self.conversations_member)
+
+    @property
+    def has_shared_link_metadata(self) -> bool:
+        return bool(self.shared_conversations_members)
+
+    @property
+    def shared_metadata_only(self) -> bool:
+        return self.has_shared_link_metadata and not self.has_canonical_conversations
+
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        data = asdict(self)
+        data["has_canonical_conversations"] = self.has_canonical_conversations
+        data["has_shared_link_metadata"] = self.has_shared_link_metadata
+        data["shared_metadata_only"] = self.shared_metadata_only
+        return data
 
 
 @dataclass(slots=True, frozen=True)
@@ -162,6 +180,10 @@ class ExportInspectionReport:
     branch_point_count: int = 0
     alternate_branch_node_count: int = 0
     asset_reference_count: int = 0
+    canonical_conversation_member_count: int = 0
+    shared_conversation_member_count: int = 0
+    skipped_metadata_record_count: int = 0
+    duplicate_conversation_record_count: int = 0
     first_message_time: float | None = None
     last_message_time: float | None = None
     errors: list[str] = field(default_factory=list)
