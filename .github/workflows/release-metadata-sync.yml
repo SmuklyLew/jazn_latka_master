@@ -1,0 +1,76 @@
+name: release-metadata-sync
+
+on:
+  push:
+    branches:
+      - master
+      - "hotfix/**"
+      - "upgrade/**"
+      - update/v15.1.0.1
+      - tools/upgrade-import-eksport-chat-html-and-journal-experience
+  pull_request:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-metadata-sync-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  synchronize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PYTHONUTF8: "1"
+      PYTHONUNBUFFERED: "1"
+      JAZN_RELEASE_BASE_BRANCH: master
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.head_ref || github.ref_name }}
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.14"
+
+      - name: Build deterministic provenance and canonical Git-blob manifest
+        run: >-
+          python -X utf8 -m latka_jazn.tools.release_metadata_sync
+          --root . --base-branch master --write --json
+
+      - name: Commit synchronized release metadata on allowed branches
+        shell: bash
+        run: |
+          if git diff --quiet -- SOURCE_PROVENANCE.json PACKAGE_INTEGRITY_MANIFEST.json; then
+            echo "Release metadata is already synchronized."
+            exit 0
+          fi
+
+          target_branch="${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}"
+          if [ "$target_branch" = "master" ]; then
+            echo "Release metadata drift detected on master; repair it on an allowed hotfix/upgrade branch." >&2
+            git diff --stat -- SOURCE_PROVENANCE.json PACKAGE_INTEGRITY_MANIFEST.json >&2
+            exit 2
+          fi
+
+          if [ "$target_branch" = "update/v15.1.0.1" ] || \
+             [ "$target_branch" = "tools/upgrade-import-eksport-chat-html-and-journal-experience" ] || \
+             [[ "$target_branch" == hotfix/* ]] || \
+             [[ "$target_branch" == upgrade/* ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add SOURCE_PROVENANCE.json PACKAGE_INTEGRITY_MANIFEST.json
+            git commit -m "release: synchronize canonical metadata for v15.1.0.1"
+            git push origin "HEAD:${target_branch}"
+            exit 0
+          fi
+
+          echo "Release metadata drift detected outside an allowed synchronization branch: ${target_branch}." >&2
+          exit 2
+
+      - name: Verify synchronization is idempotent
+        run: >-
+          python -X utf8 -m latka_jazn.tools.release_metadata_sync
+          --root . --base-branch master --check --json
