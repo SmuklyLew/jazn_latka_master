@@ -4,44 +4,59 @@ from pathlib import Path
 from typing import Any
 
 from latka_jazn.core.package_integrity_manifest import sha256_file
-from latka_jazn.tools.package_integrity import write_package_integrity_manifest
-from latka_jazn.tools.source_provenance import generate_source_provenance
+from latka_jazn.tools.release_metadata_sync import write_release_metadata
 from latka_jazn.version import schema_version
 
 
 def generate_release_metadata(root: Path | str, *, allow_dirty: bool = False) -> dict[str, Any]:
+    """Generate deterministic, Git-object-backed release metadata.
+
+    ``allow_dirty`` is retained for CLI compatibility, but release metadata is
+    intentionally never generated from a dirty checkout. A dirty worktree has
+    no immutable Git object graph from which a trustworthy package manifest can
+    be derived.
+    """
+
     root = Path(root).resolve()
-    provenance = generate_source_provenance(root, allow_dirty=allow_dirty)
-    if not provenance.get("ok"):
+    if allow_dirty:
         return {
             "schema_version": schema_version("release_metadata_generation"),
             "ok": False,
             "exit_code": 2,
-            "provenance": provenance,
+            "provenance": {
+                "ok": False,
+                "error": "deterministic release metadata rejects allow_dirty=True",
+            },
             "manifest": None,
             "order": ["SOURCE_PROVENANCE.json", "PACKAGE_INTEGRITY_MANIFEST.json"],
         }
     try:
-        manifest = write_package_integrity_manifest(root)
+        report = write_release_metadata(root)
     except Exception as exc:
         return {
             "schema_version": schema_version("release_metadata_generation"),
             "ok": False,
             "exit_code": 2,
-            "provenance": provenance,
-            "manifest": {"error": repr(exc)},
+            "provenance": {"ok": False, "error": repr(exc)},
+            "manifest": None,
             "order": ["SOURCE_PROVENANCE.json", "PACKAGE_INTEGRITY_MANIFEST.json"],
         }
     return {
         "schema_version": schema_version("release_metadata_generation"),
         "ok": True,
         "exit_code": 0,
-        "allow_dirty": allow_dirty,
-        "provenance": provenance,
+        "allow_dirty": False,
+        "source_commit": report.get("source_commit"),
+        "source_tree": report.get("source_tree"),
+        "provenance": {
+            "ok": True,
+            "path": str(root / "SOURCE_PROVENANCE.json"),
+            "document": report.get("provenance"),
+        },
         "manifest": {
             "path": str(root / "PACKAGE_INTEGRITY_MANIFEST.json"),
             "sha256": sha256_file(root / "PACKAGE_INTEGRITY_MANIFEST.json"),
-            "file_count": manifest.get("file_count"),
+            "file_count": (report.get("manifest") or {}).get("file_count"),
         },
         "order": ["SOURCE_PROVENANCE.json", "PACKAGE_INTEGRITY_MANIFEST.json"],
     }
