@@ -5,6 +5,7 @@ on:
     branches:
       - upgrade/memory_rebuild_v24.0.2.04
       - upgrade/memory_rebuild_v24.0.2.04_verified
+      - upgrade/memory_rebuild_v24.0.2.04_apply
   pull_request:
     branches:
       - master
