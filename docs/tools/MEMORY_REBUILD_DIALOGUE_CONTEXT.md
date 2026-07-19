@@ -26,8 +26,9 @@ poprzedzającej tury użytkownika. Ten kontekst:
 - jest widoczny w `evidence` jako `context:previous_user_turn`;
 - służy jedynie do zachowania funkcji bieżącej pary user–assistant.
 
-Kontekst nie jest przenoszony przez wiele tur. Dzięki temu stary temat rozmowy
-nie dominuje nad późniejszą zmianą kierunku.
+Kontekst nie jest przenoszony przez wiele tur. Każda nowa wiadomość użytkownika
+zastępuje wcześniejszy kontekst dla kolejnej odpowiedzi asystenta. Dzięki temu
+stary temat rozmowy nie dominuje nad późniejszą zmianą kierunku.
 
 Tytuł rozmowy pozostaje jeszcze słabszym priorem niż poprzednia tura. Głównym
 źródłem klasyfikacji nadal jest bieżąca wypowiedź.
