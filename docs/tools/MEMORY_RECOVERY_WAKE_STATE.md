@@ -63,6 +63,8 @@ Zmiana zawartości manifestu unieważnia zatwierdzenie.
 
 Ollama udostępnia lokalne API pod `http://localhost:11434`. Runtime automatyczny sprawdza `/api/ps` i `/api/tags`; przy pojedynczym uruchomionym modelu wybiera go jako backend lokalny.
 
+Dobierz model do dostępnej pamięci RAM/VRAM i przed startem Jaźni potwierdź jego nazwę poleceniem `ollama list`; nazwa w zmiennej środowiskowej musi odpowiadać dokładnie zainstalowanemu modelowi.
+
 ```powershell
 ollama list
 ollama pull qwen3:8b
