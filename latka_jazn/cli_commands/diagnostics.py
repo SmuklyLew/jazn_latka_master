@@ -86,6 +86,28 @@ def _read_manifest(root: Path) -> tuple[dict[str, Any], str | None]:
     return value, None
 
 
+def _live_evidence(
+    *,
+    marker: dict[str, Any],
+    daemon: dict[str, Any],
+    timestamp: dict[str, Any],
+    memory_v151: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "marker_found": bool(marker.get("existing_marker_found") or daemon.get("marker_found")),
+        "marker_valid": bool(marker.get("active_marker_valid") or daemon.get("marker_valid")),
+        "daemon_active_state": daemon.get("active_state") or daemon.get("runtime_active_state") or "inactive",
+        "daemon_pid_alive": bool(daemon.get("pid_alive")),
+        "endpoint_probe_performed": bool(daemon.get("endpoint_probe_performed")),
+        "endpoint_reachable": bool(daemon.get("endpoint_reachable")),
+        "heartbeat_fresh": bool(daemon.get("heartbeat_fresh")),
+        "timestamp_status_available": bool(timestamp),
+        "timestamp_trusted": timestamp.get("trusted"),
+        "time_trust_state": timestamp.get("time_trust_state") or daemon.get("time_trust_state") or "unknown",
+        "memory_v151_ready": bool(memory_v151.get("ready")),
+    }
+
+
 def doctor_payload(
     root: Path,
     *,
@@ -187,19 +209,9 @@ def doctor_payload(
     )
     _report_progress(progress, 6, progress_total, "Gotowość aktywacji i wydania obliczona")
 
-    live_evidence = {
-        "marker_found": bool(marker.get("existing_marker_found") or daemon.get("marker_found")),
-        "marker_valid": bool(marker.get("active_marker_valid") or daemon.get("marker_valid")),
-        "daemon_active_state": daemon.get("active_state") or daemon.get("runtime_active_state") or "inactive",
-        "daemon_pid_alive": bool(daemon.get("pid_alive")),
-        "endpoint_probe_performed": bool(daemon.get("endpoint_probe_performed")),
-        "endpoint_reachable": bool(daemon.get("endpoint_reachable")),
-        "heartbeat_fresh": bool(daemon.get("heartbeat_fresh")),
-        "timestamp_status_available": bool(timestamp),
-        "timestamp_trusted": timestamp.get("trusted"),
-        "time_trust_state": timestamp.get("time_trust_state") or daemon.get("time_trust_state") or "unknown",
-        "memory_v151_ready": bool(memory_v151.get("ready")),
-    }
+    live_evidence = _live_evidence(
+        marker=marker, daemon=daemon, timestamp=timestamp, memory_v151=memory_v151
+    )
     subsystem_status = {
         "package_integrity_manifest": {
             **package_integrity.to_dict(),
