@@ -5,10 +5,11 @@ import json
 from pathlib import Path
 import subprocess
 import sys
-from typing import Any
+from typing import Any, Callable
 
 from latka_jazn.cli_commands import audit as audit_commands
 from latka_jazn.cli_commands import diagnostics, export as export_commands, host as host_commands, lifecycle
+from latka_jazn.tools.console_progress import TerminalProgress, add_progress_arguments
 from latka_jazn.version import PACKAGE_VERSION_FULL
 
 
@@ -21,6 +22,7 @@ class StableArgumentParser(argparse.ArgumentParser):
 def _add_common(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--json", action="store_true", dest="as_json")
+    add_progress_arguments(parser)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -118,6 +120,32 @@ def _emit(payload: Any, *, as_json: bool) -> None:
         print(payload)
 
 
+def _progress(namespace: argparse.Namespace, task: str, *, style: str) -> TerminalProgress:
+    return TerminalProgress.from_namespace(namespace, task, style=style)
+
+
+def _spinner_call(
+    namespace: argparse.Namespace,
+    *,
+    task: str,
+    label: str,
+    final_label: str,
+    operation: Callable[[], Any],
+    ok_from_payload: Callable[[Any], bool],
+    symbol: str = "work",
+) -> Any:
+    progress = _progress(namespace, task, style="spinner")
+    progress.start_spinner(label, symbol=symbol)
+    try:
+        payload = operation()
+    except Exception as exc:
+        progress.fail(f"{final_label}: {type(exc).__name__}")
+        raise
+    ok = bool(ok_from_payload(payload))
+    progress.finish(ok, final_label)
+    return payload
+
+
 def _legacy_main(args: list[str]) -> int:
     from main import main as legacy_main
     return int(legacy_main(args))
@@ -151,7 +179,13 @@ def main(argv: list[str] | None = None) -> int:
         _emit(payload, as_json=ns.as_json)
         return 0
     if ns.command == "doctor":
-        payload = diagnostics.doctor_payload(root)
+        progress = _progress(ns, "doctor", style="bar")
+        try:
+            payload = diagnostics.doctor_payload(root, progress=progress.callback())
+        except Exception as exc:
+            progress.fail(f"Diagnostyka przerwana: {type(exc).__name__}")
+            raise
+        progress.finish(bool(payload.get("ok")), "Diagnostyka zakończona")
         _emit(payload, as_json=ns.as_json)
         return 0 if payload.get("ok") else 1
     if ns.command == "bridge-discovery":
@@ -179,12 +213,20 @@ def main(argv: list[str] | None = None) -> int:
         _emit(audit_commands.replay(audit_db, ns.turn_id, ns.trace_id), as_json=True)
         return 0
     if ns.command == "export":
-        payload = export_commands.export_payload(
-            root=root,
-            profile=ns.profile,
-            output=ns.output,
-            confirm_private_data=ns.confirm_private_data,
-            preview_only=ns.preview,
+        payload = _spinner_call(
+            ns,
+            task="export",
+            label="Przygotowuję plan eksportu" if ns.preview else "Eksportuję wybrany profil",
+            final_label="Podgląd eksportu gotowy" if ns.preview else "Eksport zakończony",
+            symbol="folder",
+            operation=lambda: export_commands.export_payload(
+                root=root,
+                profile=ns.profile,
+                output=ns.output,
+                confirm_private_data=ns.confirm_private_data,
+                preview_only=ns.preview,
+            ),
+            ok_from_payload=lambda item: item.get("ok", True),
         )
         _emit(payload, as_json=True)
         return 0 if payload.get("ok", True) else 2
@@ -194,19 +236,43 @@ def main(argv: list[str] | None = None) -> int:
     if ns.command == "package-smoke":
         from latka_jazn.tools.release_readiness import build_release_readiness_report
 
-        payload = build_release_readiness_report(root, profile=ns.profile)
+        payload = _spinner_call(
+            ns,
+            task="package-smoke",
+            label=f"Sprawdzam gotowość paczki ({ns.profile})",
+            final_label="Kontrola paczki zakończona",
+            operation=lambda: build_release_readiness_report(root, profile=ns.profile),
+            ok_from_payload=lambda item: int(item.get("exit_code", 2)) == 0,
+            symbol="lock",
+        )
         _emit(payload, as_json=ns.as_json)
         return int(payload.get("exit_code", 2))
     if ns.command == "release-metadata":
         from latka_jazn.tools.release_metadata import generate_release_metadata
 
-        payload = generate_release_metadata(root, allow_dirty=ns.allow_dirty)
+        payload = _spinner_call(
+            ns,
+            task="release-metadata",
+            label="Odczytuję Git i przygotowuję metadane wydania",
+            final_label="Metadane wydania przygotowane",
+            operation=lambda: generate_release_metadata(root, allow_dirty=ns.allow_dirty),
+            ok_from_payload=lambda item: int(item.get("exit_code", 2)) == 0,
+            symbol="log",
+        )
         _emit(payload, as_json=ns.as_json)
         return int(payload.get("exit_code", 2))
     if ns.command == "release-build":
         from latka_jazn.tools.release_bundle import build_release_bundle
 
-        payload = build_release_bundle(root, ns.output)
+        payload = _spinner_call(
+            ns,
+            task="release-build",
+            label="Buduję i weryfikuję paczkę wydania",
+            final_label="Budowanie wydania zakończone",
+            operation=lambda: build_release_bundle(root, ns.output),
+            ok_from_payload=lambda item: int(item.get("exit_code", 2)) == 0,
+            symbol="launch",
+        )
         _emit(payload, as_json=ns.as_json)
         return int(payload.get("exit_code", 2))
     if ns.command in {"memory-prepare", "memory-status"}:
@@ -221,14 +287,30 @@ def main(argv: list[str] | None = None) -> int:
             runtime_version=cfg.version,
         )
         if ns.command == "memory-prepare":
-            payload = sidecar.prepare(
-                dry_run=ns.dry_run,
-                force=ns.force,
-                deep_verify=ns.deep_verify or not ns.dry_run,
-            ).to_dict()
+            payload = _spinner_call(
+                ns,
+                task="memory-prepare",
+                label="Przygotowuję warstwę pamięci L1/L2/L3",
+                final_label="Przygotowanie pamięci zakończone",
+                operation=lambda: sidecar.prepare(
+                    dry_run=ns.dry_run,
+                    force=ns.force,
+                    deep_verify=ns.deep_verify or not ns.dry_run,
+                ).to_dict(),
+                ok_from_payload=lambda item: item.get("status") in {"ready", "dry_run_ok"},
+                symbol="work",
+            )
             code = 0 if payload.get("status") in {"ready", "dry_run_ok"} else 1
         else:
-            payload = sidecar.wake_state_status(deep_verify=ns.deep_verify).to_dict()
+            payload = _spinner_call(
+                ns,
+                task="memory-status",
+                label="Sprawdzam stan pamięci" + (" i integralność SQLite" if ns.deep_verify else ""),
+                final_label="Kontrola pamięci zakończona",
+                operation=lambda: sidecar.wake_state_status(deep_verify=ns.deep_verify).to_dict(),
+                ok_from_payload=lambda item: item.get("status") == "ready",
+                symbol="lock",
+            )
             code = 0 if payload.get("status") == "ready" else 1
         _emit(payload, as_json=ns.as_json)
         return code
