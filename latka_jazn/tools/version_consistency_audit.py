@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
 import re
 import subprocess
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
+from latka_jazn.tools.console_progress import TerminalProgress, add_progress_arguments
 from latka_jazn.version import PACKAGE_VERSION_FULL, schema_version
 from latka_jazn.core.version_source import (
     read_runtime_version_from_version_py,
@@ -18,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]
 ACTIVE_VERSION = read_runtime_version_from_version_py(ROOT, fallback=PACKAGE_VERSION_FULL) or PACKAGE_VERSION_FULL
 ACTIVE_SEMVER = version_number(ACTIVE_VERSION)
 SCHEMA_VERSION = schema_version("version_consistency_audit")
+ProgressCallback = Callable[[int, int, str], None]
 
 SOURCE_OF_TRUTH_FILES = (
     "latka_jazn/version.py",
@@ -188,7 +191,11 @@ def _line_hits(text: str, token: str) -> list[int]:
     return [index for index, line in enumerate(text.splitlines(), start=1) if token in line]
 
 
-def scan_forbidden_current_literals(root: Path = ROOT) -> list[dict[str, Any]]:
+def scan_forbidden_current_literals(
+    root: Path = ROOT,
+    *,
+    progress: ProgressCallback | None = None,
+) -> list[dict[str, Any]]:
     metadata = read_version_metadata_from_version_py(root)
     tokens = {
         metadata.package_version_full,
@@ -200,7 +207,12 @@ def scan_forbidden_current_literals(root: Path = ROOT) -> list[dict[str, Any]]:
     tokens.discard("")
 
     violations: list[dict[str, Any]] = []
-    for path in _candidate_paths(root):
+    candidates = list(_candidate_paths(root))
+    total = max(1, len(candidates))
+    for index, path in enumerate(candidates, start=1):
+        if progress is not None:
+            overall = 15 + round(75 * index / total)
+            progress(overall, 100, f"Skanowanie wersji w plikach: {index}/{len(candidates)}")
         if not _is_scannable(path, root):
             continue
         try:
@@ -283,18 +295,32 @@ def _generated_metadata_errors(root: Path) -> list[dict[str, Any]]:
     return errors
 
 
-def build_audit(root: Path = ROOT) -> dict[str, object]:
+def build_audit(
+    root: Path = ROOT,
+    *,
+    progress: ProgressCallback | None = None,
+) -> dict[str, object]:
     root = Path(root).resolve()
+    if progress is not None:
+        progress(0, 100, "Wczytywanie źródła wersji")
     active_version = read_runtime_version_from_version_py(root, fallback=PACKAGE_VERSION_FULL) or PACKAGE_VERSION_FULL
     active_semver = version_number(active_version)
+    if progress is not None:
+        progress(8, 100, "Wersja aktywna rozwiązana")
     mentions = scan_version_mentions(root, active_version=active_version, active_semver=active_semver)
-    literal_violations = scan_forbidden_current_literals(root)
+    if progress is not None:
+        progress(15, 100, "Kontrolne wzmianki wersji sprawdzone")
+    literal_violations = scan_forbidden_current_literals(root, progress=progress)
+    if progress is not None:
+        progress(94, 100, "Metadane generowane i kontrakty wersji sprawdzane")
     metadata_errors = _generated_metadata_errors(root)
     errors: list[dict[str, Any]] = [
         {"kind": "forbidden_raw_current_version", **item}
         for item in literal_violations
     ]
     errors.extend(metadata_errors)
+    if progress is not None:
+        progress(100, 100, "Audyt spójności wersji zakończony")
     return {
         "schema_version": SCHEMA_VERSION,
         "active_version": active_version,
@@ -310,8 +336,18 @@ def build_audit(root: Path = ROOT) -> dict[str, object]:
     }
 
 
-def main() -> int:
-    payload = build_audit(ROOT)
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Audit single-source version and generated metadata consistency.")
+    parser.add_argument("--root", type=Path, default=ROOT)
+    add_progress_arguments(parser)
+    args = parser.parse_args(argv)
+    display = TerminalProgress.from_namespace(args, "version-consistency", style="dots")
+    try:
+        payload = build_audit(args.root, progress=display.callback(symbol="lock"))
+    except Exception as exc:
+        display.fail(f"Audyt wersji przerwany: {type(exc).__name__}")
+        raise
+    display.finish(bool(payload.get("ok")), "Audyt spójności wersji zakończony")
     print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
     return 0 if not payload["errors"] else 1
 

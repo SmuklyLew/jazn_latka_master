@@ -10,12 +10,14 @@ from latka_jazn.tools.memory_rebuild_coordinator import MemoryRebuildCoordinator
 from latka_jazn.tools.memory_rebuild_experience import ExperienceStore
 from latka_jazn.tools.memory_rebuild_journal import JournalStore
 from latka_jazn.tools.memory_rebuild_common import DATABASE_FILENAMES, MemoryRebuildPaths
+from latka_jazn.tools.console_progress import TerminalProgress, add_progress_arguments
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Rebuild Jaźń memory into five fixed SQLite databases.")
     parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--json", action="store_true")
+    add_progress_arguments(parser)
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("init")
     inspect = sub.add_parser("inspect"); inspect.add_argument("sources", nargs="+", type=Path)
@@ -45,6 +47,24 @@ def emit(payload: dict[str, Any], json_mode: bool) -> None:
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     coordinator = MemoryRebuildCoordinator(args.root)
+    display = TerminalProgress.from_namespace(args, f"memory-rebuild-{args.command}", style="spinner")
+    labels = {
+        "init": "Inicjalizuję pięć baz pamięci",
+        "inspect": "Analizuję źródła pamięci bez zapisu",
+        "plan-chats": "Buduję plan importu rozmów",
+        "import-chats": "Importuję rozmowy do archiwum pamięci",
+        "import-journal": "Importuję dziennik do pamięci",
+        "reclassify-journal": "Ponownie klasyfikuję wpisy dziennika",
+        "analyse-topics": "Analizuję tematy rozmów",
+        "audit-classifiers": "Audytuję klasyfikatory pamięci",
+        "build-experience-candidates": "Buduję kandydatów doświadczeń",
+        "review-experiences": "Odczytuję kolejkę review doświadczeń",
+        "approve-experience": "Zatwierdzam doświadczenie",
+        "verify": "Sprawdzam integralność baz pamięci",
+        "status": "Odczytuję stan przebudowy pamięci",
+        "search": "Przeszukuję pamięć",
+    }
+    display.start_spinner(labels.get(args.command, "Przetwarzam pamięć"), symbol="wait" if args.command in {"inspect", "status", "search", "review-experiences"} else "work")
     try:
         if args.command == "init": payload = coordinator.init()
         elif args.command == "inspect": payload = coordinator.inspect(args.sources)
@@ -70,12 +90,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.command == "status": payload = coordinator.status()
         elif args.command == "search": payload = coordinator.search(args.query, args.limit)
         else: raise AssertionError(args.command)
+        display.finish(bool(payload.get("ok", True)), "Operacja przebudowy pamięci zakończona")
         emit(payload, args.json)
         return 0 if payload.get("ok", True) else 2
     except KeyboardInterrupt:
+        display.fail("Operacja przebudowy pamięci przerwana")
         emit({"ok": False, "status": "cancelled"}, args.json)
         return 130
     except Exception as exc:
+        display.fail(f"Operacja przebudowy pamięci przerwana: {type(exc).__name__}")
         emit({"ok": False, "error_type": type(exc).__name__, "error": str(exc)}, args.json)
         return 1
 

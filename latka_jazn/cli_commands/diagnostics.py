@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from latka_jazn.bridge.secure_host_runtime_gateway import GatewayConfig, GatewayError
 from latka_jazn.config import JaznConfig
@@ -17,6 +17,14 @@ from latka_jazn.memory.runtime_memory_v151_install import resolve_memory_tier_da
 from latka_jazn.tools.package_integrity import verify_package_integrity_manifest
 from latka_jazn.core.tool_execution_controller import ToolExecutionController
 from latka_jazn.version import PACKAGE_VERSION_FULL, schema_version
+
+
+DoctorProgressCallback = Callable[[int, int, str], None]
+
+
+def _report_progress(callback: DoctorProgressCallback | None, completed: int, total: int, label: str) -> None:
+    if callback is not None:
+        callback(completed, total, label)
 
 
 def _memory_v151_status(cfg: JaznConfig) -> dict[str, Any]:
@@ -78,19 +86,45 @@ def _read_manifest(root: Path) -> tuple[dict[str, Any], str | None]:
     return value, None
 
 
+def _live_evidence(
+    *,
+    marker: dict[str, Any],
+    daemon: dict[str, Any],
+    timestamp: dict[str, Any],
+    memory_v151: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "marker_found": bool(marker.get("existing_marker_found") or daemon.get("marker_found")),
+        "marker_valid": bool(marker.get("active_marker_valid") or daemon.get("marker_valid")),
+        "daemon_active_state": daemon.get("active_state") or daemon.get("runtime_active_state") or "inactive",
+        "daemon_pid_alive": bool(daemon.get("pid_alive")),
+        "endpoint_probe_performed": bool(daemon.get("endpoint_probe_performed")),
+        "endpoint_reachable": bool(daemon.get("endpoint_reachable")),
+        "heartbeat_fresh": bool(daemon.get("heartbeat_fresh")),
+        "timestamp_status_available": bool(timestamp),
+        "timestamp_trusted": timestamp.get("trusted"),
+        "time_trust_state": timestamp.get("time_trust_state") or daemon.get("time_trust_state") or "unknown",
+        "memory_v151_ready": bool(memory_v151.get("ready")),
+    }
+
+
 def doctor_payload(
     root: Path,
     *,
     daemon_host: str = DEFAULT_DAEMON_HOST,
     daemon_port: int = DEFAULT_DAEMON_PORT,
     marker_output: Path | None = None,
+    progress: DoctorProgressCallback | None = None,
 ) -> dict[str, Any]:
+    progress_total = 8
+    _report_progress(progress, 0, progress_total, "Wczytywanie stanu runtime i pamięci")
     status = status_payload(
         root,
         daemon_host=daemon_host,
         daemon_port=daemon_port,
         marker_output=marker_output,
     )
+    _report_progress(progress, 1, progress_total, "Stan runtime i pamięci wczytany")
     startup = status.get("startup") or {}
     daemon = status.get("daemon") or {}
     memory_v151 = status.get("memory_v151") or {}
@@ -102,6 +136,7 @@ def doctor_payload(
     daemon_marker = daemon.get("marker") or {}
     timestamp = daemon.get("timestamp_contract") or daemon_marker.get("timestamp_contract") or {}
     package_integrity = package_integrity_manifest_status(root)
+    _report_progress(progress, 2, progress_total, "Manifest i kontrakty podstawowe wczytane")
 
     controller = ToolExecutionController()
     read_plan = controller.plan(
@@ -130,6 +165,7 @@ def doctor_payload(
         mcp_policy_error = None
     except GatewayError as exc:  # pragma: no cover - defensive serialization path
         mcp_policy_error = f"{type(exc).__name__}: {exc}"
+    _report_progress(progress, 3, progress_total, "Bramki narzędzi i polityka MCP sprawdzone")
 
     required_checks = {
         "root_exists": root.is_dir(),
@@ -148,7 +184,9 @@ def doctor_payload(
         "privacy_gate_available": (root / "latka_jazn/core/private_data_export_gate.py").is_file(),
         "finalization_gate_available": (root / "latka_jazn/core/host_visible_finalization.py").is_file(),
     }
+    _report_progress(progress, 4, progress_total, "Pliki i wymagane podsystemy sprawdzone")
     manifest_verification = verify_package_integrity_manifest(root)
+    _report_progress(progress, 5, progress_total, "Integralność paczki zweryfikowana")
     provenance = read_source_provenance(root, profile="system_smoke").to_dict()
     package_integrity_checks = {
         "present": package_integrity.present,
@@ -169,20 +207,11 @@ def doctor_payload(
         daemon=daemon,
         memory_v151=memory_v151,
     )
+    _report_progress(progress, 6, progress_total, "Gotowość aktywacji i wydania obliczona")
 
-    live_evidence = {
-        "marker_found": bool(marker.get("existing_marker_found") or daemon.get("marker_found")),
-        "marker_valid": bool(marker.get("active_marker_valid") or daemon.get("marker_valid")),
-        "daemon_active_state": daemon.get("active_state") or daemon.get("runtime_active_state") or "inactive",
-        "daemon_pid_alive": bool(daemon.get("pid_alive")),
-        "endpoint_probe_performed": bool(daemon.get("endpoint_probe_performed")),
-        "endpoint_reachable": bool(daemon.get("endpoint_reachable")),
-        "heartbeat_fresh": bool(daemon.get("heartbeat_fresh")),
-        "timestamp_status_available": bool(timestamp),
-        "timestamp_trusted": timestamp.get("trusted"),
-        "time_trust_state": timestamp.get("time_trust_state") or daemon.get("time_trust_state") or "unknown",
-        "memory_v151_ready": bool(memory_v151.get("ready")),
-    }
+    live_evidence = _live_evidence(
+        marker=marker, daemon=daemon, timestamp=timestamp, memory_v151=memory_v151
+    )
     subsystem_status = {
         "package_integrity_manifest": {
             **package_integrity.to_dict(),
@@ -226,7 +255,8 @@ def doctor_payload(
         },
         "time": timestamp,
     }
-    return {
+    _report_progress(progress, 7, progress_total, "Raport podsystemów złożony")
+    payload = {
         "schema_version": schema_version("runpy_doctor"),
         # Backward compatibility: ``ok`` continues to mean structural installation health.
         # Read activation/release/live readiness from the explicit fields below.
@@ -251,6 +281,8 @@ def doctor_payload(
             "for activation_prerequisites_ready; it does not mean that a daemon is running."
         ),
     }
+    _report_progress(progress, 8, progress_total, "Diagnostyka zakończona")
+    return payload
 
 
 def bridge_payload(root: Path) -> dict[str, Any]:

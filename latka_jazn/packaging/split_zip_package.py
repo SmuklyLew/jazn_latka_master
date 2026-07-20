@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from latka_jazn.tools.console_progress import TerminalProgress, add_progress_arguments
+
 CHUNK_SIZE = 8 * 1024 * 1024
 
 
@@ -636,6 +638,7 @@ def _build_cli_parser():
     parser.add_argument("--keep-existing", action="store_true", help="Użyj istniejącego pełnego ZIP-a bez ponownego sklejania.")
     parser.add_argument("--join-package", action="store_true", help="Sklej części w pełny ZIP.")
     parser.add_argument("--test-package", action="store_true", help="Zweryfikuj części, pełny ZIP i CRC.")
+    add_progress_arguments(parser)
     return parser
 
 
@@ -651,35 +654,50 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("Podaj --join-package albo --test-package.")
 
     if args.join_package:
-        out_zip = join_split_package_to_zip(
-            parts_dir,
-            base_zip_name,
-            zip_out=zip_out,
-            skip_part_hash=args.skip_part_hash,
-            force=args.force_join,
-            keep_existing=args.keep_existing,
-        )
+        display = TerminalProgress.from_namespace(args, "split-zip-join", style="spinner")
+        display.start_spinner("Sklejam części i obliczam SHA-256 pełnego ZIP-a", symbol="folder")
+        try:
+            out_zip = join_split_package_to_zip(
+                parts_dir,
+                base_zip_name,
+                zip_out=zip_out,
+                skip_part_hash=args.skip_part_hash,
+                force=args.force_join,
+                keep_existing=args.keep_existing,
+            )
+            digest = sha256_file(out_zip)
+        except Exception as exc:
+            display.fail(f"Sklejanie paczki przerwane: {type(exc).__name__}")
+            raise
+        display.finish(True, "Pełny ZIP został złożony")
         print(json.dumps(
             {
                 "ok": True,
                 "action": "join-package",
                 "zip_path": str(out_zip),
-                "sha256": sha256_file(out_zip),
+                "sha256": digest,
             },
             ensure_ascii=False,
             indent=2,
         ))
 
     if args.test_package:
-        report = test_split_package(
-            parts_dir,
-            base_zip_name,
-            zip_out=zip_out,
-            skip_part_hash=args.skip_part_hash,
-            join_if_missing=True,
-            force_join=args.force_join,
-            run_crc=not args.skip_crc,
-        )
+        display = TerminalProgress.from_namespace(args, "split-zip-test", style="spinner")
+        display.start_spinner("Weryfikuję części, SHA-256, strukturę i CRC ZIP", symbol="lock")
+        try:
+            report = test_split_package(
+                parts_dir,
+                base_zip_name,
+                zip_out=zip_out,
+                skip_part_hash=args.skip_part_hash,
+                join_if_missing=True,
+                force_join=args.force_join,
+                run_crc=not args.skip_crc,
+            )
+        except Exception as exc:
+            display.fail(f"Weryfikacja paczki przerwana: {type(exc).__name__}")
+            raise
+        display.finish(bool(report.get("ok")), "Weryfikacja paczki zakończona")
         print(json.dumps(report, ensure_ascii=False, indent=2))
 
     return 0

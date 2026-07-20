@@ -13,6 +13,7 @@ import uuid
 from typing import Any
 
 from latka_jazn.core.runtime_session import JaznRuntimeSession
+from latka_jazn.tools.console_progress import TerminalProgress, add_progress_arguments
 
 
 @dataclass(slots=True)
@@ -226,6 +227,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--poll", type=float, default=0.2)
     parser.add_argument("--require-server", action="store_true", help="Nie przetwarzaj żądania jednorazowo, gdy bridge daemon nie działa.")
     parser.add_argument("--json", action="store_true")
+    add_progress_arguments(parser)
     return parser
 
 
@@ -239,15 +241,23 @@ def main(argv: list[str] | None = None) -> int:
         text = args.text
         if not text:
             raise SystemExit("--text is required")
-        response = bridge.send(
-            text,
-            client=args.client,
-            timeout_seconds=args.timeout,
-            session_id=args.session,
-            direct_if_unavailable=not args.require_server,
-        )
+        progress = TerminalProgress.from_namespace(args, "codex-bridge-send", style="spinner")
+        progress.start_spinner("Oczekiwanie na odpowiedź aktywnego runtime", symbol="wait")
+        try:
+            response = bridge.send(
+                text,
+                client=args.client,
+                timeout_seconds=args.timeout,
+                session_id=args.session,
+                direct_if_unavailable=not args.require_server,
+            )
+        except Exception as exc:
+            progress.fail(f"Most Codex nie zwrócił odpowiedzi: {type(exc).__name__}")
+            raise
+        ok = bool(response.get("ok", True))
+        progress.finish(ok, "Odpowiedź runtime odebrana" if ok else "Runtime zwrócił błąd")
         print(json.dumps(response, ensure_ascii=False, indent=2) if args.json else response.get("final_visible_text") or response.get("error_message") or "")
-        return 0 if response.get("ok", True) else 1
+        return 0 if ok else 1
     if args.command == "stop":
         bridge.request_stop()
         print(f"Stop requested for session {args.session}")

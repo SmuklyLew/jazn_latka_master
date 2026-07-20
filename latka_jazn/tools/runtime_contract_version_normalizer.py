@@ -3,17 +3,20 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 import argparse
 import hashlib
 import json
 
 from latka_jazn.core.version_source import read_runtime_version_from_version_py
+from latka_jazn.tools.console_progress import TerminalProgress, add_progress_arguments
 from latka_jazn.tools.active_extraction_cache import (
     active_cache_contract_version,
     active_marker_schema_version,
     visible_preview_contract_version,
 )
+
+ProgressCallback = Callable[[int, int, str], None]
 
 TARGET_VERSION = "v14.8.2.6.3-free-dialogue-short-turn-fallback-hotfix"
 TARGET_FILES = (
@@ -130,13 +133,29 @@ def normalize_json_file(root: Path, rel_path: str, package_version: str, *, appl
     return NormalizationResult(rel_path, True, changed, updates)
 
 
-def normalize_runtime_contract_versions(root: Path, *, apply: bool = False) -> dict[str, Any]:
+def normalize_runtime_contract_versions(
+    root: Path,
+    *,
+    apply: bool = False,
+    progress: ProgressCallback | None = None,
+) -> dict[str, Any]:
     root = Path(root).resolve()
+    if progress is not None:
+        progress(0, 100, "Wczytywanie aktywnej wersji runtime")
     package_version = read_package_version(root)
-    results = [normalize_json_file(root, rel, package_version, apply=apply) for rel in TARGET_FILES]
+    results: list[NormalizationResult] = []
+    total_files = max(1, len(TARGET_FILES))
+    for index, rel in enumerate(TARGET_FILES, start=1):
+        results.append(normalize_json_file(root, rel, package_version, apply=apply))
+        if progress is not None:
+            overall = 10 + round(70 * index / total_files)
+            action = "Normalizacja i zapis" if apply else "Kontrola"
+            progress(overall, 100, f"{action}: {rel}")
 
     manifest_path = root / "PACKAGE_INTEGRITY_MANIFEST.json"
     manifest_sha = _sha256_file(manifest_path)
+    if progress is not None:
+        progress(88, 100, "SHA-256 kanonicznego manifestu obliczony")
     marker_rel = "workspace_runtime/JAZN_ACTIVE_RUNTIME.json"
     marker_path = root / marker_rel
     marker_sha_update: dict[str, Any] | None = None
@@ -153,6 +172,8 @@ def normalize_runtime_contract_versions(root: Path, *, apply: bool = False) -> d
                 "old": old,
                 "new": manifest_sha,
             }
+    if progress is not None:
+        progress(100, 100, "Normalizacja kontraktów runtime zakończona")
 
     return {
         "schema_version": f"runtime_contract_version_normalizer/v{_version_number(package_version)}",
@@ -168,12 +189,23 @@ def normalize_runtime_contract_versions(root: Path, *, apply: bool = False) -> d
     }
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Audit/fix runtime contract/schema/cache version fields for the active Jaźń folder.")
     parser.add_argument("--root", default=".")
     parser.add_argument("--apply", action="store_true")
-    args = parser.parse_args()
-    report = normalize_runtime_contract_versions(Path(args.root), apply=args.apply)
+    add_progress_arguments(parser)
+    args = parser.parse_args(argv)
+    display = TerminalProgress.from_namespace(args, "runtime-contract-normalizer", style="stages")
+    try:
+        report = normalize_runtime_contract_versions(
+            Path(args.root),
+            apply=args.apply,
+            progress=display.callback(symbol="folder" if args.apply else "lock"),
+        )
+    except Exception as exc:
+        display.fail(f"Normalizacja kontraktów przerwana: {type(exc).__name__}")
+        raise
+    display.finish(True, "Kontrakty runtime zapisane" if args.apply else "Kontrola kontraktów zakończona")
     print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
     return 0
 
