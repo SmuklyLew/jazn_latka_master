@@ -13,6 +13,7 @@ if str(ROOT) not in sys.path:
 from latka_jazn.memory.dziennik_migration import DziennikJsonScanner
 from latka_jazn.memory.legacy_fanout_migration import LegacyFanoutMigrationStore, LegacyMemoryScanner
 from latka_jazn.memory.memory_tier_store import MemoryTierStore
+from latka_jazn.tools.console_progress import TerminalProgress, add_progress_arguments
 
 
 def emit(payload: dict, *, json_mode: bool) -> None:
@@ -39,6 +40,7 @@ def parser() -> argparse.ArgumentParser:
         description="Bezpieczna migracja starego fan-out pamięci i dziennik.json do kolejki review v15.1.0.1."
     )
     root.add_argument("--json", action="store_true")
+    add_progress_arguments(root)
     sub = root.add_subparsers(dest="command", required=True)
 
     inspect = sub.add_parser("inspect", help="zbadaj starą bazę SQLite bez zapisu")
@@ -83,6 +85,17 @@ def _scanner(args: argparse.Namespace):
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
+    display = TerminalProgress.from_namespace(args, f"memory-migrate-{args.command}", style="spinner")
+    labels = {
+        "inspect": "Skanuję starą bazę pamięci bez zapisu",
+        "inspect-journal": "Skanuję dziennik JSON bez zapisu",
+        "stage": "Przenoszę kandydatów SQLite do kolejki review",
+        "stage-journal": "Przenoszę wpisy dziennika do kolejki review",
+        "candidates": "Odczytuję kandydatów oczekujących na decyzję",
+        "approve-l2": "Zatwierdzam wskazanego kandydata do L2",
+        "verify": "Sprawdzam integralność bazy pamięci",
+    }
+    display.start_spinner(labels.get(args.command, "Przetwarzam pamięć"), symbol="wait" if args.command.startswith("inspect") else "work")
     try:
         if args.command in {"inspect", "inspect-journal"}:
             with _scanner(args) as scanner:
@@ -146,12 +159,15 @@ def main(argv: list[str] | None = None) -> int:
         else:
             with MemoryTierStore(args.target) as store:
                 payload = store.validate(full=not args.quick)
+        display.finish(bool(payload.get("ok")), "Operacja pamięci zakończona")
         emit(payload, json_mode=args.json)
         return 0 if payload.get("ok") else 2
     except KeyboardInterrupt:
+        display.fail("Operacja przerwana przez użytkownika")
         print("Przerwano. Bieżąca transakcja została cofnięta.", file=sys.stderr)
         return 130
     except Exception as exc:
+        display.fail(f"Operacja pamięci przerwana: {type(exc).__name__}")
         emit({"ok": False, "error_type": type(exc).__name__, "error": str(exc)}, json_mode=args.json)
         return 1
 
