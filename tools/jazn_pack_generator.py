@@ -488,6 +488,69 @@ def _literal_assignments(path: Path) -> dict[str, str]:
     return values
 
 
+def normalize_version(value: str) -> str:
+    """Normalizuje wersję pakietu do postaci bez początkowego ``v``.
+
+    Funkcja pozostaje publicznym helperem kompatybilności dla testów i narzędzi
+    wydaniowych. Nie zmienia sufiksu ``PACKAGE_RELEASE_NAME``.
+    """
+
+    version = str(value or "").strip().strip('"\'')
+    version = re.sub(r"^v", "", version, flags=re.IGNORECASE)
+    if not version:
+        raise ValueError("Wersja z version.py jest pusta")
+    if any(ch in version for ch in '\\/:*?"<>|'):
+        raise ValueError(f"Wersja zawiera znaki niedozwolone w nazwie pliku: {version!r}")
+    return version
+
+
+def normalize_release_name(value: str | None) -> str:
+    """Normalizuje opcjonalny sufiks ``PACKAGE_RELEASE_NAME``."""
+
+    release = str(value or "").strip().strip('"\'')
+    if not release:
+        return ""
+    if any(ch in release for ch in '\\/:*?"<>|'):
+        raise ValueError(
+            f"PACKAGE_RELEASE_NAME zawiera znaki niedozwolone w nazwie pliku: {release!r}"
+        )
+    release = re.sub(r"\s+", "-", release)
+    return release.strip("-_.")
+
+
+def compose_package_version_full(
+    package_version: str,
+    package_release_name: str | None = None,
+) -> str:
+    """Zwraca pełną wersję bez dublowania sufiksu wydania.
+
+    Wynik nie ma początkowego ``v``. To zachowuje kontrakt nazw plików
+    generatora oraz zgodność z testami release-version.
+    """
+
+    version = normalize_version(package_version)
+    release = normalize_release_name(package_release_name)
+    if not release:
+        return version
+    suffix = f"-{release}"
+    if version.lower().endswith(suffix.lower()):
+        return version
+    return f"{version}{suffix}"
+
+
+def manifest_version_matches(
+    manifest_version: str,
+    package_version: str,
+    package_release_name: str | None = None,
+) -> bool:
+    """Porównuje wersję manifestu z kanoniczną pełną wersją pakietu."""
+
+    return normalize_version(manifest_version) == compose_package_version_full(
+        package_version,
+        package_release_name,
+    )
+
+
 def read_version_info(root: Path) -> VersionInfo:
     version_file = root / "latka_jazn" / "version.py"
     if not version_file.is_file():
@@ -502,11 +565,9 @@ def read_version_info(root: Path) -> VersionInfo:
     ).strip()
     if not package_version:
         raise PackError("latka_jazn/version.py nie zawiera literału PACKAGE_VERSION/DISTRIBUTION_VERSION.")
-    release = values.get("PACKAGE_RELEASE_NAME", "").strip().strip("-_. ")
-    full = package_version
-    if release and not package_version.lower().endswith(f"-{release}".lower()):
-        full = f"{package_version}-{release}"
-    filename_version = re.sub(r"^v", "", full, flags=re.IGNORECASE)
+    release = normalize_release_name(values.get("PACKAGE_RELEASE_NAME", ""))
+    filename_version = compose_package_version_full(package_version, release)
+    full = f"v{filename_version}" if package_version.lower().startswith("v") else filename_version
     if any(ch in filename_version for ch in '\\/:*?"<>|'):
         raise PackError(f"Wersja nie nadaje się do nazwy pliku: {filename_version!r}")
     return VersionInfo(
@@ -540,10 +601,9 @@ def archived_version_from_bytes(raw: bytes) -> str:
     base = values.get("PACKAGE_VERSION") or values.get("DISTRIBUTION_VERSION") or values.get("__version__") or values.get("VERSION")
     if not base:
         raise PackError("Archiwalny version.py nie zawiera wersji.")
-    release = values.get("PACKAGE_RELEASE_NAME", "").strip().strip("-_. ")
-    if release and not base.lower().endswith(f"-{release}".lower()):
-        return f"{base}-{release}"
-    return base
+    release = normalize_release_name(values.get("PACKAGE_RELEASE_NAME", ""))
+    full = compose_package_version_full(base, release)
+    return f"v{full}" if base.lower().startswith("v") else full
 
 
 # -----------------------------------------------------------------------------
