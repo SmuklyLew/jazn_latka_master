@@ -44,6 +44,122 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _git_checkout_head_for_verification(root: Path) -> tuple[str | None, str]:
+    """Return a trusted HEAD for canonical verification or a fallback reason.
+
+    A clean Git checkout may contain platform-specific worktree bytes, such as
+    CRLF produced by Git on Windows, while the release manifest intentionally
+    protects canonical Git blobs. Canonical verification is allowed only for
+    the exact repository root, a clean index/worktree and ordinary tracked
+    files without ``assume-unchanged`` or ``skip-worktree`` flags.
+    """
+
+    top_level = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        stdin=subprocess.DEVNULL,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    if top_level.returncode != 0:
+        return None, "not_a_git_checkout"
+    try:
+        repository_root = Path(top_level.stdout.strip()).resolve()
+    except (OSError, RuntimeError):
+        return None, "git_root_unresolvable"
+    if repository_root != root:
+        return None, "not_exact_repository_root"
+
+    unstaged = subprocess.run(
+        ["git", "-C", str(root), "diff", "--quiet", "--ignore-submodules", "--"],
+        capture_output=True,
+        stdin=subprocess.DEVNULL,
+        check=False,
+    )
+    if unstaged.returncode not in {0, 1}:
+        return None, "git_diff_failed"
+    if unstaged.returncode == 1:
+        return None, "dirty"
+
+    staged = subprocess.run(
+        ["git", "-C", str(root), "diff", "--cached", "--quiet", "--ignore-submodules", "--"],
+        capture_output=True,
+        stdin=subprocess.DEVNULL,
+        check=False,
+    )
+    if staged.returncode not in {0, 1}:
+        return None, "git_diff_failed"
+    if staged.returncode == 1:
+        return None, "dirty"
+
+    untracked = subprocess.run(
+        ["git", "-C", str(root), "ls-files", "--others", "--exclude-standard", "-z"],
+        capture_output=True,
+        stdin=subprocess.DEVNULL,
+        check=False,
+    )
+    if untracked.returncode != 0:
+        return None, "git_untracked_probe_failed"
+    if untracked.stdout:
+        return None, "dirty"
+
+    assume_flags = subprocess.run(
+        ["git", "-C", str(root), "ls-files", "-v", "-z"],
+        capture_output=True,
+        stdin=subprocess.DEVNULL,
+        check=False,
+    )
+    if assume_flags.returncode != 0:
+        return None, "git_index_flags_unavailable"
+    for record in assume_flags.stdout.split(b"\0"):
+        tag = record[:1]
+        if tag and tag.isalpha() and tag.islower():
+            return None, "assume_unchanged_present"
+
+    stage_flags = subprocess.run(
+        ["git", "-C", str(root), "ls-files", "-t", "-z"],
+        capture_output=True,
+        stdin=subprocess.DEVNULL,
+        check=False,
+    )
+    if stage_flags.returncode != 0:
+        return None, "git_index_flags_unavailable"
+    if any(record[:1] == b"S" for record in stage_flags.stdout.split(b"\0") if record):
+        return None, "skip_worktree_present"
+
+    head = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "HEAD"],
+        capture_output=True,
+        stdin=subprocess.DEVNULL,
+        text=True,
+        encoding="ascii",
+        errors="replace",
+        check=False,
+    )
+    value = head.stdout.strip().lower()
+    if (
+        head.returncode != 0
+        or len(value) != 40
+        or any(ch not in "0123456789abcdef" for ch in value)
+    ):
+        return None, "git_head_invalid"
+    return value, "clean"
+
+
+def _git_blob_bytes(root: Path, head: str, relative: str) -> bytes | None:
+    completed = subprocess.run(
+        ["git", "-C", str(root), "cat-file", "blob", f"{head}:{relative}"],
+        capture_output=True,
+        stdin=subprocess.DEVNULL,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return None
+    return completed.stdout
+
+
 def path_is_forbidden(relative: str) -> bool:
     try:
         rel = validate_safe_relative_path(relative)
@@ -224,6 +340,8 @@ def _manifest_entries(payload: dict[str, Any]) -> list[dict[str, Any]] | None:
 
 def verify_package_integrity_manifest(root: Path | str) -> dict[str, Any]:
     root = Path(root).resolve()
+    git_head, worktree_state = _git_checkout_head_for_verification(root)
+    verification_basis = "canonical_git_head_blobs" if git_head else "filesystem_bytes"
     path = root / MANIFEST_NAME
     errors: list[dict[str, Any]] = []
     if not path.is_file():
@@ -252,8 +370,16 @@ def verify_package_integrity_manifest(root: Path | str) -> dict[str, Any]:
         if not file_path.is_file():
             errors.append({"code": "file_missing", "path": canonical})
             continue
-        size = file_path.stat().st_size
-        digest = sha256_file(file_path)
+        if git_head:
+            raw = _git_blob_bytes(root, git_head, canonical)
+            if raw is None:
+                errors.append({"code": "git_blob_missing", "path": canonical})
+                continue
+            size = len(raw)
+            digest = hashlib.sha256(raw).hexdigest()
+        else:
+            size = file_path.stat().st_size
+            digest = sha256_file(file_path)
         if size != int(entry.get("size_bytes", -1)):
             errors.append({"code": "size_mismatch", "path": canonical})
         if digest != str(entry.get("sha256") or ""):
@@ -261,7 +387,11 @@ def verify_package_integrity_manifest(root: Path | str) -> dict[str, Any]:
     for required in sorted(REQUIRED_STATIC_PATHS):
         if required not in seen:
             errors.append({"code": "required_path_unprotected", "path": required})
-    runtime_version = read_runtime_version_from_version_py(root)
+    if git_head:
+        version_bytes = _git_blob_bytes(root, git_head, "latka_jazn/version.py")
+        runtime_version = _version_from_python_bytes(version_bytes) if version_bytes is not None else None
+    else:
+        runtime_version = read_runtime_version_from_version_py(root)
     if not runtime_version or str(payload.get("runtime_version") or payload.get("version") or "") != runtime_version:
         errors.append({"code": "version_mismatch"})
     return {
@@ -272,6 +402,9 @@ def verify_package_integrity_manifest(root: Path | str) -> dict[str, Any]:
         "manifest_sha256": sha256_file(path),
         "checked_file_count": len(entries),
         "errors": errors,
+        "verification_basis": verification_basis,
+        "worktree_state": worktree_state,
+        "git_head": git_head,
     }
 
 
