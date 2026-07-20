@@ -60,6 +60,53 @@ class LocalLlmAdapter:
             },
         )
 
+
+    def probe(self) -> dict:
+        """Probe Ollama and report whether the configured model is installed."""
+        if not self.model:
+            self._endpoint_reachable = None
+            self._probe_state = "not_configured"
+            self._last_probe_error = "local_model_name_missing"
+            return self.describe()
+        try:
+            req = Request(f"{self.api_base}/api/tags", method="GET")
+            with urlopen(req, timeout=min(self.timeout_seconds, 8.0)) as response:
+                data = json.loads(response.read().decode("utf-8"))
+            models = data.get("models") if isinstance(data, dict) else []
+            names = sorted({
+                str(item.get("name") or item.get("model") or "").strip()
+                for item in (models if isinstance(models, list) else [])
+                if isinstance(item, dict)
+            } - {""})
+            installed = self.model in names or any(name.split(":", 1)[0] == self.model.split(":", 1)[0] for name in names)
+            self._endpoint_reachable = True
+            self._probe_state = "probed_ok" if installed else "model_missing"
+            self._last_probe_error = None if installed else "configured_model_not_installed"
+            payload = self.describe()
+            payload.update({
+                "probe_ok": installed,
+                "configured_model_installed": installed,
+                "installed_models": names,
+                "probe_endpoint": "/api/tags",
+            })
+            return payload
+        except HTTPError as exc:
+            self._endpoint_reachable = False
+            self._probe_state = "probed_fail"
+            self._last_probe_error = f"http_error_{exc.code}"
+        except (URLError, TimeoutError, OSError, ValueError) as exc:
+            self._endpoint_reachable = False
+            self._probe_state = "probed_fail"
+            self._last_probe_error = f"{type(exc).__name__}: local_provider_unavailable"
+        payload = self.describe()
+        payload.update({
+            "probe_ok": False,
+            "configured_model_installed": False,
+            "installed_models": [],
+            "probe_endpoint": "/api/tags",
+        })
+        return payload
+
     def generate(self, request: ModelAdapterRequest) -> ModelAdapterResponse:
         if not self.model:
             return ModelAdapterResponse(

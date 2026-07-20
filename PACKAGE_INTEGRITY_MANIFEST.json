@@ -3,11 +3,11 @@
   "version": "v15.1.0.2",
   "runtime_version": "v15.1.0.2",
   "package_version": "v15.1.0.2",
-  "generated_at_utc": "2026-07-20T15:45:10+00:00",
-  "updated_at_utc": "2026-07-20T15:45:10+00:00",
+  "generated_at_utc": "2026-07-20T19:25:10+00:00",
+  "updated_at_utc": "2026-07-20T19:25:10+00:00",
   "start_file": "run.py",
-  "file_count": 542,
-  "static_file_count": 542,
+  "file_count": 548,
+  "static_file_count": 548,
   "mutable_runtime_file_count": 0,
   "runtime_mutable_file_count": 0,
   "excluded_file_count": 1,
@@ -157,7 +157,16 @@
     {
       "path": "SOURCE_PROVENANCE.json",
       "size_bytes": 1207,
-      "sha256": "dd6535af9cbe1fe99c25c7401301af5743bd1503b6288f23d9ceaca34044e081",
+      "sha256": "aacdac9b04961cd2ccc4f5a69a8d2d0f55bf872c12cb3f9d01178d798d591a24",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
+      "path": "docs/MEMORY_RECOVERY_V151.md",
+      "size_bytes": 3878,
+      "sha256": "e395e4474907365de20bd4e47e8cd8fe2cb1079a12413ccf1282ec3ef8477a5a",
       "mutable_runtime": false,
       "classification": "static_project_file",
       "archive": false,
@@ -399,8 +408,8 @@
     },
     {
       "path": "latka_jazn/cli.py",
-      "size_bytes": 13139,
-      "sha256": "a8cfd8827bf479f1e89f735a6260f9d3a9e6e15a75f83eab61321bea3b6511cc",
+      "size_bytes": 15789,
+      "sha256": "94a9e7cc39f7c2b121d9884af46108ba1cd6409ec705320e605b35a75cb65113",
       "mutable_runtime": false,
       "classification": "static_project_file",
       "archive": false,
@@ -462,8 +471,8 @@
     },
     {
       "path": "latka_jazn/config.py",
-      "size_bytes": 13450,
-      "sha256": "4115ac7a6e6ccaf2e39bc14e687b11467a04464245231c2305d2449f9ead2e62",
+      "size_bytes": 15000,
+      "sha256": "6bd9fc76d1b883ef341ca0df1717a3058d763b7e149a8a7d6c2b65f01c85103b",
       "mutable_runtime": false,
       "classification": "static_project_file",
       "archive": false,
@@ -1659,8 +1668,8 @@
     },
     {
       "path": "latka_jazn/core/runtime_session.py",
-      "size_bytes": 12316,
-      "sha256": "14d5c1289ee1d58cca0c34cd613a63cb16fa50098a8ccf0c4da253d8773ca67f",
+      "size_bytes": 13628,
+      "sha256": "c6f3d4b1ecc4dd131f82675b64a17150dd7bffeac62e0ae7ba0c608f546d7336",
       "mutable_runtime": false,
       "classification": "static_project_file",
       "archive": false,
@@ -2342,6 +2351,15 @@
       "hash_policy": "sha256_file_bytes"
     },
     {
+      "path": "latka_jazn/memory/legacy_memory_recovery.py",
+      "size_bytes": 36547,
+      "sha256": "73ec66d3befa1fec6c064dfd4c5c5a9b9817761fde47a026537d3f8000761582",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
       "path": "latka_jazn/memory/media_memory.py",
       "size_bytes": 5801,
       "sha256": "ae42492128af2b4e5530974acf23d4726affb4440f5debeed0f6f8e0394f0eb7",
@@ -2381,6 +2399,15 @@
       "path": "latka_jazn/memory/memory_recall_contract.py",
       "size_bytes": 3833,
       "sha256": "0946cf360e99dfda6a564ffb944459c15448d6bfa3a01590f9446930768557a7",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
+      "path": "latka_jazn/memory/memory_recovery_pipeline.py",
+      "size_bytes": 18341,
+      "sha256": "90f5976e2aa60f09a60489e27b6984aeb118f53004f4837d0198a0d4b79a7517",
       "mutable_runtime": false,
       "classification": "static_project_file",
       "archive": false,
@@ -2460,8 +2487,8 @@
     },
     {
       "path": "latka_jazn/memory/normalization_sidecar.py",
-      "size_bytes": 102508,
-      "sha256": "bc939313ff85ca87ff8a5226912c17f37299b2a60be824263ec6ef5d17860a04",
+      "size_bytes": 104074,
+      "sha256": "0ee4da37c4e3f95b4a2c326a74ce251d9a55166d739971c9c61e00eebbae738c",
       "mutable_runtime": false,
       "classification": "static_project_file",
       "archive": false,
@@ -2612,6 +2639,15 @@
       "hash_policy": "sha256_file_bytes"
     },
     {
+      "path": "latka_jazn/memory/wake_state_runtime.py",
+      "size_bytes": 9269,
+      "sha256": "294ef962d1fc31b2b130d1c6f93a781f11eb5f14dbd432615d685a0e0fd497a6",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
       "path": "latka_jazn/model_adapters/__init__.py",
       "size_bytes": 469,
       "sha256": "5618f800b889ad85c746d517155c8136523d49c69bb492fb69816e43bffa3137",
@@ -2676,8 +2712,8 @@
     },
     {
       "path": "latka_jazn/model_adapters/local_llm_adapter.py",
-      "size_bytes": 5839,
-      "sha256": "c889086100502fad4743ad4c05f56486fb0f472fcaaf9e5fd3b6547004e4f3bd",
+      "size_bytes": 8035,
+      "sha256": "8918194cc82d4b2054d07654e8a2ccfec6cb81186afe43d830b21d6504947203",
       "mutable_runtime": false,
       "classification": "static_project_file",
       "archive": false,
@@ -4440,8 +4476,8 @@
     },
     {
       "path": "tests/test_cli_progress_system.py",
-      "size_bytes": 6558,
-      "sha256": "bed7579051dc504ba8dacfb67b902609dc973c5f5f9165b17834a6ee58440312",
+      "size_bytes": 6726,
+      "sha256": "6e7239933d2adfc16c42055dcb1490f8c9927a22569eef996c879f4fdfb3c8fa",
       "mutable_runtime": false,
       "classification": "static_project_file",
       "archive": false,
@@ -4502,9 +4538,27 @@
       "hash_policy": "sha256_file_bytes"
     },
     {
+      "path": "tests/test_memory_recovery_pipeline_v151.py",
+      "size_bytes": 9312,
+      "sha256": "d2a8dd440b455911bc3e1bd2036f790cbdc76ed404fcf755b7be567696b60a09",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
       "path": "tests/test_memory_restore_tool.py",
       "size_bytes": 10920,
       "sha256": "bc0f3fa26eaabb4111c9ff7ea81b54907d9d1d1cb202fb866e933a583a4c9494",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
+      "path": "tests/test_ollama_probe_v151.py",
+      "size_bytes": 1727,
+      "sha256": "21adda8495e48f0cd52c4cea35fed23ed98254aaf846be137ec01aaaaa67647a",
       "mutable_runtime": false,
       "classification": "static_project_file",
       "archive": false,

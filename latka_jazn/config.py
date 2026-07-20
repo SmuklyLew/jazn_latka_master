@@ -74,6 +74,18 @@ class JaznConfig:
     timestamp_format: str = "[🕒 %Y-%m-%d %H:%M:%S GMT%z, %A, Europe/Warsaw]"
     memory_db_name: str = field(default_factory=lambda: os.environ.get("JAZN_RUNTIME_MEMORY_DB", "memory/sqlite/runtime_write_v1/runtime_memory.sqlite3").strip())
     audit_db_name: str = field(default_factory=lambda: os.environ.get("JAZN_AUDIT_DB", "memory/sqlite/runtime_write_v1/runtime_audit.sqlite3").strip())
+    recovered_memory_db_name: str = field(default_factory=lambda: os.environ.get(
+        "JAZN_RECOVERED_MEMORY_DB",
+        "memory/sqlite/recovery_v151/runtime_memory_recovered.sqlite3",
+    ).strip())
+    normalization_sidecar_db_name: str = field(default_factory=lambda: os.environ.get(
+        "JAZN_MEMORY_NORMALIZATION_SIDECAR_DB",
+        "memory/sqlite/runtime_write_v2/memory_normalization_sidecar.sqlite3",
+    ).strip())
+    memory_tier_db_name: str = field(default_factory=lambda: os.environ.get(
+        "JAZN_MEMORY_TIER_DB",
+        "memory/sqlite/runtime_write_v2/runtime_memory_v151.sqlite3",
+    ).strip())
     conversation_archive_manifest_name: str = field(default_factory=lambda: os.environ.get("JAZN_CONVERSATION_ARCHIVE_MANIFEST", "memory/sqlite/conversation_archive_v1/conversation_archive_manifest.sqlite3").strip())
     conversation_fts_dir_name: str = field(default_factory=lambda: os.environ.get("JAZN_CONVERSATION_FTS_DIR", "memory/sqlite/conversation_fts_v1").strip())
     conversation_staging_dir_name: str = field(default_factory=lambda: os.environ.get("JAZN_CONVERSATION_STAGING_DIR", "memory/sqlite/staging_v1").strip())
@@ -221,7 +233,28 @@ class JaznConfig:
         return self.root / default_db_name
 
     @property
+    def recovered_memory_db_path(self) -> Path:
+        return self._path_under_runtime_root(self.recovered_memory_db_name)
+
+    @property
+    def normalization_sidecar_db_path(self) -> Path:
+        return self._path_under_runtime_root(self.normalization_sidecar_db_name)
+
+    @property
+    def memory_tier_db_path(self) -> Path:
+        return self._path_under_runtime_root(self.memory_tier_db_name)
+
+    @property
+    def normalization_source_db_path(self) -> Path:
+        """Prefer the verified recovery database without mutating legacy storage."""
+        recovered = self.recovered_memory_db_path
+        return recovered if recovered.is_file() else self.memory_db_path_readonly
+
+    @property
     def memory_db_path(self) -> Path:
+        recovered = self.recovered_memory_db_path
+        if recovered.is_file():
+            return recovered
         return self._active_shard_path(
             self.conversation_shard_manifest_name,
             "chat_context",
@@ -231,6 +264,9 @@ class JaznConfig:
 
     @property
     def memory_db_path_readonly(self) -> Path:
+        recovered = self.recovered_memory_db_path
+        if recovered.is_file():
+            return recovered
         return self._active_shard_path_readonly(
             self.conversation_shard_manifest_name,
             self.memory_db_name,

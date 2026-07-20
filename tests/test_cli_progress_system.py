@@ -84,14 +84,17 @@ def test_shared_parser_flags_are_mutually_exclusive() -> None:
 
 
 def test_runpy_doctor_keeps_json_on_stdout(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
-    def fake_doctor(_root: Path, *, progress=None, **_kwargs: object) -> dict[str, object]:
+    def fake_doctor(_root: Path, *, progress=None, **kwargs: object) -> dict[str, object]:
         assert progress is not None
+        assert kwargs["daemon_host"] == "127.0.0.1"
+        assert kwargs["daemon_port"] == 8791
+        assert kwargs["marker_output"] is None
         progress(0, 2, "start")
         progress(2, 2, "done")
         return {"ok": True, "schema_version": "test/doctor"}
 
     monkeypatch.setattr(cli.diagnostics, "doctor_payload", fake_doctor)
-    code = cli.main(["doctor", "--json", "--progress", "--ascii-progress"])
+    code = cli.main(["doctor", "--daemon-port", "8791", "--json", "--progress", "--ascii-progress"])
     captured = capsys.readouterr()
 
     assert code == 0

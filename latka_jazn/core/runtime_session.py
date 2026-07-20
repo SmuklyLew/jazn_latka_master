@@ -12,6 +12,7 @@ from latka_jazn.core.turn_timeout import runtime_turn_timeout_seconds
 from latka_jazn.memory.memory_tier_status import inspect_memory_tier_store
 from latka_jazn.memory.runtime_memory_v151 import RuntimeMemoryWriteContext
 from latka_jazn.memory.runtime_memory_v151_install import install_runtime_memory_v151
+from latka_jazn.memory.wake_state_runtime import WakeStateRuntimeBridge
 
 from latka_jazn.version import schema_version
 
@@ -36,8 +37,28 @@ class JaznRuntimeSession:
         self.memory_v151_install_status = install_runtime_memory_v151(self.engine)
         self.state_store = RuntimeSessionStateStore(self.config.root)
         self.state = self.state_store.load_or_create(session_id=session_id, source_client=source_client, no_carryover=no_carryover)
+        self.wake_state_bridge = WakeStateRuntimeBridge(self.config)
+        self.wake_state_runtime_status = self.wake_state_bridge.hydrate_l1(session_id=self.state.session_id)
         self.no_carryover = no_carryover
         self._turn_count = 0
+
+    def _wake_state_runtime_payload(self) -> dict[str, Any]:
+        status = getattr(self, "wake_state_runtime_status", None)
+        to_dict = getattr(status, "to_dict", None)
+        if callable(to_dict):
+            return to_dict()
+        return {
+            "schema_version": schema_version("wake_state_runtime"),
+            "status": "not_initialized",
+            "ok": False,
+            "context": None,
+            "l1_memory_id": None,
+            "errors": ["wake_state_bridge_not_initialized"],
+            "truth_boundary": (
+                "Minimalna lub testowa sesja nie uruchomiła mostu wake_state. "
+                "Brak pakietu ciągłości nie jest dowodem pustej pamięci."
+            ),
+        }
 
     def _memory_v151_status_payload(self) -> dict[str, Any]:
         install_status = getattr(self, "memory_v151_install_status", None)
@@ -111,6 +132,7 @@ class JaznRuntimeSession:
             "no_carryover": self.no_carryover,
             "request_id": turn_context.request_id,
             "_turn_context": turn_context,
+            "wake_state_runtime": self._wake_state_runtime_payload(),
         }
         if not self.no_carryover and self.state.last_user_text:
             ctx["previous_user_text"] = self.state.last_user_text
@@ -188,6 +210,7 @@ class JaznRuntimeSession:
                 result["ok"] = False
 
             result["memory_v151"] = self._memory_v151_status_payload()
+            result["wake_state_runtime"] = self._wake_state_runtime_payload()
 
             if result["ok"]:
                 self.state.update(
@@ -240,4 +263,9 @@ class JaznRuntimeSession:
 
     def close(self) -> None:
         self.state_store.save(self.state)
-        self.engine.shutdown()
+        bridge = getattr(self, "wake_state_bridge", None)
+        try:
+            if bridge is not None:
+                bridge.end_session(self.state.session_id)
+        finally:
+            self.engine.shutdown()
