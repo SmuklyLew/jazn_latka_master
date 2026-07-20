@@ -3,11 +3,11 @@
   "version": "v15.1.0.2",
   "runtime_version": "v15.1.0.2",
   "package_version": "v15.1.0.2",
-  "generated_at_utc": "2026-07-20T10:40:17+00:00",
-  "updated_at_utc": "2026-07-20T10:40:17+00:00",
+  "generated_at_utc": "2026-07-20T12:22:54+00:00",
+  "updated_at_utc": "2026-07-20T12:22:54+00:00",
   "start_file": "run.py",
-  "file_count": 535,
-  "static_file_count": 535,
+  "file_count": 539,
+  "static_file_count": 539,
   "mutable_runtime_file_count": 0,
   "runtime_mutable_file_count": 0,
   "excluded_file_count": 1,
@@ -75,8 +75,8 @@
     },
     {
       "path": ".github/workflows/release-hardening.yml",
-      "size_bytes": 10966,
-      "sha256": "efd1ace94fd95ff58f493960edf6d548181d565dd712d336b619445b7436d672",
+      "size_bytes": 11740,
+      "sha256": "586b78523415ce82dbad2f14297dd9e374d7fed811da57bd08a979a8748df210",
       "mutable_runtime": false,
       "classification": "static_project_file",
       "archive": false,
@@ -84,8 +84,8 @@
     },
     {
       "path": ".github/workflows/release-metadata-sync.yml",
-      "size_bytes": 3512,
-      "sha256": "a7f043253a5befc66f2f3e07a04570dc1fdfee7a0e1e9be5617c586b8ac9a075",
+      "size_bytes": 3812,
+      "sha256": "f439eca4c1d9edc09f2ae2d27da5fafa97d091e43c90aaaae11d7a2216d31fe8",
       "mutable_runtime": false,
       "classification": "static_project_file",
       "archive": false,
@@ -157,7 +157,7 @@
     {
       "path": "SOURCE_PROVENANCE.json",
       "size_bytes": 1207,
-      "sha256": "c3ed2bd386ea3b3152118b6caf152aca98584301d6a65aca38092bfa2946c022",
+      "sha256": "1e2c89fd09579708bb158ba3d49f6083f37fe3c5d0d7271c54899c8f13146957",
       "mutable_runtime": false,
       "classification": "static_project_file",
       "archive": false,
@@ -417,8 +417,8 @@
     },
     {
       "path": "latka_jazn/cli_commands/diagnostics.py",
-      "size_bytes": 12769,
-      "sha256": "6d96f42bc5726d1ee09fc7ddf6b75940ea628f20cae2bb43f9d2d3d21f2080f0",
+      "size_bytes": 11947,
+      "sha256": "661596bf6eaa841638e0054f4b02b405577c43ac57920a0b149d33945e86095b",
       "mutable_runtime": false,
       "classification": "static_project_file",
       "archive": false,
@@ -1445,6 +1445,15 @@
       "path": "latka_jazn/core/quiet_rest.py",
       "size_bytes": 683,
       "sha256": "ba3843dfdce668b361c087acc5a0b376cff7c8b33dc53e0f1877fe8ee4488b93",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
+      "path": "latka_jazn/core/readiness.py",
+      "size_bytes": 3609,
+      "sha256": "a4c6242465bfe25ca33c8ac602c8986a7d379ae761533effbd432cd54e132301",
       "mutable_runtime": false,
       "classification": "static_project_file",
       "archive": false,
@@ -4412,6 +4421,15 @@
       "hash_policy": "sha256_file_bytes"
     },
     {
+      "path": "tests/test_code_health_regressions.py",
+      "size_bytes": 3178,
+      "sha256": "96d9fe6279e92ec847523b40521fab6b679971f178b533639bc5a6f89c7459d2",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
       "path": "tests/test_full_canon_model_context.py",
       "size_bytes": 5606,
       "sha256": "ca9483e9340ff88be8de24d039a068da2b4ede9d286db78377fc9630585eb94b",
@@ -4493,6 +4511,15 @@
       "hash_policy": "sha256_file_bytes"
     },
     {
+      "path": "tests/test_readiness_contract.py",
+      "size_bytes": 2832,
+      "sha256": "73f4c36bc0ce12185655869ef1c40ffdff8419a2c288d734dc8298c4c8ada1ff",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
       "path": "tests/test_release_hardening_active_contracts.py",
       "size_bytes": 11806,
       "sha256": "8a1212b6e361990d703c5687e85ca231a700193ea8b4fcd2a3963c252425040b",
@@ -4532,6 +4559,15 @@
       "path": "tests/test_release_metadata_canonical_git.py",
       "size_bytes": 5820,
       "sha256": "26af821f77c6531d039f97fd83847e848af23e0d6e657b2b5c1e83bd86bd9603",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
+      "path": "tests/test_release_workflow_hardening.py",
+      "size_bytes": 2332,
+      "sha256": "a5b52d740f2a9d1d055712a2ce3b55dff6e11a45dfaffa99641db4b293a47d40",
       "mutable_runtime": false,
       "classification": "static_project_file",
       "archive": false,

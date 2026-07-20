@@ -4,29 +4,29 @@ on:
   push:
     branches:
       - master
-      - "hotfix/**"
-      - "upgrade/**"
-      - "fix/**"
-      - update/v15.1.0.1
-      - tools/upgrade-import-eksport-chat-html-and-journal-experience
   pull_request:
+    branches:
+      - master
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: release-metadata-sync-${{ github.head_ref || github.ref_name }}
-  cancel-in-progress: true
+  group: jazn-release-metadata-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
   synchronize:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: write
 
     env:
       PYTHONUTF8: "1"
       PYTHONUNBUFFERED: "1"
       JAZN_RELEASE_BASE_BRANCH: master
+      JAZN_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
 
     steps:
       - name: Checkout source branch
@@ -66,40 +66,39 @@ jobs:
           fi
 
           target_branch="${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}"
-
           echo "Target branch: ${target_branch}"
 
           if [ "$target_branch" = "master" ]; then
             echo "Release metadata drift detected on master." >&2
-            echo "Repair it on an allowed hotfix, upgrade, fix, update or tools branch." >&2
-
+            echo "Repair it on an allowed update, tools/upgrade, hotfix, upgrade or fix branch." >&2
             git diff --stat -- \
               SOURCE_PROVENANCE.json \
               PACKAGE_INTEGRITY_MANIFEST.json >&2
+            exit 2
+          fi
 
+          if [ "$JAZN_HEAD_REPOSITORY" != "$GITHUB_REPOSITORY" ]; then
+            echo "Release metadata drift cannot be committed to a fork: ${JAZN_HEAD_REPOSITORY}." >&2
+            echo "Synchronize metadata in the source repository before updating this pull request." >&2
             exit 2
           fi
 
           case "$target_branch" in
-            update/v15.1.0.1|tools/upgrade-import-eksport-chat-html-and-journal-experience|hotfix/*|upgrade/*|fix/*)
+            update/*|tools/upgrade-*|hotfix/*|upgrade/*|fix/*)
               runtime_version="$(
                 python -X utf8 -c \
                   'from latka_jazn.version import PACKAGE_VERSION_FULL; print(PACKAGE_VERSION_FULL)'
               )"
 
               echo "Synchronizing release metadata for ${runtime_version}."
-
               git config user.name "github-actions[bot]"
               git config user.email \
                 "41898282+github-actions[bot]@users.noreply.github.com"
-
               git add \
                 SOURCE_PROVENANCE.json \
                 PACKAGE_INTEGRITY_MANIFEST.json
-
               git commit \
                 -m "release: synchronize canonical metadata for ${runtime_version}"
-
               git push origin "HEAD:${target_branch}"
               exit 0
               ;;
