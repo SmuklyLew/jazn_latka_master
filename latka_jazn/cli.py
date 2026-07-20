@@ -30,7 +30,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=PACKAGE_VERSION_FULL)
     sub = parser.add_subparsers(dest="command")
 
-    for name in ("doctor", "bridge-discovery", "self-test"):
+    child = sub.add_parser("doctor", allow_abbrev=False)
+    _add_common(child)
+    child.add_argument("--daemon-host", default="127.0.0.1")
+    child.add_argument("--daemon-port", type=int, default=8787)
+    child.add_argument("--daemon-marker-output", type=Path)
+
+    for name in ("bridge-discovery", "self-test"):
         child = sub.add_parser(name, allow_abbrev=False)
         _add_common(child)
 
@@ -64,6 +70,21 @@ def build_parser() -> argparse.ArgumentParser:
         if name == "memory-prepare":
             child.add_argument("--dry-run", action="store_true")
             child.add_argument("--force", action="store_true")
+
+    child = sub.add_parser("memory-recover", allow_abbrev=False)
+    _add_common(child)
+    child.add_argument("--force-recovery", action="store_true")
+    child.add_argument("--normalize-limit", type=int)
+    child.add_argument("--prepare-l2", action="store_true")
+    child.add_argument("--l2-limit", type=int, default=120)
+    child.add_argument("--build-l3-manifest", action="store_true")
+    child.add_argument("--l3-limit", type=int, default=25)
+    child.add_argument("--approve-l3-manifest-sha")
+    child.add_argument("--approved-by")
+
+    child = sub.add_parser("model-status", allow_abbrev=False)
+    _add_common(child)
+    child.add_argument("--probe", action="store_true")
 
     for name in ("start", "stop", "restart"):
         child = sub.add_parser(name, allow_abbrev=False)
@@ -156,7 +177,7 @@ def main(argv: list[str] | None = None) -> int:
     known = {
         "status", "doctor", "start", "stop", "restart", "chat", "chat-gpt",
         "host-finalize", "bridge-discovery", "audit-tail", "explain-turn",
-        "replay-turn", "export", "package-smoke", "release-metadata", "release-build", "self-test", "memory-prepare", "memory-status",
+        "replay-turn", "export", "package-smoke", "release-metadata", "release-build", "self-test", "memory-prepare", "memory-status", "memory-recover", "model-status",
     }
     if args and args[0].startswith("--") and args[0] not in {"--version", "--help", "-h"}:
         return _legacy_main(args)
@@ -181,7 +202,13 @@ def main(argv: list[str] | None = None) -> int:
     if ns.command == "doctor":
         progress = _progress(ns, "doctor", style="bar")
         try:
-            payload = diagnostics.doctor_payload(root, progress=progress.callback())
+            payload = diagnostics.doctor_payload(
+                root,
+                daemon_host=ns.daemon_host,
+                daemon_port=ns.daemon_port,
+                marker_output=ns.daemon_marker_output,
+                progress=progress.callback(),
+            )
         except Exception as exc:
             progress.fail(f"Diagnostyka przerwana: {type(exc).__name__}")
             raise
@@ -275,6 +302,37 @@ def main(argv: list[str] | None = None) -> int:
         )
         _emit(payload, as_json=ns.as_json)
         return int(payload.get("exit_code", 2))
+    if ns.command == "memory-recover":
+        from latka_jazn.memory.memory_recovery_pipeline import MemoryRecoveryPipeline
+
+        progress = _progress(ns, "memory-recover", style="bar")
+        pipeline = MemoryRecoveryPipeline(root)
+        payload = pipeline.run(
+            force_recovery=ns.force_recovery,
+            normalize_limit=ns.normalize_limit,
+            prepare_l2=ns.prepare_l2,
+            l2_limit=ns.l2_limit,
+            build_l3_manifest=ns.build_l3_manifest,
+            l3_limit=ns.l3_limit,
+            approve_l3_manifest_sha=ns.approve_l3_manifest_sha,
+            approved_by=ns.approved_by,
+            progress=progress.callback(),
+        ).to_dict()
+        progress.finish(bool(payload.get("ok")), "Odzysk i przygotowanie pamięci zakończone")
+        _emit(payload, as_json=ns.as_json)
+        return 0 if payload.get("ok") else 1
+    if ns.command == "model-status":
+        from latka_jazn.config import JaznConfig
+        from latka_jazn.model_adapters.factory import build_model_adapter, build_model_adapter_status
+
+        cfg = JaznConfig(root=root)
+        adapter = build_model_adapter(cfg)
+        if ns.probe and hasattr(adapter, "probe"):
+            payload = adapter.probe()
+        else:
+            payload = build_model_adapter_status(cfg, command="model-status", infer_host_environment=False)
+        _emit(payload, as_json=ns.as_json)
+        return 0 if (not ns.probe or payload.get("probe_ok") is True) else 1
     if ns.command in {"memory-prepare", "memory-status"}:
         from latka_jazn.config import JaznConfig
         from latka_jazn.memory.normalization_sidecar import MemoryNormalizationSidecar
@@ -282,8 +340,8 @@ def main(argv: list[str] | None = None) -> int:
         cfg = JaznConfig(root=root)
         sidecar = MemoryNormalizationSidecar(
             root,
-            source_db_path=cfg.memory_db_path_readonly,
-            sidecar_db_path=cfg.audit_db_path_readonly,
+            source_db_path=cfg.normalization_source_db_path,
+            sidecar_db_path=cfg.normalization_sidecar_db_path,
             runtime_version=cfg.version,
         )
         if ns.command == "memory-prepare":

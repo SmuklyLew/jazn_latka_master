@@ -40,6 +40,7 @@ RELEVANT_FINGERPRINT_COLUMNS: dict[str, tuple[str, ...]] = {
         "boundary_note", "next_question", "confidence",
     ),
     "truth_audits": ("audit_id", "created_at_utc", "text", "audit_json"),
+    "journal": ("journal_id", "created_at_utc", "created_at_local", "kind", "text", "payload_json"),
 }
 TRUTH_BOUNDARY = (
     "Sidecar normalizacji czyta aktywną SQLite jako źródło i zapisuje wyłącznie "
@@ -622,11 +623,11 @@ class MemoryNormalizationSidecar:
         sidecar_db_path: Path | str | None = None,
         runtime_version: str | None = None,
     ) -> None:
-        cfg = JaznConfig(root=Path(root)) if runtime_version is None else None
+        cfg = JaznConfig(root=Path(root))
         self.root = Path(root)
-        self.runtime_version = runtime_version or (cfg.version if cfg else "")
-        self.source_db_path = Path(source_db_path) if source_db_path else self.root / "memory" / "sqlite" / "chat_context.sqlite3"
-        self.sidecar_db_path = Path(sidecar_db_path) if sidecar_db_path else self.root / "memory" / "sqlite" / "chat_context_audit.sqlite3"
+        self.runtime_version = runtime_version or cfg.version
+        self.source_db_path = Path(source_db_path) if source_db_path else cfg.normalization_source_db_path
+        self.sidecar_db_path = Path(sidecar_db_path) if sidecar_db_path else cfg.normalization_sidecar_db_path
 
     def ensure_schema(self) -> None:
         with _connect_write(self.sidecar_db_path) as con:
@@ -1718,6 +1719,7 @@ class MemoryNormalizationSidecar:
                     "procedural_rules",
                     "reflection_entries",
                     "truth_audits",
+                    "journal",
                 ):
                     counts[table] = _count_table(con, table)
         except Exception as exc:
@@ -1727,13 +1729,14 @@ class MemoryNormalizationSidecar:
 
     def _estimated_output_counts(self, input_counts: dict[str, int], *, limit: int | None) -> dict[str, int]:
         total = (
-            input_counts.get("messages_user_assistant", 0)
+            (input_counts.get("messages_user_assistant", 0) or input_counts.get("messages", 0))
             + input_counts.get("legacy_chunks", 0)
             + input_counts.get("episodic_memories", 0)
             + input_counts.get("semantic_facts", 0)
             + input_counts.get("procedural_rules", 0)
             + input_counts.get("reflection_entries", 0)
             + input_counts.get("truth_audits", 0)
+            + input_counts.get("journal", 0)
         )
         if limit is not None:
             total = min(total, max(0, int(limit)))
@@ -1770,24 +1773,28 @@ class MemoryNormalizationSidecar:
         limit: int | None,
     ) -> Iterable[dict[str, Any]]:
         emitted = 0
-        for item in self._iter_message_items(source, run_id):
-            yield item
-            emitted += 1
-            if limit is not None and emitted >= limit:
-                return
+        # Curated/source-labelled records are normalized before raw dialogue. The
+        # complete dialogue remains searchable in L0; a bounded sidecar limit must
+        # not starve procedural, semantic, truth-boundary, or journal material.
         for iterator in (
-            self._iter_legacy_chunk_items,
-            self._iter_episodic_items,
-            self._iter_semantic_items,
             self._iter_procedural_items,
+            self._iter_semantic_items,
+            self._iter_episodic_items,
             self._iter_reflection_items,
             self._iter_truth_audit_items,
+            self._iter_journal_items,
+            self._iter_legacy_chunk_items,
         ):
             for item in iterator(source, run_id):
                 yield item
                 emitted += 1
                 if limit is not None and emitted >= limit:
                     return
+        for item in self._iter_message_items(source, run_id):
+            yield item
+            emitted += 1
+            if limit is not None and emitted >= limit:
+                return
 
     def _base_item(
         self,
@@ -1868,7 +1875,7 @@ class MemoryNormalizationSidecar:
               FROM messages
              WHERE role IN ('user','assistant')
                AND COALESCE(content_text,'') <> ''
-             ORDER BY COALESCE(timestamp, created_at, updated_at), rowid
+             ORDER BY COALESCE(timestamp, created_at, updated_at) DESC, rowid DESC
         """
         for row in con.execute(sql):
             role = row["role"] or "unknown"
@@ -1898,6 +1905,30 @@ class MemoryNormalizationSidecar:
                 privacy_scope="conversation_private_unverified",
                 memory_namespace="dialogue_general_unverified",
                 evidence={"role": role, "content_hash": row["content_hash"]},
+            )
+
+    def _iter_journal_items(self, con: sqlite3.Connection, run_id: str) -> Iterable[dict[str, Any]]:
+        if not _table_exists(con, "journal"):
+            return
+        for row in con.execute("SELECT rowid, * FROM journal ORDER BY created_at_utc, journal_id"):
+            text = str(row["text"] or "")
+            if not text.strip():
+                continue
+            yield self._base_item(
+                memory_type="legacy_journal_entry",
+                source_table="journal",
+                source_row_id=str(row["journal_id"] or row["rowid"]),
+                content=text,
+                run_id=run_id,
+                source_timestamp=row["created_at_utc"],
+                source_timestamp_confidence=0.78,
+                grounding="recovered_journal_source",
+                truth_status="source_recorded_pending_review",
+                confidence=0.62,
+                importance=0.55,
+                privacy_scope="legacy_private_pending_review",
+                memory_namespace="legacy_journal_pending_review",
+                evidence={"kind": row["kind"], "payload_json": row["payload_json"]},
             )
 
     def _iter_legacy_chunk_items(self, con: sqlite3.Connection, run_id: str) -> Iterable[dict[str, Any]]:
@@ -2166,8 +2197,8 @@ def build_memory_normalization_status(
     cfg = config or JaznConfig()
     return MemoryNormalizationSidecar(
         cfg.root,
-        source_db_path=cfg.memory_db_path_readonly,
-        sidecar_db_path=cfg.audit_db_path_readonly,
+        source_db_path=cfg.normalization_source_db_path,
+        sidecar_db_path=cfg.normalization_sidecar_db_path,
         runtime_version=cfg.version,
     ).status(deep_verify=deep_verify)
 
@@ -2178,7 +2209,7 @@ def build_wake_state_status(
     cfg = config or JaznConfig()
     return MemoryNormalizationSidecar(
         cfg.root,
-        source_db_path=cfg.memory_db_path_readonly,
-        sidecar_db_path=cfg.audit_db_path_readonly,
+        source_db_path=cfg.normalization_source_db_path,
+        sidecar_db_path=cfg.normalization_sidecar_db_path,
         runtime_version=cfg.version,
     ).wake_state_status(deep_verify=deep_verify)
