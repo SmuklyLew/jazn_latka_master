@@ -153,10 +153,9 @@ def create_release_staging(
             raise SourceProvenanceError(f"release staging rejects non-regular Git entry: {relative}")
         entries.append((object_sha, relative))
 
-    # Read every blob through one long-lived Git process. Spawning git cat-file
-    # once per file makes release staging scale with process startup overhead
-    # and can turn a small repository into a multi-minute operation on Windows
-    # or overlay filesystems.
+    # Read every blob through one long-lived Git process.  Each request is
+    # followed immediately by its response so neither the stdin nor stdout
+    # pipe can fill and deadlock on Windows.
     process = subprocess.Popen(
         ["git", "-C", str(root), "cat-file", "--batch"],
         stdin=subprocess.PIPE,
@@ -165,12 +164,10 @@ def create_release_staging(
     )
     assert process.stdin is not None and process.stdout is not None
     try:
-        for object_sha, _relative in entries:
-            process.stdin.write(object_sha.encode("ascii") + b"\n")
-        process.stdin.flush()
-        process.stdin.close()
-
         for expected_sha, relative in entries:
+            process.stdin.write(expected_sha.encode("ascii") + b"\n")
+            process.stdin.flush()
+
             header = process.stdout.readline()
             if not header:
                 raise SourceProvenanceError(f"git cat-file --batch ended before {relative}")
@@ -187,6 +184,7 @@ def create_release_staging(
             target = resolve_safe_destination(destination, relative)
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(blob)
+        process.stdin.close()
     finally:
         if process.stdin is not None and not process.stdin.closed:
             process.stdin.close()
