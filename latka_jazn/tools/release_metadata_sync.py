@@ -8,9 +8,10 @@ import os
 from pathlib import Path
 import re
 import subprocess
-from typing import Any, Iterable, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
 from latka_jazn.core.version_source import read_runtime_version_from_version_py
+from latka_jazn.tools.console_progress import TerminalProgress, add_progress_arguments
 from latka_jazn.tools.package_integrity import (
     FORBIDDEN_FILE_NAMES,
     FORBIDDEN_ROOT_NAMES,
@@ -27,6 +28,12 @@ PROVENANCE_NAME = "SOURCE_PROVENANCE.json"
 METADATA_ONLY_PATHS = frozenset({PROVENANCE_NAME, MANIFEST_NAME})
 _RELEASE_MODE = "release_metadata"
 _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+ProgressCallback = Callable[[int, int, str], None]
+
+
+def _report_progress(callback: ProgressCallback | None, completed: int, total: int, label: str) -> None:
+    if callback is not None:
+        callback(completed, total, label)
 
 
 class ReleaseMetadataSyncError(RuntimeError):
@@ -275,6 +282,9 @@ def build_canonical_package_manifest(
     source_commit: str,
     overrides: Mapping[str, bytes] | None = None,
     generated_at_utc: str | None = None,
+    progress: ProgressCallback | None = None,
+    progress_start: int = 20,
+    progress_end: int = 90,
 ) -> dict[str, Any]:
     """Build a package manifest from canonical Git blobs, never worktree EOLs."""
 
@@ -291,8 +301,10 @@ def build_canonical_package_manifest(
     candidates = sorted(set(blobs) | set(override_map))
     files: list[dict[str, Any]] = []
     excluded: list[str] = []
+    candidate_total = max(1, len(candidates))
+    _report_progress(progress, progress_start, 100, f"Skanowanie {len(candidates)} obiektów Git")
 
-    for relative in candidates:
+    for index, relative in enumerate(candidates, start=1):
         if path_is_forbidden(relative):
             excluded.append(relative)
             continue
@@ -311,6 +323,9 @@ def build_canonical_package_manifest(
                 "hash_policy": "sha256_file_bytes",
             }
         )
+        span = max(0, progress_end - progress_start)
+        overall = progress_start + round(span * index / candidate_total)
+        _report_progress(progress, overall, 100, f"Przetwarzanie plików Git: {index}/{len(candidates)}")
 
     present = {entry["path"] for entry in files}
     missing_required = sorted(REQUIRED_STATIC_PATHS - present)
@@ -356,21 +371,29 @@ def build_release_metadata_documents(
     root: Path | str,
     *,
     base_branch: str | None = None,
+    progress: ProgressCallback | None = None,
 ) -> dict[str, Any]:
     root = Path(root).resolve()
+    _report_progress(progress, 0, 100, "Sprawdzanie repozytorium i czystości drzewa")
     source_commit = resolve_release_source_commit(root)
+    _report_progress(progress, 8, 100, "Commit źródłowy wydania rozwiązany")
     provenance = build_release_provenance_document(
         root,
         source_commit=source_commit,
         base_branch=base_branch,
     )
+    _report_progress(progress, 16, 100, "Proweniencja Git zbudowana")
     provenance_bytes = _json_bytes(provenance)
     manifest = build_canonical_package_manifest(
         root,
         source_commit=source_commit,
         overrides={PROVENANCE_NAME: provenance_bytes},
         generated_at_utc=str(provenance["generated_at_utc"]),
+        progress=progress,
+        progress_start=20,
+        progress_end=90,
     )
+    _report_progress(progress, 94, 100, "Serializacja manifestu integralności")
     manifest_bytes = serialize_package_integrity_manifest(manifest)
     return {
         "schema_version": schema_version("release_metadata_sync"),
@@ -395,11 +418,15 @@ def write_release_metadata(
     root: Path | str,
     *,
     base_branch: str | None = None,
+    progress: ProgressCallback | None = None,
 ) -> dict[str, Any]:
     root = Path(root).resolve()
-    documents = build_release_metadata_documents(root, base_branch=base_branch)
+    documents = build_release_metadata_documents(root, base_branch=base_branch, progress=progress)
+    _report_progress(progress, 97, 100, "Zapisywanie SOURCE_PROVENANCE.json")
     _write_atomic(root / PROVENANCE_NAME, documents["provenance_bytes"])
+    _report_progress(progress, 99, 100, "Zapisywanie PACKAGE_INTEGRITY_MANIFEST.json")
     _write_atomic(root / MANIFEST_NAME, documents["manifest_bytes"])
+    _report_progress(progress, 100, 100, "Metadane wydania zapisane atomowo")
     return {
         key: value
         for key, value in documents.items()
@@ -411,15 +438,18 @@ def check_release_metadata(
     root: Path | str,
     *,
     base_branch: str | None = None,
+    progress: ProgressCallback | None = None,
 ) -> dict[str, Any]:
     root = Path(root).resolve()
-    documents = build_release_metadata_documents(root, base_branch=base_branch)
+    documents = build_release_metadata_documents(root, base_branch=base_branch, progress=progress)
     current_provenance = (root / PROVENANCE_NAME).read_bytes() if (root / PROVENANCE_NAME).is_file() else None
     current_manifest = (root / MANIFEST_NAME).read_bytes() if (root / MANIFEST_NAME).is_file() else None
+    _report_progress(progress, 97, 100, "Porównywanie proweniencji")
     synchronized = (
         current_provenance == documents["provenance_bytes"]
         and current_manifest == documents["manifest_bytes"]
     )
+    _report_progress(progress, 100, 100, "Porównanie metadanych zakończone")
     return {
         "schema_version": schema_version("release_metadata_sync_check"),
         "ok": synchronized,
@@ -449,16 +479,32 @@ def main(argv: Iterable[str] | None = None) -> int:
     mode.add_argument("--check", action="store_true")
     mode.add_argument("--write", action="store_true")
     parser.add_argument("--json", action="store_true", dest="as_json")
+    add_progress_arguments(parser)
     ns = parser.parse_args(list(argv) if argv is not None else None)
+    progress = TerminalProgress.from_namespace(
+        ns,
+        "release-metadata-write" if ns.write else "release-metadata-check",
+        style="bar" if ns.write else "dots",
+    )
 
     try:
         if ns.write:
-            payload = write_release_metadata(ns.root, base_branch=ns.base_branch)
+            payload = write_release_metadata(
+                ns.root,
+                base_branch=ns.base_branch,
+                progress=progress.callback(symbol="folder"),
+            )
             exit_code = 0
         else:
-            payload = check_release_metadata(ns.root, base_branch=ns.base_branch)
+            payload = check_release_metadata(
+                ns.root,
+                base_branch=ns.base_branch,
+                progress=progress.callback(symbol="lock"),
+            )
             exit_code = 0 if payload.get("ok") else 2
+        progress.finish(exit_code == 0, "Metadane wydania zsynchronizowane" if ns.write else "Kontrola synchronizacji zakończona")
     except Exception as exc:
+        progress.fail(f"Synchronizacja metadanych przerwana: {type(exc).__name__}")
         payload = {
             "schema_version": schema_version("release_metadata_sync_error"),
             "ok": False,
