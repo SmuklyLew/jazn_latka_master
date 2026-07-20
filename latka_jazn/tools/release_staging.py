@@ -142,7 +142,7 @@ def create_release_staging(
 
     raw_listing = _git(root, "ls-tree", "-rz", selected, binary=True)
     assert isinstance(raw_listing, bytes)
-    file_count = 0
+    entries: list[tuple[str, str]] = []
     for raw_record in raw_listing.split(b"\x00"):
         if not raw_record:
             continue
@@ -151,12 +151,50 @@ def create_release_staging(
         relative = validate_safe_relative_path(raw_path.decode("utf-8", "strict"))
         if object_type != "blob" or mode == "120000":
             raise SourceProvenanceError(f"release staging rejects non-regular Git entry: {relative}")
-        target = resolve_safe_destination(destination, relative)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        blob = _git(root, "cat-file", "blob", object_sha, binary=True)
-        assert isinstance(blob, bytes)
-        target.write_bytes(blob)
-        file_count += 1
+        entries.append((object_sha, relative))
+
+    # Read every blob through one long-lived Git process. Spawning git cat-file
+    # once per file makes release staging scale with process startup overhead
+    # and can turn a small repository into a multi-minute operation on Windows
+    # or overlay filesystems.
+    process = subprocess.Popen(
+        ["git", "-C", str(root), "cat-file", "--batch"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    assert process.stdin is not None and process.stdout is not None
+    try:
+        for object_sha, _relative in entries:
+            process.stdin.write(object_sha.encode("ascii") + b"\n")
+        process.stdin.flush()
+        process.stdin.close()
+
+        for expected_sha, relative in entries:
+            header = process.stdout.readline()
+            if not header:
+                raise SourceProvenanceError(f"git cat-file --batch ended before {relative}")
+            parts = header.rstrip(b"\n").split()
+            if len(parts) != 3 or parts[0].decode("ascii") != expected_sha or parts[1] != b"blob":
+                raise SourceProvenanceError(
+                    f"unexpected git cat-file header for {relative}: {header.decode('utf-8', 'replace').strip()}"
+                )
+            size = int(parts[2])
+            blob = process.stdout.read(size)
+            separator = process.stdout.read(1)
+            if len(blob) != size or separator != b"\n":
+                raise SourceProvenanceError(f"truncated git blob while staging {relative}")
+            target = resolve_safe_destination(destination, relative)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(blob)
+    finally:
+        if process.stdin is not None and not process.stdin.closed:
+            process.stdin.close()
+        returncode = process.wait()
+        stderr = process.stderr.read().decode("utf-8", "replace") if process.stderr is not None else ""
+        if returncode != 0:
+            raise SourceProvenanceError(f"git cat-file --batch failed ({returncode}): {stderr.strip()}")
+    file_count = len(entries)
 
     _write_json(destination / "SOURCE_PROVENANCE.json", provenance)
     manifest = write_package_integrity_manifest(destination)
