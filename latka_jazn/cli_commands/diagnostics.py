@@ -4,9 +4,10 @@ import json
 from pathlib import Path
 from typing import Any
 
-from latka_jazn.bridge.secure_host_runtime_gateway import GatewayConfig
+from latka_jazn.bridge.secure_host_runtime_gateway import GatewayConfig, GatewayError
 from latka_jazn.config import JaznConfig
 from latka_jazn.core.bridge_discovery import discover_runtime_bridges
+from latka_jazn.core.readiness import evaluate_runtime_readiness
 from latka_jazn.core.runtime_daemon import DEFAULT_DAEMON_HOST, DEFAULT_DAEMON_PORT, status_daemon
 from latka_jazn.core.startup_contract import build_startup_status
 from latka_jazn.core.package_integrity_manifest import package_integrity_manifest_status
@@ -24,7 +25,7 @@ def _memory_v151_status(cfg: JaznConfig) -> dict[str, Any]:
             cfg.root,
             configured=getattr(cfg, "memory_tier_db_path", None),
         )
-    except Exception as exc:
+    except (OSError, RuntimeError, ValueError) as exc:
         return {
             "path": None,
             "exists": False,
@@ -70,7 +71,7 @@ def _read_manifest(root: Path) -> tuple[dict[str, Any], str | None]:
     path = Path(status.path)
     try:
         value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except Exception as exc:
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         return {}, f"{type(exc).__name__}: {exc}"
     if not isinstance(value, dict):
         return {}, "manifest_not_object"
@@ -127,7 +128,7 @@ def doctor_payload(
     try:
         GatewayConfig().validate()
         mcp_policy_error = None
-    except Exception as exc:  # pragma: no cover - defensive serialization path
+    except GatewayError as exc:  # pragma: no cover - defensive serialization path
         mcp_policy_error = f"{type(exc).__name__}: {exc}"
 
     required_checks = {
@@ -161,29 +162,13 @@ def doctor_payload(
         "verification_errors": list(manifest_verification.get("errors") or []),
         "runtime_start_blocking": True,
     }
-    installation_ok = all(required_checks.values())
-    activation_ready = bool(
-        installation_ok
-        and package_integrity_checks["present"]
-        and package_integrity_checks["parse_ok"]
-        and package_integrity_checks["version_matches"]
-        and package_integrity_checks["primary_present"]
-        and package_integrity_checks["legacy_alias_absent"]
-        and package_integrity_checks["canonical_source_name"]
-        and package_integrity_checks["verification_ok"]
+    readiness = evaluate_runtime_readiness(
+        required_checks=required_checks,
+        package_integrity_checks=package_integrity_checks,
+        provenance=provenance,
+        daemon=daemon,
+        memory_v151=memory_v151,
     )
-    live_runtime_ready = bool(
-        (daemon.get("active_state") or daemon.get("runtime_active_state")) == "active_trusted"
-        and daemon.get("pid_alive")
-        and daemon.get("endpoint_reachable")
-        and daemon.get("heartbeat_fresh")
-    )
-    release_metadata_current = bool(
-        package_integrity_checks["verification_ok"]
-        and provenance.get("version_matches_runtime")
-        and provenance.get("status") in {"clean_checkout_verified", "verified_export_without_git_history"}
-    )
-    release_ready = bool(activation_ready and release_metadata_current)
 
     live_evidence = {
         "marker_found": bool(marker.get("existing_marker_found") or daemon.get("marker_found")),
@@ -245,20 +230,15 @@ def doctor_payload(
         "schema_version": schema_version("runpy_doctor"),
         # Backward compatibility: ``ok`` continues to mean structural installation health.
         # Read activation/release/live readiness from the explicit fields below.
-        "ok": installation_ok,
-        "installation_ok": installation_ok,
-        "activation_ready": activation_ready,
-        "release_metadata_current": release_metadata_current,
-        "release_ready": release_ready,
-        "live_runtime_ready": live_runtime_ready,
-        "readiness": {
-            "installation_ok": installation_ok,
-            "activation_ready": activation_ready,
-            "release_metadata_current": release_metadata_current,
-            "release_ready": release_ready,
-            "live_runtime_ready": live_runtime_ready,
-            "memory_v151_ready": bool(memory_v151.get("ready")),
-        },
+        "ok": readiness.installation_ok,
+        "installation_ok": readiness.installation_ok,
+        "activation_ready": readiness.activation_ready,
+        "activation_prerequisites_ready": readiness.activation_prerequisites_ready,
+        "release_metadata_current": readiness.release_metadata_current,
+        "release_ready": readiness.release_ready,
+        "live_runtime_ready": readiness.live_runtime_ready,
+        "readiness": readiness.to_dict(),
+        "readiness_summary": readiness.summary(),
         "checks": required_checks,
         "package_integrity_checks": package_integrity_checks,
         "live_evidence": live_evidence,
@@ -266,9 +246,9 @@ def doctor_payload(
         "status": status,
         "read_only": True,
         "truth_boundary": (
-            "Doctor reports structural installation health separately from activation, release metadata, live runtime readiness "
-            "and memory_v151 readiness. A green legacy ok/installation_ok is not proof of an activatable package, live daemon "
-            "or correct memory recall; read the explicit readiness fields."
+            "Doctor reports structural installation health separately from activation prerequisites, release metadata, "
+            "live runtime readiness and memory_v151 readiness. The legacy activation_ready field is retained as an alias "
+            "for activation_prerequisites_ready; it does not mean that a daemon is running."
         ),
     }
 
