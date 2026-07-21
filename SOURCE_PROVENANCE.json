@@ -1,12 +1,12 @@
 {
   "base_branch": "master",
-  "base_merge_commit": "49955fcaa2f617f36b7f02ae0bc09d1a152ae9d6",
+  "base_merge_commit": "93542d81ce797ec7e836c4bdb30c6b59d0d69be4",
   "base_version": "v15.1.0.3.534-New generator",
-  "commit_date": "2026-07-21T23:53:06Z",
+  "commit_date": "2026-07-22T01:56:21+02:00",
   "dirty": false,
-  "generated_at_utc": "2026-07-21T23:53:06+00:00",
+  "generated_at_utc": "2026-07-21T23:56:21+00:00",
   "generation_mode": "release_metadata",
-  "git_tree_sha": "924d3446fc1baf51c66f8ce748340e5d0758b44e",
+  "git_tree_sha": "fe98658db0d72aadf770220680c14830d0714774",
   "metadata_only_paths": [
     "PACKAGE_INTEGRITY_MANIFEST.json",
     "SOURCE_PROVENANCE.json"
