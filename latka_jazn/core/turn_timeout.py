@@ -41,6 +41,17 @@ def runtime_turn_timeout_seconds(config: object | None = None) -> float:
         return DEFAULT_RUNTIME_TURN_TIMEOUT_SECONDS
 
 
+def _persist_turn_audit_async(turn_context: TurnExecutionContext, *, event_type: str) -> None:
+    """Persist fail-soft timeout telemetry without delaying the terminal result."""
+
+    threading.Thread(
+        target=turn_context.persist_audit,
+        kwargs={"event_type": event_type},
+        name="jazn-turn-audit-persist",
+        daemon=True,
+    ).start()
+
+
 def run_with_runtime_turn_timeout(func: Callable[[], T], *, command: str, timeout_seconds: float) -> T:
     """Run a stateless call with a daemon-thread watchdog.
 
@@ -221,7 +232,10 @@ class RuntimeSessionWorker:
                             "phase": "runtime_turn",
                         },
                     )
-                    turn_context.persist_audit(event_type="runtime_turn_execution_timeout")
+                    _persist_turn_audit_async(
+                        turn_context,
+                        event_type="runtime_turn_execution_timeout",
+                    )
                 raise RuntimeTurnTimeoutError(command=self._command, timeout_seconds=self._timeout_seconds)
             try:
                 status, value = response_queue.get(timeout=min(0.25, remaining))
