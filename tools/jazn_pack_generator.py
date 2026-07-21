@@ -86,7 +86,7 @@ try:  # pragma: no cover - zależne od terminala użytkownika
     from prompt_toolkit.widgets import Frame as _pt_Frame
     from prompt_toolkit.widgets import TextArea as _pt_TextArea
     HAS_PROMPT_TOOLKIT = True
-except Exception:  # pragma: no cover
+except ImportError:  # pragma: no cover
     _pt_prompt = None
     _pt_Application = None
     _pt_DynamicCompleter = None
@@ -222,7 +222,7 @@ class Theme:
             from prompt_toolkit.application.current import get_app
             size = get_app().output.get_size()
             return max(20, int(size.columns)), max(8, int(size.rows))
-        except Exception:
+        except (AttributeError, RuntimeError, TypeError, ValueError):
             size = shutil.get_terminal_size((120, 32))
             return max(20, int(size.columns)), max(8, int(size.lines))
 
@@ -669,11 +669,11 @@ def make_zipinfo(entry: PlanEntry, compression_level: int) -> zipfile.ZipInfo:
     if hasattr(zi, "compress_level"):
         try:
             zi.compress_level = compression_level  # type: ignore[attr-defined]
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             pass
     try:
         zi._compresslevel = compression_level  # type: ignore[attr-defined]
-    except Exception:
+    except (AttributeError, TypeError, ValueError):
         pass
     zi.file_size = entry.size_bytes
     zi.external_attr = (0o100644 & 0xFFFF) << 16
@@ -717,7 +717,7 @@ def print_progress(done: int, total: int, label: str) -> None:
 def _literal_assignments(path: Path) -> dict[str, str]:
     try:
         tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
-    except Exception as exc:
+    except (OSError, UnicodeError, SyntaxError) as exc:
         raise PackError(f"Nie można odczytać {path}: {exc}") from exc
     values: dict[str, str] = {}
     for node in tree.body:
@@ -851,7 +851,7 @@ def read_version_info(root: Path) -> VersionInfo:
 def archived_version_from_bytes(raw: bytes) -> str:
     try:
         tree = ast.parse(raw.decode("utf-8-sig"))
-    except Exception as exc:
+    except (UnicodeError, SyntaxError) as exc:
         raise PackError(f"Nie można odczytać wersji z ZIP-a: {exc}") from exc
     values: dict[str, str] = {}
     for node in tree.body:
@@ -1175,7 +1175,7 @@ def internal_manifest_schema(root: Path) -> str:
             value = str(payload.get("schema_version") or "").strip()
             if value:
                 return value
-        except Exception:
+        except (OSError, UnicodeError, json.JSONDecodeError, AttributeError, TypeError):
             pass
     return "package_integrity_manifest/v2"
 
@@ -2292,7 +2292,7 @@ def run_compatibility_matrix(
                         while handle.read(CHUNK_SIZE):
                             pass
             results.append({"tool": "python.zipfile", "status": "passed", "archive": archive.name})
-        except Exception as exc:
+        except (OSError, EOFError, RuntimeError, NotImplementedError, zipfile.BadZipFile) as exc:
             results.append({"tool": "python.zipfile", "status": "failed", "archive": archive.name, "detail": f"{type(exc).__name__}: {exc}"})
 
         seven = _tool_candidates(
@@ -2567,7 +2567,7 @@ def run_pack(options: PackOptions) -> list[PackageResult]:
 def load_sidecar(path: Path) -> dict[str, Any]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8-sig"))
-    except Exception as exc:
+    except (OSError, UnicodeError, json.JSONDecodeError, TypeError) as exc:
         raise PackError(f"Nie można odczytać sidecara {path}: {exc}") from exc
     if payload.get("schema_version") != PACKAGE_SET_SCHEMA:
         raise PackError(f"Nieobsługiwany schema_version: {payload.get('schema_version')!r}")
@@ -2763,7 +2763,7 @@ def _enable_windows_vt() -> None:
     if os.name == "nt":
         try:
             os.system("")
-        except Exception:
+        except OSError:
             pass
 
 
@@ -2774,7 +2774,7 @@ def _color_enabled(stream: Any = None) -> bool:
     try:
         if not stream.isatty():
             return False
-    except Exception:
+    except (AttributeError, OSError, ValueError):
         return False
     _enable_windows_vt()
     return True
@@ -2789,7 +2789,7 @@ def _paint(text: str, *codes: str, stream: Any = None) -> str:
 def _ui_width(fallback: int = 96) -> int:
     try:
         columns = shutil.get_terminal_size((fallback, 24)).columns
-    except Exception:
+    except OSError:
         columns = fallback
     return max(72, min(columns, 132))
 
@@ -2887,7 +2887,7 @@ def load_interactive_state() -> InteractiveState:
         return state
     try:
         payload = json.loads(path.read_text(encoding="utf-8-sig"))
-    except Exception as exc:
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         ui_status(f"Nie można wczytać ustawień {path}: {exc}", "warn")
         return state
     if not isinstance(payload, dict):
@@ -3042,7 +3042,7 @@ def _install_right_click_back(control: Any, *, result: Any = None) -> None:
             try:
                 from prompt_toolkit.application.current import get_app
                 get_app().exit(result=result)
-            except Exception:
+            except (AttributeError, RuntimeError):
                 pass
             return None
         return original(mouse_event)
@@ -3092,14 +3092,14 @@ def cursor_select(
                 try:
                     from prompt_toolkit.application.current import get_app
                     get_app().invalidate()
-                except Exception:
+                except (AttributeError, RuntimeError):
                     pass
                 return None
             if action == "back":
                 try:
                     from prompt_toolkit.application.current import get_app
                     get_app().exit(result=None)
-                except Exception:
+                except (AttributeError, RuntimeError):
                     pass
                 return None
             if action == "activate":
@@ -3107,7 +3107,7 @@ def cursor_select(
                 try:
                     from prompt_toolkit.application.current import get_app
                     get_app().exit(result=row_index)
-                except Exception:
+                except (AttributeError, RuntimeError):
                     pass
                 return None
             return NotImplemented
@@ -3537,7 +3537,7 @@ def compatibility_summary(result: PackageResult) -> list[str]:
     try:
         payload = load_sidecar(result.sidecar_path)
         report = ((payload.get("verification") or {}).get("compatibility") or {})
-    except Exception:
+    except (PackError, AttributeError, TypeError):
         return []
     lines = ["Zgodność archiwum:"]
     for item in report.get("results") or []:
@@ -3808,7 +3808,7 @@ def cursor_main_screen(state: InteractiveState, selected: int = 0) -> int | None
     def focus_row(app: Any) -> None:
         try:
             app.layout.focus(row_controls[index])
-        except Exception:
+        except (AttributeError, RuntimeError, ValueError):
             pass
 
     def start_edit(row_index: int, app: Any) -> None:
@@ -3889,7 +3889,7 @@ def cursor_main_screen(state: InteractiveState, selected: int = 0) -> int | None
             try:
                 from prompt_toolkit.application.current import get_app
                 app = get_app()
-            except Exception:
+            except (AttributeError, RuntimeError):
                 return NotImplemented
             if action in {"up", "down"}:
                 move(action, app)
@@ -4658,7 +4658,7 @@ def cursor_dashboard(
         if current is not None:
             try:
                 return int(current.output.get_size().columns)
-            except Exception:
+            except (AttributeError, RuntimeError, TypeError, ValueError):
                 pass
         return APP_THEME.terminal_size()[0]
 
@@ -4678,7 +4678,7 @@ def cursor_dashboard(
         if current is not None:
             try:
                 current_buffer = current.layout.current_buffer
-            except Exception:
+            except (AttributeError, RuntimeError):
                 current_buffer = None
         _debug_state.update({
             "ready": bool(current),
@@ -4743,7 +4743,7 @@ def cursor_dashboard(
         try:
             current.layout.update_parents_relations()
             current.layout.focus(target)
-        except Exception as exc:
+        except (AttributeError, RuntimeError, ValueError) as exc:
             info_lines[:] = ["Błąd routingu fokusu.", f"{type(exc).__name__}: {exc}"]
         current.invalidate()
         publish_debug()
@@ -4760,7 +4760,7 @@ def cursor_dashboard(
             return False
         try:
             return any(current.layout.has_focus(target) for target in right_focus_targets)
-        except Exception:
+        except (AttributeError, RuntimeError, ValueError):
             return focus_zone == "detail"
 
     def text_editor_active() -> bool:
@@ -4770,7 +4770,7 @@ def cursor_dashboard(
         try:
             editors = [source_editor, output_editor, name_editor, right_editor]
             return any(current.layout.has_focus(editor.window) for editor in editors)
-        except Exception:
+        except (AttributeError, RuntimeError, ValueError):
             return False
 
     def sync_menu_preview(*, force_panel: bool = True) -> None:
@@ -4915,7 +4915,7 @@ def cursor_dashboard(
                 state.dirty = True
             else:
                 set_info("Edycja anulowana.")
-        except Exception as exc:
+        except (OSError, PackError, ValueError) as exc:
             set_info("Błąd wartości.", str(exc))
             focus_left()
             return
@@ -4967,7 +4967,7 @@ def cursor_dashboard(
             panel_mode = "options"
             right_editor_kind = ""
             focus_right()
-        except Exception as exc:
+        except ValueError as exc:
             set_info("Błąd wartości.", str(exc))
             focus_right()
 
@@ -6034,10 +6034,10 @@ def cursor_dashboard(
             visible = application.layout.get_visible_focusable_windows()
             if target not in visible:
                 application.layout.focus(target)
-        except Exception:
+        except (AttributeError, RuntimeError, ValueError):
             try:
                 application.layout.focus(target)
-            except Exception:
+            except (AttributeError, RuntimeError, ValueError):
                 pass
         publish_debug()
 
