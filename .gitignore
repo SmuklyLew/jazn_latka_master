@@ -75,7 +75,7 @@ _root_list.py
 *.log
 
 # Local/private canon extraction outputs
-#latka_jazn/core/canon/local_private_canon_extension.py
+latka_jazn/core/canon/local_private_canon_extension.py
 
 
 # Heavy local documentation artifacts / generated reports
