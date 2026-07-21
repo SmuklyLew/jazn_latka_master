@@ -41,6 +41,87 @@ jobs:
         with:
           python-version: "3.14"
 
+      - name: Apply one-shot generator exception repair
+        shell: bash
+        run: |
+          python -X utf8 - <<'PY'
+          from pathlib import Path
+          import ast
+
+          path = Path("tools/jazn_pack_generator.py")
+          lines = path.read_text(encoding="utf-8-sig").splitlines()
+          replacements = {
+              89: "except ImportError:  # pragma: no cover",
+              225: "        except (AttributeError, RuntimeError, TypeError, ValueError):",
+              672: "        except (AttributeError, TypeError, ValueError):",
+              676: "    except (AttributeError, TypeError, ValueError):",
+              720: "    except (OSError, UnicodeError, SyntaxError) as exc:",
+              854: "    except (UnicodeError, SyntaxError) as exc:",
+              1178: "        except (OSError, UnicodeError, json.JSONDecodeError, AttributeError, TypeError):",
+              2295: "        except (OSError, EOFError, RuntimeError, NotImplementedError, zipfile.BadZipFile) as exc:",
+              2570: "    except (OSError, UnicodeError, json.JSONDecodeError, TypeError) as exc:",
+              2766: "        except OSError:",
+              2777: "    except (AttributeError, OSError, ValueError):",
+              2792: "    except OSError:",
+              2890: "    except (OSError, UnicodeError, json.JSONDecodeError) as exc:",
+              3045: "            except (AttributeError, RuntimeError):",
+              3095: "                except (AttributeError, RuntimeError):",
+              3102: "                except (AttributeError, RuntimeError):",
+              3110: "                except (AttributeError, RuntimeError):",
+              3540: "    except (PackError, AttributeError, TypeError):",
+              3811: "        except (AttributeError, RuntimeError, ValueError):",
+              3892: "            except (AttributeError, RuntimeError):",
+              4661: "            except (AttributeError, RuntimeError, TypeError, ValueError):",
+              4681: "            except (AttributeError, RuntimeError):",
+              4746: "        except (AttributeError, RuntimeError, ValueError) as exc:",
+              4763: "        except (AttributeError, RuntimeError, ValueError):",
+              4773: "        except (AttributeError, RuntimeError, ValueError):",
+              4918: "        except (OSError, PackError, ValueError) as exc:",
+              4970: "        except ValueError as exc:",
+              6037: "        except (AttributeError, RuntimeError, ValueError):",
+              6040: "            except (AttributeError, RuntimeError, ValueError):",
+          }
+          for line_number, replacement in replacements.items():
+              current = lines[line_number - 1]
+              if "except Exception" not in current:
+                  raise SystemExit(f"Unexpected source at line {line_number}: {current!r}")
+              lines[line_number - 1] = replacement
+
+          path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+          tree = ast.parse(path.read_text(encoding="utf-8"))
+          broad = [
+              node.lineno
+              for node in ast.walk(tree)
+              if isinstance(node, ast.ExceptHandler)
+              and isinstance(node.type, ast.Name)
+              and node.type.id == "Exception"
+          ]
+          if broad != [2172, 2204, 5153]:
+              raise SystemExit(f"Unexpected broad exception handlers after repair: {broad}")
+          print({"broad_exception_count": len(broad), "lines": broad})
+          PY
+
+          python -X utf8 -m py_compile tools/jazn_pack_generator.py
+          python -X utf8 -m pytest -q \
+            tests/test_code_health_regressions.py \
+            tests/test_package_generator_release_version.py \
+            tests/test_package_integrity_zip_verification.py \
+            tests/test_package_integrity_canonical_worktree.py
+
+          git rm -f \
+            .github/workflows/temporary-fix-generator-exceptions.yml \
+            docs/runtime/.release-metadata-sync-trigger-v15.1.0.3.534
+          git checkout origin/master -- .github/workflows/release-hardening.yml
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            tools/jazn_pack_generator.py \
+            .github/workflows/release-hardening.yml
+          git commit -m "fix(generator): narrow broad exception handlers"
+          target_branch="${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}"
+          git push origin "HEAD:${target_branch}"
+
       - name: Resolve runtime version
         id: version
         shell: bash
