@@ -12,7 +12,6 @@ __pycache__/
 /BOOTSTRAP_JAZN_CURRENT.json
 /RUNTIME_STATE.json
 /workspace_runtime/
-/workspace_runtime/**
 /memory/
 /processed/
 /requests/
@@ -76,24 +75,22 @@ _root_list.py
 *.log
 
 # Local/private canon extraction outputs
-latka_jazn/core/canon/local_private_canon_extension.py
-/reports/canon_extraction/
+#latka_jazn/core/canon/local_private_canon_extension.py
+
 
 # Heavy local documentation artifacts / generated reports
 *.bundle
 *_stdout.txt
 
 # Local planning / generated artifacts
-/docs/plans/
-/docs/reports_history/
-
-docs/.root/
-docs/archive/manifest_history/last_refresh_report.json
 
 # Local generated pack helper scripts
-__jazn_pack_generator.lock.json
+tools/__jazn_pack_generator.lock.json
 __jazn_pack_generator_settings.json
+tools/__jazn_pack_generator.lock.json
+tools/__jazn_pack_generator_settings.json
 tools/_jazn_pack_generator.py
+tools/jazn_pack_generator_settings.json
 
 # Local runtime state / parent checkpoint safety
 /CHECKPOINTS/
@@ -102,21 +99,8 @@ CHECKPOINTS/
 *_checkpoint/
 branch_*/
 branches/
-patch/
 
-# Local archives
-.archives/
-
-# Local root inventory reports
-docs/.root/
-
-# Local patch/checksum artifacts
-/v14_*_sha256.txt
-/v14_*_patch_bundle.zip
-/v14_*_PATCH_FIXED_BUNDLE.zip
-/v14_*_FULL_PATCH_AND_RECOVERY_BUNDLE.zip
 /LATKA_*_COMMANDS.ps1
 
 # Python packaging metadata
 *.egg-info/
-tools/jazn_pack_generator_settings.json
