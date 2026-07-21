@@ -258,6 +258,8 @@ def apply_ollama_cli_settings(
     *,
     model: str | None = None,
     api_base: str | None = None,
+    timeout_seconds: float | None = None,
+    max_output_tokens: int | None = None,
     provider: str | None = None,
 ) -> JaznConfig:
     config.model_adapter = "ollama"
@@ -269,6 +271,10 @@ def apply_ollama_cli_settings(
         config.local_model_api_base = api_base.rstrip("/")
         os.environ["JAZN_OLLAMA_BASE_URL"] = api_base.rstrip("/")
         os.environ["JAZN_LOCAL_LLM_BASE_URL"] = api_base.rstrip("/")
+    if timeout_seconds is not None:
+        config.model_timeout_seconds = float(timeout_seconds)
+    if max_output_tokens is not None:
+        config.model_max_output_tokens = int(max_output_tokens)
     return config
 
 

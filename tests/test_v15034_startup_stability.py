@@ -121,7 +121,10 @@ def test_universal_chat_terminal_keeps_ollama_as_backend(tmp_path: Path) -> None
 
 
 def test_ollama_discovery_prefers_single_running_model(monkeypatch, tmp_path: Path) -> None:
-    cfg = JaznConfig(root=tmp_path)
+    # Keep this discovery test independent from a developer's real Ollama
+    # environment. probe_ollama receives env={} below, so the config fixture
+    # must not retain JAZN_OLLAMA_MODEL loaded by JaznConfig defaults.
+    cfg = JaznConfig(root=tmp_path, local_model_name="")
 
     def fake_urlopen(request, timeout):
         if str(request.full_url).endswith("/api/ps"):

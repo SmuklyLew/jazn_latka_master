@@ -4,7 +4,7 @@ import subprocess
 from pathlib import Path
 
 from latka_jazn.config import JaznConfig
-from latka_jazn.core.chat_command_contract import command_contract
+from latka_jazn.core.chat_command_contract import apply_ollama_cli_settings, command_contract
 from latka_jazn.core.runtime_environment import OLLAMA_ADAPTER, detect_runtime_environment
 
 _TEXT_SUFFIXES = {".py", ".md", ".json", ".txt", ".toml", ".yml", ".yaml"}
@@ -48,6 +48,35 @@ def test_ollama_contract_is_local_and_keyless() -> None:
     assert contract["requires_api_key"] is False
     assert contract["uses_openai_api"] is False
     assert "Ollama" in contract["truth_boundary"]
+
+
+def test_apply_ollama_cli_settings_applies_timeout_and_token_limit(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    for name in (
+        "JAZN_OLLAMA_MODEL",
+        "JAZN_LOCAL_LLM_MODEL",
+        "JAZN_OLLAMA_BASE_URL",
+        "JAZN_LOCAL_LLM_BASE_URL",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    cfg = JaznConfig(root=tmp_path)
+    result = apply_ollama_cli_settings(
+        cfg,
+        model="gemma3",
+        api_base="http://127.0.0.1:11434/",
+        timeout_seconds=123.5,
+        max_output_tokens=321,
+    )
+
+    assert result is cfg
+    assert cfg.model_adapter == "ollama"
+    assert cfg.local_model_name == "gemma3"
+    assert cfg.local_model_api_base == "http://127.0.0.1:11434"
+    assert cfg.model_timeout_seconds == 123.5
+    assert cfg.model_max_output_tokens == 321
 
 
 def test_active_repository_has_no_removed_local_backend_integration() -> None:
