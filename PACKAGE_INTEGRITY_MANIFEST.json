@@ -1,13 +1,22 @@
 {
+<<<<<<< Updated upstream
   "schema_version": "package_integrity_manifest/v15.1.0.3",
   "version": "v15.1.0.3",
   "runtime_version": "v15.1.0.3",
   "package_version": "v15.1.0.3",
   "generated_at_utc": "2026-07-20T23:57:20+00:00",
   "updated_at_utc": "2026-07-20T23:57:20+00:00",
+=======
+  "schema_version": "package_integrity_manifest/v15.1.0.3.533",
+  "version": "v15.1.0.3.533-Reorganize agents",
+  "runtime_version": "v15.1.0.3.533-Reorganize agents",
+  "package_version": "v15.1.0.3.533-Reorganize agents",
+  "generated_at_utc": "2026-07-21T20:09:07.531777+00:00",
+  "updated_at_utc": "2026-07-21T20:09:07.531777+00:00",
+>>>>>>> Stashed changes
   "start_file": "run.py",
-  "file_count": 550,
-  "static_file_count": 550,
+  "file_count": 552,
+  "static_file_count": 552,
   "mutable_runtime_file_count": 0,
   "runtime_mutable_file_count": 0,
   "excluded_file_count": 1,
@@ -4475,6 +4484,24 @@
       "hash_policy": "sha256_file_bytes"
     },
     {
+      "path": "tests/jazn_pack_generator_7.0.dashboard_pack_test.py",
+      "size_bytes": 2423,
+      "sha256": "c0489a67f3b85f65ea254e0ce6905166388c71b5df253c90b8c4830d7e89d394",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
+      "path": "tests/jazn_pack_generator_7.0.ui_contract_test.py",
+      "size_bytes": 7554,
+      "sha256": "b6d5bcf32841ab6253ef79543822f15df6df9d027501e85b30b4622dfb629aac",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
       "path": "tests/test_cli_progress_system.py",
       "size_bytes": 6726,
       "sha256": "6e7239933d2adfc16c42055dcb1490f8c9927a22569eef996c879f4fdfb3c8fa",
@@ -4926,8 +4953,13 @@
     },
     {
       "path": "tools/jazn_pack_generator.py",
+<<<<<<< Updated upstream
       "size_bytes": 127909,
       "sha256": "52958d054d8e5de9fdaf426f6bb9aab2305b835893e453cdeddc7762a170e24a",
+=======
+      "size_bytes": 262466,
+      "sha256": "3583be83c9dca597379b4243bfe5a014a35b492acdb33fd44c0120733731e658",
+>>>>>>> Stashed changes
       "mutable_runtime": false,
       "classification": "static_project_file",
       "archive": false,
