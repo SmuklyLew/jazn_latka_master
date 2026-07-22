@@ -30,7 +30,7 @@ class RouteRegistry:
         "external_research_request": 80, "practical_repair_advice": 78,
         "automotive_warning_light_question": 77, "visual_style_advice": 76,
         "module_inventory_request": 96, "system_capability_gap_question": 96,
-        "runtime_restart_request": 98, "runtime_health_check": 97, "runtime_health_check_after_update": 97, "presence_check": 87, "identity_presence_check": 89, "identity_continuity_check": 88, "time_awareness_question": 86, "self_state_time_awareness": 88, "internet_access_question": 96, "capability_status_question": 95,
+        "runtime_restart_request": 98, "runtime_health_check": 97, "runtime_health_check_after_update": 97, "presence_check": 87, "identity_presence_check": 89, "identity_continuity_check": 88, "time_awareness_question": 86, "self_state_time_awareness": 88, "internet_access_question": 96, "model_adapter_status_question": 97, "capability_status_question": 95,
         "user_memory_recall_request": 92,
         "self_memory_recall_request": 91,
         "direct_latka_voice_request": 97,
@@ -97,6 +97,7 @@ class RouteRegistry:
         "runtime_health_check": ("runtime_health_check", "CapabilityStatusHandler"),
         "runtime_health_check_after_update": ("runtime_health_check_after_update", "CapabilityStatusHandler"),
         "internet_access_question": ("internet_access_status", "CapabilityStatusHandler"),
+        "model_adapter_status_question": ("model_adapter_status", "CapabilityStatusHandler"),
         "capability_status_question": ("capability_status", "CapabilityStatusHandler"),
         "user_memory_recall_request": ("user_memory_recall", "UserMemoryRecallHandler"),
         "self_memory_recall_request": ("self_memory_recall", "SelfMemoryRecallHandler"),
@@ -133,6 +134,8 @@ class RouteRegistry:
             return ["runtime_identity", "model_channel_boundary", "process_lifecycle", "truth_boundary"]
         if intent == "internet_access_question":
             return ["internet_access", "provider_status", "truth_boundary", "source_origin"]
+        if intent == "model_adapter_status_question":
+            return ["provider", "model", "adapter_status", "endpoint", "truth_boundary"]
         if intent == "capability_status_question":
             return ["capability_list", "runtime_status", "memory_status", "network_boundary", "truth_boundary"]
         if intent == "user_memory_recall_request":

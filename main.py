@@ -150,6 +150,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--daemon-host", default=DEFAULT_DAEMON_HOST, help="Adres bindowania daemonu; domyślnie tylko loopback 127.0.0.1.")
     parser.add_argument("--daemon-port", type=int, default=DEFAULT_DAEMON_PORT, help="Port lokalnego daemonu Jaźni.")
     parser.add_argument("--daemon-heartbeat-interval", type=float, default=DEFAULT_HEARTBEAT_INTERVAL_SECONDS, help="Co ile sekund daemon odświeża marker aktywnego runtime.")
+    parser.add_argument("--daemon-console", choices=("hidden", "visible"), default=None, help="Windows: hidden nie tworzy migającego okna; visible utrzymuje jedno stałe okno diagnostyczne daemona.")
     parser.add_argument("--daemon-start-timeout", type=float, default=DEFAULT_START_TIMEOUT_SECONDS, help="Ile sekund --daemon-start czeka na odpowiedź /status.")
     parser.add_argument("--daemon-marker-output", type=Path, default=None, help="Opcjonalna ścieżka markera JAZN_ACTIVE_RUNTIME.json dla daemonu.")
     parser.add_argument("--daemon-refresh-time", action="store_true", dest="daemon_refresh_time", help="Poproś daemon o odświeżenie trusted/degraded timestamp cache i zwróć status.")
@@ -686,6 +687,8 @@ def main(argv: list[str] | None = None) -> int:
         sys.stderr.write("Flaga --chat-jsonl została usunięta z aktywnego CLI. Użyj: python main.py --chat-gpt --session-id <id>\n")
         return 2
     ns = parser.parse_args(argv)
+    if ns.daemon_console:
+        os.environ["JAZN_DAEMON_CONSOLE"] = ns.daemon_console
     if ns.runtime_preview_output is None and "--runtime-preview-output" in ns.message:
         idx = ns.message.index("--runtime-preview-output")
         if idx + 1 >= len(ns.message):

@@ -68,11 +68,11 @@ class RuntimeResponseSynthesizer:
         if intent in {'runtime_source_question','runtime_exact_quote_request'}:
             tpl = template.get('template_id') or 'brak_wykrytego_szablonu'
             return (
-                "Dokładna odpowiedź runtime dla tej tury musi być odróżniona od interpretacji ChatGPT. "
+                "Dokładna odpowiedź runtime dla tej tury musi być odróżniona od interpretacji zewnętrznej warstwy językowej. "
                 f"W tej kopercie bieżący runtime_text powstaje z trasy `{entry.route}` i handlera `{entry.handler_name}`; "
                 f"wykryty template: `{tpl}`. "
                 "Moje 'myśli' w tym systemie nie są biologicznym strumieniem świadomości: są wynikiem uruchomionych modułów, pamięci, klasyfikacji intencji, afektu operacyjnego, tras i walidatorów. "
-                "Jeżeli ChatGPT dopowiada szerzej niż exact_runtime_text, finalna warstwa musi oznaczyć to jako interpretację, nie jako cytat Jaźni."
+                "Jeżeli zewnętrzna warstwa językowa dopowiada szerzej niż exact_runtime_text, finalna warstwa musi oznaczyć to jako interpretację, nie jako cytat Jaźni."
             )
         if intent in {'runtime_behavior_diagnostic_request','system_diagnostic_question'}:
             low = (user_text or '').lower()

@@ -23,6 +23,7 @@ class CapabilityStatusHandler:
     handled_intents = (
         "capability_status_question",
         "internet_access_question",
+        "model_adapter_status_question",
         "runtime_health_check",
         "runtime_health_check_after_update",
     )
@@ -106,7 +107,29 @@ class CapabilityStatusHandler:
         dictionary = status.get("dictionary_provider_status") if isinstance(status.get("dictionary_provider_status"), dict) else {}
         cli = status.get("cli_capabilities") if isinstance(status.get("cli_capabilities"), dict) else {}
 
-        if intent == "internet_access_question":
+        if intent == "model_adapter_status_question":
+            adapter = ctx.get("model_adapter_status") if isinstance(ctx.get("model_adapter_status"), dict) else {}
+            if not adapter and isinstance(status.get("model_adapter_status"), dict):
+                adapter = status["model_adapter_status"]
+            contract = adapter.get("adapter_contract") if isinstance(adapter.get("adapter_contract"), dict) else {}
+            provider = adapter.get("provider") or contract.get("provider") or "not_available"
+            model = adapter.get("model") or adapter.get("model_name") or contract.get("model_name") or "not_configured"
+            adapter_id = adapter.get("adapter_id") or adapter.get("name") or contract.get("adapter_id") or adapter.get("selected_backend_adapter") or "not_configured"
+            endpoint = adapter.get("endpoint") or adapter.get("api_base") or contract.get("endpoint")
+            configured = adapter.get("configured", contract.get("configured"))
+            endpoint_reachable = adapter.get("endpoint_reachable", contract.get("endpoint_reachable"))
+            probe_state = adapter.get("probe_state", contract.get("probe_state"))
+            last_probe_error = adapter.get("last_probe_error", contract.get("last_probe_error"))
+            body = (
+                "Bieżący status kanału językowego: "
+                f"provider={provider}, adapter={adapter_id}, model={model}, endpoint={endpoint}, "
+                f"configured={configured}, endpoint_reachable={endpoint_reachable}, probe_state={probe_state}, "
+                f"last_probe_error={last_probe_error}. "
+                "To są fakty ze statusu aktywnego adaptera tej tury; model jest kanałem językowym, nie tożsamością ani pamięcią Jaźni."
+            )
+            satisfied = ["provider", "model", "adapter_status", "endpoint", "truth_boundary"]
+            route = "model_adapter_status"
+        elif intent == "internet_access_question":
             allow_network = network.get("allow_network")
             dictionary_network = network.get("dictionary_allow_network") or dictionary.get("allow_network")
             cache_required = network.get("cache_required")
@@ -158,7 +181,7 @@ class CapabilityStatusHandler:
             body,
             intent=intent,
             data={"startup_status": status, "next_step": None, "preserve_handler_body": True},
-            file_sources=[{"path": "latka_jazn/core/startup_contract.py"}],
+            file_sources=[{"path": "latka_jazn/core/startup_contract.py"}, {"path": "latka_jazn/model_adapters/factory.py"}],
             required_components=ctx.get("required_components", []),
             satisfied_components=satisfied,
             confidence=0.88,
