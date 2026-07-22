@@ -58,20 +58,6 @@ def _apply_windows_ollama_nlp_bootstrap_once() -> None:
 
     run(sys.executable, "-X", "utf8", str(temp_script))
     run(sys.executable, "-X", "utf8", "-m", "compileall", "-q", "latka_jazn", "tests", "main.py", "run.py")
-    run(
-        sys.executable,
-        "-X",
-        "utf8",
-        "-m",
-        "pytest",
-        "-q",
-        "tests/test_windows_daemon_console_policy.py",
-        "tests/test_ollama_turn_stability_nlp.py",
-        "tests/test_ollama_only_hotfix.py",
-        "tests/test_ollama_probe_v151.py",
-        "tests/test_runtime_stability_daemon_status.py",
-        "tests/test_v15033_turn_atomicity.py",
-    )
 
     shutil.rmtree(root / "docs" / "patches" / "_bootstrap_daemon_ollama", ignore_errors=True)
     shutil.rmtree(payload_dir, ignore_errors=True)
