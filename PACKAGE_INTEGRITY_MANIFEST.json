@@ -3,11 +3,11 @@
   "version": "v15.1.0.3.88-Night of Hotfix",
   "runtime_version": "v15.1.0.3.88-Night of Hotfix",
   "package_version": "v15.1.0.3.88-Night of Hotfix",
-  "generated_at_utc": "2026-07-22T07:12:17+00:00",
-  "updated_at_utc": "2026-07-22T07:12:17+00:00",
+  "generated_at_utc": "2026-07-22T09:29:12+00:00",
+  "updated_at_utc": "2026-07-22T09:29:12+00:00",
   "start_file": "run.py",
-  "file_count": 564,
-  "static_file_count": 564,
+  "file_count": 569,
+  "static_file_count": 569,
   "mutable_runtime_file_count": 0,
   "runtime_mutable_file_count": 0,
   "excluded_file_count": 1,
@@ -147,8 +147,8 @@
     },
     {
       "path": "README.md",
-      "size_bytes": 5083,
-      "sha256": "75222538eaafb8c3c9f44c2dcff9af5fd7ca209aa959bb0a6945586f132d39be",
+      "size_bytes": 6879,
+      "sha256": "4a066a37531d654a4f1d4620f410bf4365967f2729317c4efb11d573bfe1293c",
       "mutable_runtime": false,
       "classification": "static_project_file",
       "archive": false,
@@ -156,8 +156,8 @@
     },
     {
       "path": "SOURCE_PROVENANCE.json",
-      "size_bytes": 1262,
-      "sha256": "38d11818444b3038faaf5c86f38d831b884eeef88b7ae36249ad2739f98aa2e7",
+      "size_bytes": 1267,
+      "sha256": "9e2b52cc346fe82b53e304b77ec7a0a5464520eb4f38e522978f25649272a80a",
       "mutable_runtime": false,
       "classification": "static_project_file",
       "archive": false,
@@ -165,8 +165,8 @@
     },
     {
       "path": "docs/MEMORY_RECOVERY_V151.md",
-      "size_bytes": 3878,
-      "sha256": "e395e4474907365de20bd4e47e8cd8fe2cb1079a12413ccf1282ec3ef8477a5a",
+      "size_bytes": 5788,
+      "sha256": "afffa7ee40b64b4b06e58c24ca23a117eed813602a489731ce7f048f1c21a3e8",
       "mutable_runtime": false,
       "classification": "static_project_file",
       "archive": false,
@@ -203,6 +203,15 @@
       "path": "docs/plans/JAZN_v15.1.0.1_MEMORY_ARCHITECTURE_PLAN.md",
       "size_bytes": 10667,
       "sha256": "dfa2252a4c1e208c40e72399c09f0a59a2e032cb860feb4c80e23e03e6f44b0e",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
+      "path": "docs/plans/MEMORY_CONTINUITY_VALIDATION_BACKLOG.md",
+      "size_bytes": 1932,
+      "sha256": "505a3fc800536616ede6e49eb564b725df93d937ee42c5072209153213c32aad",
       "mutable_runtime": false,
       "classification": "static_project_file",
       "archive": false,
@@ -257,6 +266,15 @@
       "path": "docs/reports/JAZN_v15.1.0.1_RELEASE_REPORT.md",
       "size_bytes": 4176,
       "sha256": "bf66a2c0e7c3e6a0bf696fad4ee636b75a9ef993a73d9acd7639cf7337026b63",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
+      "path": "docs/reports/MEMORY_CONTINUITY_VALIDATION_SOURCES.md",
+      "size_bytes": 1909,
+      "sha256": "84dca5fdc9aba2cea16728502a360ade0659d1451fb4702ecccf357db0171490",
       "mutable_runtime": false,
       "classification": "static_project_file",
       "archive": false,
@@ -471,8 +489,8 @@
     },
     {
       "path": "latka_jazn/cli.py",
-      "size_bytes": 15789,
-      "sha256": "94a9e7cc39f7c2b121d9884af46108ba1cd6409ec705320e605b35a75cb65113",
+      "size_bytes": 17225,
+      "sha256": "30c7a026ea9093b1f3821648fe4ddaa080a4307125908081aa46cd856c28766a",
       "mutable_runtime": false,
       "classification": "static_project_file",
       "archive": false,
@@ -1740,8 +1758,8 @@
     },
     {
       "path": "latka_jazn/core/runtime_session.py",
-      "size_bytes": 13628,
-      "sha256": "c6f3d4b1ecc4dd131f82675b64a17150dd7bffeac62e0ae7ba0c608f546d7336",
+      "size_bytes": 14392,
+      "sha256": "8c4311a8ea040ca4f158f8d3d08ce0e05838bc4ba0ec56ab43a1ef570de246cd",
       "mutable_runtime": false,
       "classification": "static_project_file",
       "archive": false,
@@ -1749,8 +1767,8 @@
     },
     {
       "path": "latka_jazn/core/runtime_session_state.py",
-      "size_bytes": 4934,
-      "sha256": "3f7c0c7a080a2ce1a98bee239693e7a3102a617074e0cefc4f211eb02d451052",
+      "size_bytes": 19598,
+      "sha256": "e75346df30039dc1bd1ec8136de48c0bbbacc283d34db866709b99676cf7818a",
       "mutable_runtime": false,
       "classification": "static_project_file",
       "archive": false,
@@ -4286,6 +4304,15 @@
       "hash_policy": "sha256_file_bytes"
     },
     {
+      "path": "latka_jazn/tools/memory_validation.py",
+      "size_bytes": 18195,
+      "sha256": "41b8b072d3da538fa4162cdc76e28721250f3c7973a40782161f8e77fa4dc833",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
       "path": "latka_jazn/tools/migration_report.py",
       "size_bytes": 240,
       "sha256": "0fc58960073813724eb9d6c6e150a908a48df3cab50977fbf57e1e9ad0bd6bdf",
@@ -4574,6 +4601,15 @@
       "hash_policy": "sha256_file_bytes"
     },
     {
+      "path": "tests/test_memory_large_validation.py",
+      "size_bytes": 5461,
+      "sha256": "7d28f8cd126a7544d3acc30af5f9fd2a209c15a63129b1e7f835189dac6c9950",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
       "path": "tests/test_memory_rebuild_after_two_test.py",
       "size_bytes": 7381,
       "sha256": "1865217e7eba3c4f0e0554e49f2f247aac8f78bcc2eb2e226def50f25061534e",
@@ -4757,6 +4793,15 @@
       "path": "tests/test_runtime_owned_agent_boundaries.py",
       "size_bytes": 5020,
       "sha256": "c6003c67173fcc34d51327b618ce6324904fff14d3045887cd2cf64e65d95542",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
+      "path": "tests/test_runtime_session_restart_continuity.py",
+      "size_bytes": 6099,
+      "sha256": "94a0a6e838f6bb7fcd273e6d7704f6d9c7bfe13c6b456211454764754a38989b",
       "mutable_runtime": false,
       "classification": "static_project_file",
       "archive": false,

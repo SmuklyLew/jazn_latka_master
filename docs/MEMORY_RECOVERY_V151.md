@@ -57,7 +57,7 @@ a publikacja końcowej SQLite następuje dopiero po checkpoint, zamknięciu poł
 i ponownym `integrity_check`. Przerwana normalizacja może zostać wznowiona bez
 uznania częściowego pliku roboczego za aktywną pamięć.
 
-## Wake state podczas sesji
+## Wake state podczas sesji i po restarcie
 
 `JaznRuntimeSession` ładuje tylko jeden aktywny snapshot, sprawdza:
 
@@ -69,6 +69,51 @@ uznania częściowego pliku roboczego za aktywną pamięć.
 Następnie zapisuje ograniczony pakiet do L1. Rekord L1 wygasa przy `close()`.
 Ten sam pakiet trafia do `client_context.wake_state_runtime`, dzięki czemu host
 ChatGPT albo lokalny adapter może użyć ciągłości bez omijania truth gate.
+
+Stan rozmowy jest checkpointowany atomowo w dwóch miejscach:
+
+- `workspace_runtime/runtime_sessions/<session-id>.json` — rekord kanoniczny sesji;
+- `workspace_runtime/runtime_session_state.json` — wskaźnik ostatniej sesji,
+  którą wolno automatycznie wznowić bez jawnego `--session-id`.
+
+Checkpoint zawiera SHA stanu, SHA całego checkpointu, numer generacji, SHA
+poprzedniego checkpointu, licznik tur oraz powiązanie z identyfikatorem i SHA
+aktywnego wake-state. Plik tymczasowy jest opróżniany na dysk i atomowo
+podmieniany; częściowy zapis nie jest uznawany za poprawny checkpoint.
+
+Po restarcie carryover jest fail-closed. Niezgodność hashy, wygaśnięcie sesji,
+zmiana aktywnego wake-state lub brak zgodności snapshotu blokują odziedziczenie
+`last_user_text`, `last_intent` i `last_route`. Tryb `--no-carryover` nie
+zastępuje wskaźnika ostatniej zwykłej sesji.
+
+
+## Duża walidacja pamięci
+
+Szybka kontrola read-only znanych baz, manifestów shardów, sidecara wake-state
+i magazynu tierów:
+
+```powershell
+py -X utf8 run.py memory-validate --root . --json --progress
+```
+
+Pełna kontrola wszystkich baz pod `memory/sqlite`:
+
+```powershell
+py -X utf8 run.py memory-validate --root . `
+  --full --include-all-sqlite --table-counts --hash-files `
+  --output workspace_runtime/memory_validation/full-report.json `
+  --json --progress
+```
+
+Tryb domyślny używa `PRAGMA quick_check`; `--full` używa
+`PRAGMA integrity_check`. W obu trybach wykonywany jest osobny
+`PRAGMA foreign_key_check`, ponieważ integralność strukturalna SQLite nie
+obejmuje naruszeń kluczy obcych. Walidator wykrywa również niekompletne pary
+WAL/SHM, zbiera metryki stron i schematu, a opcjonalnie liczy rekordy oraz SHA-256
+plików.
+
+Raport potwierdza czytelność i wybrane kontrakty strukturalne. Nie dowodzi
+kompletności wszystkich dawnych rozmów, trafności recallu ani autoryzacji L3.
 
 ## Ollama
 

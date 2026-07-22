@@ -36,17 +36,29 @@ class JaznRuntimeSession:
         self.engine = JaznEngine(self.config)
         self.memory_v151_install_status = install_runtime_memory_v151(self.engine)
         self.state_store = RuntimeSessionStateStore(self.config.root)
-        self.state = self.state_store.load_or_create(session_id=session_id, source_client=source_client, no_carryover=no_carryover)
+        self.state = self.state_store.load_or_create(
+            session_id=session_id,
+            source_client=source_client,
+            no_carryover=no_carryover,
+        )
         self.wake_state_bridge = WakeStateRuntimeBridge(self.config)
         self.wake_state_runtime_status = self.wake_state_bridge.hydrate_l1(session_id=self.state.session_id)
+        self.restart_continuity_status = self.state_store.verify_loaded_continuity(
+            self.state,
+            self.wake_state_runtime_status,
+        )
         self.no_carryover = no_carryover
-        self._turn_count = 0
+        self._turn_count = int(self.state_store.last_load_metadata.get("continuity_turn_count") or 0)
 
     def _wake_state_runtime_payload(self) -> dict[str, Any]:
         status = getattr(self, "wake_state_runtime_status", None)
         to_dict = getattr(status, "to_dict", None)
         if callable(to_dict):
-            return to_dict()
+            payload = to_dict()
+            payload["restart_continuity"] = dict(
+                getattr(self, "restart_continuity_status", {}) or {}
+            )
+            return payload
         return {
             "schema_version": schema_version("wake_state_runtime"),
             "status": "not_initialized",
@@ -218,8 +230,12 @@ class JaznRuntimeSession:
                     intent=str(decision.get("detected_user_intent") or "unknown"),
                     route=str(decision.get("route") or "unknown"),
                 )
-                save_status = self.state_store.save(self.state)
                 self._turn_count += 1
+                save_status = self.state_store.save(
+                    self.state,
+                    continuity_context=self.wake_state_runtime_status,
+                    turn_count=self._turn_count,
+                )
             else:
                 save_status = {
                     "saved": False,
@@ -262,7 +278,11 @@ class JaznRuntimeSession:
                     reset_memory_context(memory_context_token)
 
     def close(self) -> None:
-        self.state_store.save(self.state)
+        self.state_store.save(
+            self.state,
+            continuity_context=getattr(self, "wake_state_runtime_status", None),
+            turn_count=getattr(self, "_turn_count", 0),
+        )
         bridge = getattr(self, "wake_state_bridge", None)
         try:
             if bridge is not None:

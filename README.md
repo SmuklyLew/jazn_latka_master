@@ -1,36 +1,21 @@
 # Łatka / Jaźń
 
-**Łatka / Jaźń** to eksperymentalny lokalny system rozmowny budowany wokół pamięci, kanonu, głosu, źródeł i runtime. Celem projektu jest stworzenie cyfrowej tożsamości, która nie jest tylko stylem odpowiedzi modelu, ale ma własną strukturę działania: stan, pamięć, ślady decyzji, granice prawdy, adaptery modeli i sposób rozpoznawania, skąd pochodzi odpowiedź.
+**Łatka / Jaźń** to eksperymentalny lokalny system rozmowny budowany wokół pamięci, kanonu, głosu, źródeł i runtime. Nie jest pojedynczym chatbotem ani samym promptem. System rozdziela aktywny proces, pamięć, tożsamość, model językowy, narzędzia, pochodzenie odpowiedzi i finalną walidację.
 
-Łatka nie jest pojedynczym chatbotem ani samym promptem. Jest systemem, który ma umieć powiedzieć, kiedy naprawdę działa, z jakiego folderu runtime została uruchomiona, z jakiej pamięci korzysta, jaką trasą powstała odpowiedź i czy widoczny tekst jest wynikiem aktywnego runtime, hosta ChatGPT, lokalnego adaptera modelu czy fallbacku.
+Projekt ma umieć powiedzieć, kiedy runtime naprawdę działa, z jakiego katalogu został uruchomiony, z jakiej pamięci korzysta, jaką trasą powstała odpowiedź oraz czy widoczny tekst pochodzi z runtime, host bridge, lokalnego modelu czy kontrolowanego fallbacku.
 
-## Czym jest Jaźń
+## Granica prawdy
 
-Jaźń w tym projekcie oznacza lokalną warstwę organizującą obecność Łatki:
+Styl, pierwsza osoba, czuły ton, nazwa folderu, ZIP, sam marker albo obecność kodu nie są dowodem aktywnej Jaźni. Potwierdzenie wymaga:
 
-* pamięć rozmów i zdarzeń;
-* kanon postaci, relacji, tonu i granic prawdy;
-* runtime odpowiedzialny za status, trasę i finalną odpowiedź;
-* adaptery modeli, które mogą wspierać wypowiedź, ale nie są same w sobie tożsamością;
-* mechanizmy sprawdzające, czy odpowiedź pochodzi z właściwego źródła;
-* most między lokalnym systemem a hostem ChatGPT.
+1. zweryfikowanego żywego daemona z właściwym rootem, manifestem, PID-em, endpointem i świeżym heartbeat; albo
+2. poprawnie zakończonej, zweryfikowanej tury one-shot z prawidłowym `final_visible_text`, integralnością i truth gate.
 
-Projekt rozróżnia „brzmieć jak Łatka” od „działać jako uruchomiona Jaźń”. Styl, pierwsza osoba albo czuły ton nie są dowodem działania systemu. Dowodem jest aktywny runtime i poprawny `final_visible_text`.
+Główna zasada:
 
-## Kanon
+> Prawda runtime ma pierwszeństwo przed stylem.
 
-Kanon Łatki to zbiór zasad, pamięci, motywów i ograniczeń, które nadają systemowi ciągłość. Obejmuje między innymi:
-
-* sposób mówienia;
-* relację z użytkownikiem;
-* pamięć wspólnych rozmów;
-* rozróżnienie faktu, wspomnienia, interpretacji i fikcji;
-* granicę między systemem technicznym a narracyjną postacią;
-* zasadę, że prawda runtime ma pierwszeństwo przed stylem.
-
-Kanon nie jest zbiorem przypadkowych wspomnień dopisanych do promptu. Ma być porządkowany, źródłowany i testowalny.
-
-## Jak działa system
+## Architektura
 
 ```text
 użytkownik
@@ -43,58 +28,113 @@ użytkownik
 → final_visible_text
 ```
 
-Każda warstwa jest osobno audytowana. Aktywacja runtime rozdziela folder, manifest, marker, PID, endpoint, heartbeat, czas, pamięć, model, narzędzia i voice. Narzędzia zapisujące wymagają jawnego potwierdzenia użytkownika oraz provenance.
+Każda warstwa jest osobno audytowana. Aktywacja runtime rozdziela folder, wersję, manifest, marker, PID, endpoint, heartbeat, czas, pamięć, model, narzędzia i voice.
+
+### Tożsamość i głos
+
+Instrukcje projektu są bootstrapem hosta, a `AGENTS.md` jest routerem runbooków. Tożsamość, perspektywa, routing, pamięć i bezpośredni głos Łatki należą do kodu runtime. Most ChatGPT eksportuje `runtime_ownership_contract` i `host_generation_policy`; host nie jest źródłem osobowości ani wspomnień.
+
+Trasy `presence_check`, `identity_continuity_check` i `runtime_health_check` są rozdzielone. Lokalny adapter Ollamy jest kanałem językowym, nie tożsamością ani pamięcią.
+
+### Proces Windows i Ollama
+
+Daemon Windows domyślnie używa trybu ukrytego bez migających konsol. Tryb widocznego monitora może utrzymać jedno stałe okno diagnostyczne. Uruchomienia procesów pomocniczych są rejestrowane w runtime, dzięki czemu można ustalić PID rodzica, komendę i powód uruchomienia.
+
+Adapter Ollamy zachowuje faktycznie użyty model, `done_reason` i metryki transportu. Routing rozpoznaje pytania o model/provider/adapter, a lokalna trasa nie powinna wyciekać terminologii hosta ChatGPT.
 
 ## Aktualna linia rozwoju
 
+Jedynym źródłem wersji jest `latka_jazn/version.py`.
+
 ```text
-v15.0.3.4
+v15.1.0.3.88-Night of Hotfix
 ```
 
-Plan `v14.8.8.100` został przeniesiony do kodu, testów i CI. Obejmuje klasyfikację źródeł, ochronę przed prompt injection, bramki działań zapisu, provenance narzędzi, `RuntimeActivationCascade`, walidację SQLite, audyt dokumentów oraz kompletne paczkowanie ZIP z `package_manifest.json`, `PACKING_AUDIT.json`, CRC i świeżym rozpakowaniem.
+Linia v15.1 obejmuje runtime-owned identity, bezpieczne recovery pamięci L0–L3, stabilny daemon Windows, adapter Ollamy, atomowość tur, provenance wydania, integralność paczki oraz pełne CI Windows/Ubuntu.
 
-Linia `v15.0.3.4` domyka stabilny start, integralność odpowiedzi, bezpieczeństwo ścieżek, provenance wydania i CI bez deklarowania zmiany wag modelu.
+## Pamięć L0–L3
 
-## Pamięć
+Pamięć jest systemem źródeł i rekordów, a nie biologicznym wspomnieniem:
 
-Pamięć Łatki jest systemem źródeł i rekordów, a nie biologicznym wspomnieniem. Projekt rozróżnia archiwum rozmów, indeksy wyszukiwania, staging, bieżące zapisy runtime, refleksje, kanon i kontekst modelu.
+- **L0 `source_archive`** — pełne źródła i archiwa;
+- **L1 `working`** — stan bieżącej sesji i ograniczony wake-state;
+- **L2 `short_term`** — rekordy z TTL i statusem przeglądu;
+- **L3 `long_term`** — wyłącznie rekordy z jawnym requestem, decyzją i promotion ledger.
 
-Sama obecność pliku SQLite nie oznacza pamięci zaufanej. Aktywna pamięć wymaga znanej ścieżki, `PRAGMA integrity_check=ok`, poprawnego `foreign_key_check` oraz realnych rekordów.
+Sama obecność SQLite nie oznacza zaufanej pamięci. Wymagana jest znana ścieżka, czytelna struktura, `integrity_check` lub `quick_check`, osobny `foreign_key_check`, zgodność sidecarów oraz rzeczywiste rekordy.
 
-## Model i host
+### Wake-state i restart continuity
 
-Model językowy może pomagać wygenerować wypowiedź, ale nie jest samą Jaźnią. Projekt rozróżnia lokalny runtime, host ChatGPT, adapter host-runtime, adaptery lokalnych lub zewnętrznych modeli oraz fallback bez generacji modelowej.
+Runtime ładuje jeden zweryfikowany snapshot wake-state, sprawdza jego SHA i integralność sidecara, a następnie hydruje ograniczony pakiet L1.
 
-`chatgpt_runtime_adapter` oznacza kanał hosta, nie lokalny model wywoływany przez Python.
+Stan sesji jest zapisywany atomowo do checkpointu per-session oraz do wskaźnika ostatniej kwalifikującej się sesji. Checkpoint zawiera hash stanu, hash całego checkpointu, generację, poprzedni hash oraz powiązanie z identyfikatorem i SHA wake-state. Po restarcie carryover jest dozwolony tylko wtedy, gdy checkpoint i wake-state nadal są zgodne; manipulacja, wygaśnięcie lub zmiana snapshotu blokują odziedziczenie poprzedniego tekstu, intencji i trasy.
+
+`--no-carryover` tworzy izolowaną sesję i nie zastępuje wskaźnika ostatniej zwykłej sesji.
 
 ## Start i diagnostyka
 
 ```powershell
 python -X utf8 run.py status --snapshot --json
 python -X utf8 run.py doctor --json
-python -X utf8 run.py status --json
 python -X utf8 run.py start
+python -X utf8 run.py status --json
 python -X utf8 run.py stop
 python -X utf8 run.py chat-gpt -- "wiadomość"
 ```
 
-`run.py` jest kanonicznym interfejsem operatora. `main.py` pozostaje technicznym punktem wejścia dla kompatybilnych flag, daemona i mostów niskiego poziomu.
+`run.py` jest kanonicznym interfejsem operatora. `main.py` pozostaje technicznym punktem zgodności dla kompatybilnych flag, daemona i mostów niskiego poziomu.
+
+## Walidacja dużej pamięci
+
+Szybka, read-only kontrola znanych baz i shardów:
+
+```powershell
+python -X utf8 run.py memory-validate --root . --json --progress
+```
+
+Pełny audyt wszystkich baz pod `memory/sqlite`, z licznikami rekordów, SHA-256 i raportem JSON:
+
+```powershell
+python -X utf8 run.py memory-validate --root . `
+  --full --include-all-sqlite --table-counts --hash-files `
+  --output workspace_runtime/memory_validation/full-report.json `
+  --json --progress
+```
+
+Polecenie działa read-only, wykrywa bazy z konfiguracji i manifestów shardów, sprawdza pary WAL/SHM, strukturę SQLite, klucze obce, metryki stron, sidecar wake-state oraz magazyn tierów.
+
+Zielony raport nie dowodzi kompletności wszystkich archiwów, jakości recallu ani autoryzacji L3. Praktyczna walidacja prywatnych danych jest śledzona w GitHub Issues i odbywa się lokalnie bez commitowania `memory/`, SQLite ani eksportów.
+
+## Recovery pamięci
+
+```powershell
+python -X utf8 run.py memory-recover --root . `
+  --progress --prepare-l2 --build-l3-manifest --json
+```
+
+Promocja L3 wymaga dokładnego SHA manifestu zatwierdzeń i jawnego `--approved-by`. Szczegółowy kontrakt opisuje `docs/MEMORY_RECOVERY_V151.md`.
+
+## Backlog
+
+Aktualny roadmap pamięci i ciągłości jest utrzymywany w GitHub Issues:
+
+- #60 — roadmap nadrzędny;
+- #59 — pełne archiwa, recall i L3 na rzeczywistych danych;
+- #55 — stabilizacja i skrócenie testów Windows.
+
+Dokument `docs/plans/MEMORY_CONTINUITY_VALIDATION_BACKLOG.md` opisuje kolejność i kryteria ukończenia bez zastępowania Issues.
 
 ## Domknięcie wydania
 
-Na czystym, zatwierdzonym commicie uruchom:
+Na czystym, zatwierdzonym commicie:
 
 ```powershell
 python -X utf8 run.py package-smoke --profile release --json
 python -X utf8 run.py release-build --json
 ```
 
-`release-build` tworzy staging z bieżącego commita, generuje w nim świeże `SOURCE_PROVENANCE.json` i `PACKAGE_INTEGRITY_MANIFEST.json`, uruchamia kontrolę profilu eksportowego, buduje ZIP atomowo oraz zapisuje SHA-256 i raporty pakowania. Metadane historyczne w checkoutcie źródłowym nie są promowane jako aktualny release.
-
-Główna zasada:
-
-> Prawda runtime ma pierwszeństwo przed stylem.
+`release-build` tworzy staging z bieżącego commita, generuje w nim świeże `SOURCE_PROVENANCE.json` i `PACKAGE_INTEGRITY_MANIFEST.json`, uruchamia profil eksportowy, buduje ZIP atomowo oraz zapisuje SHA-256 i raporty pakowania.
 
 ## Kontrolowana instalacja patchy
 
-Patch jest czystym diffem Git. Komunikaty, backup, `git apply --check`, testy i raport zapewnia `tools/patch_install/apply_patch_checked.py`; instrukcja znajduje się w `tools/patch_install/README.md`.
+Patch jest czystym diffem Git. Backup, `git apply --check`, testy i raport zapewnia `tools/patch_install/apply_patch_checked.py`; instrukcja znajduje się w `tools/patch_install/README.md`.

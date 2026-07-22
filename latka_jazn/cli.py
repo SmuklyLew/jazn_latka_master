@@ -82,6 +82,15 @@ def build_parser() -> argparse.ArgumentParser:
     child.add_argument("--approve-l3-manifest-sha")
     child.add_argument("--approved-by")
 
+    child = sub.add_parser("memory-validate", allow_abbrev=False)
+    _add_common(child)
+    child.add_argument("--full", action="store_true", help="Użyj PRAGMA integrity_check zamiast quick_check.")
+    child.add_argument("--include-all-sqlite", action="store_true", help="Waliduj wszystkie bazy pod memory/sqlite.")
+    child.add_argument("--max-errors", type=int, default=100)
+    child.add_argument("--table-counts", action="store_true", help="Policz rekordy wszystkich tabel (wolniejsze dla dużych baz).")
+    child.add_argument("--hash-files", action="store_true", help="Policz pełne SHA-256 plików SQLite.")
+    child.add_argument("--output", type=Path, help="Zapisz raport JSON pod runtime root.")
+
     child = sub.add_parser("model-status", allow_abbrev=False)
     _add_common(child)
     child.add_argument("--probe", action="store_true")
@@ -177,7 +186,7 @@ def main(argv: list[str] | None = None) -> int:
     known = {
         "status", "doctor", "start", "stop", "restart", "chat", "chat-gpt",
         "host-finalize", "bridge-discovery", "audit-tail", "explain-turn",
-        "replay-turn", "export", "package-smoke", "release-metadata", "release-build", "self-test", "memory-prepare", "memory-status", "memory-recover", "model-status",
+        "replay-turn", "export", "package-smoke", "release-metadata", "release-build", "self-test", "memory-prepare", "memory-status", "memory-recover", "memory-validate", "model-status",
     }
     if args and args[0].startswith("--") and args[0] not in {"--version", "--help", "-h"}:
         return _legacy_main(args)
@@ -319,6 +328,23 @@ def main(argv: list[str] | None = None) -> int:
             progress=progress.callback(),
         ).to_dict()
         progress.finish(bool(payload.get("ok")), "Odzysk i przygotowanie pamięci zakończone")
+        _emit(payload, as_json=ns.as_json)
+        return 0 if payload.get("ok") else 1
+    if ns.command == "memory-validate":
+        from latka_jazn.tools.memory_validation import validate_large_memory
+
+        progress = _progress(ns, "memory-validate", style="bar")
+        payload = validate_large_memory(
+            root,
+            full=ns.full,
+            include_all_sqlite=ns.include_all_sqlite,
+            max_errors=ns.max_errors,
+            table_counts=ns.table_counts,
+            hash_files=ns.hash_files,
+            output=ns.output,
+            progress=progress.callback(symbol="lock"),
+        )
+        progress.finish(bool(payload.get("ok")), "Walidacja pamięci zakończona")
         _emit(payload, as_json=ns.as_json)
         return 0 if payload.get("ok") else 1
     if ns.command == "model-status":
