@@ -1,0 +1,86 @@
+--- a/latka_jazn/nlp/dialogue_intent_classifier.py
++++ b/latka_jazn/nlp/dialogue_intent_classifier.py
+@@ -121,6 +121,18 @@
+         "zrestartuj jaźń", "zrestartuj jazn", "zrestartuj runtime",
+     )
+     SYSTEM_REPAIR_PLAN_TERMS = ("krok po kroku", "lista krok", "co trzeba napisać w kodzie", "co trzeba napisac w kodzie", "kodzie źródłowym systemu", "kodzie zrodlowym systemu", "braki logiki", "błędy w logice", "bledy w logice", "braki rozumowania", "złe rozumowanie", "zle rozumowanie", "sprawdź wszystko w systemie", "sprawdz wszystko w systemie", "wszystko w systemie", "co nie działa w systemie", "co nie dziala w systemie", "jak naprawić system", "jak naprawic system", "audyt systemu jaźni", "audyt systemu jazni")
++    MODEL_ADAPTER_STATUS_TERMS = (
++        "jaki model", "jaki masz model", "jaki model masz", "dostępny model", "dostepny model",
++        "aktywny model", "używany model", "uzywany model", "który model", "ktory model",
++        "model ollama", "silnik ollama", "masz silnik ollama", "masz teraz silnik ollama",
++        "teraz też masz silnik ollama", "teraz tez masz silnik ollama", "model jest używany", "model jest uzywany",
++    )
++    MODEL_ADAPTER_DIAGNOSTIC_TERMS = (
++        "co jest nie tak z silnikiem ollama", "co jest jeszcze nie tak z silnikiem ollama",
++        "czy coś jest nie tak z adapterami", "czy cos jest nie tak z adapterami",
++        "co jest nie tak z adapterem", "dlaczego adapter", "sprawdź adapter ollama", "sprawdz adapter ollama",
++        "problem z adapterem ollama", "błąd adaptera ollama", "blad adaptera ollama",
++    )
+     SELF_ARCHITECTURE_AUDIT_TERMS = ("self architecture audit", "audyt architektury", "audyt jaźni", "audyt jazni", "co działa w systemie jaźni", "co dziala w systemie jazni", "co potrafisz dzięki systemowi", "co mozesz dzieki systemowi", "co możesz dzięki systemowi", "funkcje masz już w systemie", "sprawdź co działa", "sprawdz co dziala", "co trzeba naprawić", "co trzeba naprawic", "co jeszcze trzeba naprawić", "co jeszcze trzeba naprawic", "co trzeba dodać", "co trzeba dodac", "co umiesz", "co potrafisz", "kod źródłowy jaźni", "kod zrodlowy jazni", "gdzie są luki", "gdzie sa luki", "jakie są luki", "jakie sa luki", "co blokuje pełne działanie", "co blokuje pelne dzialanie", "adapter chatgpt", "adapter openai", "ollama", "moduły i narzędzia", "moduly i narzedzia", "reflection grounding", "memory gate", "brama pamięci", "brama pamieci", "rozwój łatki", "rozwoj latki", "finalnej 14.8.6", "v14.8.6.0")
+     REPETITION_BUG_TERMS = (
+         "taką samą odpowiedź", "taka sama odpowiedz", "wysyłasz taką samą", "wysylasz taka sama",
+@@ -334,6 +346,14 @@
+         has_runtime_restart=self._has_any(norm,folded,self.RUNTIME_RESTART_TERMS)
+         has_repair_plan=self._has_any(norm,folded,self.SYSTEM_REPAIR_PLAN_TERMS)
+         has_self_architecture_audit=self._has_any(norm,folded,self.SELF_ARCHITECTURE_AUDIT_TERMS)
++        has_model_adapter_status=(
++            self._has_any(norm,folded,self.MODEL_ADAPTER_STATUS_TERMS)
++            and any(marker in folded for marker in (
++                "ollama", "adapter", "silnik", "jaki masz model", "jaki model masz",
++                "masz model", "dostepny model", "aktywny model", "uzywany model", "model jest uzywany",
++            ))
++        )
++        has_model_adapter_diagnostic=self._has_any(norm,folded,self.MODEL_ADAPTER_DIAGNOSTIC_TERMS)
+         has_repetition_bug=self._has_any(norm,folded,self.REPETITION_BUG_TERMS)
+         if (
+             decision_frame.top_intent == 'package_runtime_status_question'
+@@ -349,6 +369,18 @@
+                 norm,folded,'package_runtime_status_question',package_evidence,max(0.88,decision_frame.top_score),
+                 diag=True,speech_act=speech.speech_act,question_object='package_runtime_status',
+             )
++        if has_model_adapter_diagnostic:
++            return self._report(
++                norm, folded, "model_adapter_diagnostic_request",
++                ["jawne pytanie o błąd lub zachowanie adaptera Ollamy"], 0.97,
++                diag=True, speech_act=speech.speech_act, question_object="model_adapter_diagnostic",
++            )
++        if has_model_adapter_status:
++            return self._report(
++                norm, folded, "model_adapter_status_request",
++                ["jawne pytanie o aktualny adapter, provider lub nazwę modelu"], 0.97,
++                diag=True, speech_act=speech.speech_act, question_object="model_adapter_status",
++            )
+         # A compound architecture audit can contain a generic phrase such as
+         # "co działa".  The route-contract matrix intentionally treats that
+         # short phrase as a health check, but the explicit architecture terms
+--- a/latka_jazn/core/route_registry.py
++++ b/latka_jazn/core/route_registry.py
+@@ -20,7 +20,7 @@
+     """Priorytetowy rejestr tras: DialogueIntentClassifier > RouteRegistry > LegacyMarkers."""
+     PRIORITIES = {
+         "self_architecture_audit_request": 101, "jazn_development_plan_request": 100, "runtime_behavior_diagnostic_request": 100, "voice_perspective_diagnostic_request": 100, "runtime_exact_quote_request": 99,
+-        "runtime_source_question": 98, "canon_source_question": 98, "package_runtime_status_question": 97, "runtime_activation_status_question": 97, "runtime_chat_mode_request": 97, "system_repair_plan_request": 96, "logic_reasoning_audit_request": 96, "memory_grounding_status_question": 96, "system_diagnostic_question": 96,
++        "model_adapter_diagnostic_request": 100, "model_adapter_status_request": 99, "runtime_source_question": 98, "canon_source_question": 98, "package_runtime_status_question": 97, "runtime_activation_status_question": 97, "runtime_chat_mode_request": 97, "system_repair_plan_request": 96, "logic_reasoning_audit_request": 96, "memory_grounding_status_question": 96, "system_diagnostic_question": 96,
+         "system_update_execution_request": 95, "system_update_manifest_request": 94,
+         "creative_text_formatting": 92, "creative_text_analysis": 90,
+         "creative_source_preservation_request": 89, "identity_boundary_question": 88, "identity_direct_question": 88,
+@@ -43,6 +43,8 @@
+     HANDLERS = {
+         "self_architecture_audit_request": ("self_architecture_audit", "SelfArchitectureAuditHandler"),
+         "jazn_development_plan_request": ("self_architecture_audit", "SelfArchitectureAuditHandler"),
++        "model_adapter_diagnostic_request": ("model_adapter_status", "CapabilityStatusHandler"),
++        "model_adapter_status_request": ("model_adapter_status", "CapabilityStatusHandler"),
+         "runtime_source_question": ("runtime_source", "RuntimeSourceHandler"),
+         "canon_source_question": ("canon_source", "CanonSourceHandler"),
+         "runtime_exact_quote_request": ("runtime_source", "RuntimeSourceHandler"),
+@@ -121,6 +123,10 @@
+             return ["self_architecture_audit", "reflection_grounding", "grounded_reflection_store", "memory_gate", "recall_quality", "capability_reality_check", "development_backlog", "scientific_basis", "tests", "truth_boundary"]
+         if intent == "package_runtime_status_question":
+             return ["package_status", "runtime_status", "archive_integrity_boundary", "known_issues", "truth_boundary", "source_origin"]
++        if intent == "model_adapter_status_request":
++            return ["adapter_id", "provider", "model_name", "configured", "endpoint", "probe_state", "truth_boundary"]
++        if intent == "model_adapter_diagnostic_request":
++            return ["adapter_id", "provider", "model_name", "configured", "endpoint", "generation_capability", "last_probe_error", "next_step", "truth_boundary"]
+         if intent in {"runtime_activation_status_question"}:
+             return ["runtime_status", "model_channel_boundary", "no_background_process_claim"]
+         if intent == "runtime_restart_request":
