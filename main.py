@@ -74,7 +74,7 @@ from latka_jazn.nlp_reasoning.source_registry import PolishReasoningSourceRegist
 from latka_jazn.nlp_reasoning.adapters.online_lookup import PolishOnlineLookupPlanner
 from latka_jazn.core.turn_route_trace import TurnRouteTrace
 from latka_jazn.nlp_reasoning.lexical_resource_registry import LexicalResourceRegistry
-from latka_jazn.core.chat_command_contract import apply_chat_cli_settings, apply_chatgpt_cli_settings, apply_ollama_cli_settings, apply_openai_cli_settings, attach_cli_flag_warning, build_chatgpt_host_bridge_turn_contract, guard_cli_flags_in_user_text, run_jsonl_chat_bridge, write_chat_bridge_payload
+from latka_jazn.core.chat_command_contract import apply_chat_cli_settings, apply_chatgpt_cli_settings, apply_ollama_cli_settings, apply_openai_cli_settings, attach_cli_flag_warning, build_chatgpt_host_bridge_turn_contract, guard_cli_flags_in_user_text, resolve_ollama_cli_settings, run_jsonl_chat_bridge, write_chat_bridge_payload
 from latka_jazn.core.bridge_discovery import discover_runtime_bridges
 from latka_jazn.core.llm_route_resolver import ROUTE_CHATGPT_BRIDGE, apply_llm_route_to_config, build_llm_route_status
 from latka_jazn.core.cli_normalization import normalize_cli_argv
@@ -136,7 +136,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--openai-timeout", type=float, default=None, help="Timeout sekund dla adaptera OpenAI w --chat-open-ai.")
     parser.add_argument("--openai-max-output-tokens", type=int, default=None, help="Limit output tokens dla adaptera OpenAI w --chat-open-ai.")
     parser.add_argument("--chat-openai", action="store_true", dest="chat_open_ai", help=argparse.SUPPRESS)
-    parser.add_argument("--chat-ollama", "--ollama", "--chat-ollama", action="store_true", dest="local_llm", help="Uruchom lokalny runtime Jaźni z modelem Ollama przez natywne API /api/chat; bez OPENAI_API_KEY.")
+    parser.add_argument("--chat-ollama", "--ollama", action="store_true", dest="local_llm", help="Uruchom lokalny runtime Jaźni z Ollamą. W TTY otwiera rozmowę, stdin pozostaje JSONL; pojedynczy model z /api/tags jest wybierany automatycznie.")
     parser.add_argument("--ollama-api-base", "--local-llm-api-base", dest="ollama_api_base", default=None, help="Bazowy URL Ollamy; domyślnie http://127.0.0.1:11434.")
     parser.add_argument("--ollama-model", "--local-llm-model", dest="ollama_model", default=None, help="Nazwa lokalnego modelu Ollama.")
     parser.add_argument("--ollama-timeout", type=float, default=None, help="Timeout sekund dla adaptera Ollama.")
@@ -582,6 +582,99 @@ def _run_chat_command_one_shot(
         return 0
     finally:
         session.close()
+
+
+def _run_chat_ollama_command(ns: argparse.Namespace, cfg: JaznConfig) -> int:
+    """Run Ollama in terminal-chat, one-shot, or JSONL mode.
+
+    TTY without a trailing message is a human conversation loop. Redirected
+    stdin remains the machine JSONL contract. Model discovery is conservative:
+    exactly one available model may be selected automatically; ambiguity is a
+    startup error instead of an arbitrary first-model choice.
+    """
+    cfg, ollama_probe = resolve_ollama_cli_settings(
+        cfg,
+        model=ns.ollama_model,
+        api_base=ns.ollama_api_base,
+        timeout_seconds=ns.ollama_timeout,
+        max_output_tokens=ns.ollama_max_output_tokens,
+    )
+    bridge_text = _message_from_remainder(ns.message)
+    stdin_is_tty = bool(getattr(sys.stdin, "isatty", lambda: False)())
+    if not ollama_probe.get("available"):
+        reason = str(ollama_probe.get("reason") or "ollama_unavailable")
+        installed_models = list(ollama_probe.get("installed_models") or [])
+        running_models = list(ollama_probe.get("running_models") or [])
+        model_candidates = list(dict.fromkeys([*running_models, *installed_models]))
+        configured_model = str(ollama_probe.get("configured_model") or "").strip()
+        if reason == "ollama_model_ambiguous":
+            suggested_command = 'python -X utf8 main.py --chat-ollama --ollama-model "<nazwa-z-listy>"'
+        elif reason == "configured_model_not_installed" and configured_model:
+            suggested_command = f'ollama pull "{configured_model}"'
+        elif reason == "ollama_has_no_models":
+            suggested_command = 'ollama pull "<nazwa-modelu>"'
+        else:
+            suggested_command = "ollama serve"
+        error_payload = {
+            "schema_version": schema_version("ollama_cli_startup_error"),
+            "ok": False,
+            "error_code": reason,
+            "error": (
+                "Nie można uruchomić --chat-ollama bez jednoznacznie dostępnego modelu. "
+                "Przy wielu modelach wskaż --ollama-model <nazwa>; gdy endpoint nie odpowiada, uruchom Ollamę."
+            ),
+            "ollama_probe": ollama_probe,
+            "suggested_command": suggested_command,
+            "truth_boundary": "Runtime nie przechodzi do rozmowy, dopóki /api/tags nie potwierdzi konkretnego modelu.",
+        }
+        if stdin_is_tty:
+            print(error_payload["error"], file=sys.stderr)
+            if model_candidates:
+                print("Dostępne modele: " + ", ".join(model_candidates), file=sys.stderr)
+            print("Następny krok: " + str(error_payload["suggested_command"]), file=sys.stderr)
+        else:
+            print(json.dumps(error_payload, ensure_ascii=False, sort_keys=True))
+        return 3
+
+    _daemon_ensure, daemon_exit = _ensure_daemon_or_error(ns, cfg, "--chat-ollama")
+    if daemon_exit is not None:
+        return daemon_exit
+    if bridge_text:
+        return _run_chat_command_one_shot(
+            cfg=cfg,
+            text=bridge_text,
+            session_id=ns.session_id,
+            no_carryover=ns.no_carryover,
+            source_client="ollama_terminal_one_shot",
+            lifecycle="ollama_terminal_one_shot",
+            command="--chat-ollama",
+            output_mode="final_visible_text",
+        )
+    if stdin_is_tty:
+        session = RuntimeSessionWorker(
+            session_factory=JaznRuntimeSession,
+            config=cfg,
+            session_id=ns.session_id,
+            no_carryover=ns.no_carryover,
+            source_client="ollama_terminal_chat",
+            command="--chat-ollama",
+            timeout_seconds=runtime_turn_timeout_seconds(cfg),
+        )
+        try:
+            run_persistent_chat(session, session_id=ns.session_id, no_carryover=ns.no_carryover)
+        finally:
+            session.close()
+        return 0
+
+    return run_jsonl_chat_bridge(
+        config=cfg,
+        session_id=ns.session_id,
+        no_carryover=ns.no_carryover,
+        command="--chat-ollama",
+        stdin=None,
+        require_openai_api_key=False,
+        output_mode="final_visible_text" if ns.final_only else "jsonl",
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1567,29 +1660,7 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     if ns.local_llm:
-        cfg = apply_ollama_cli_settings(
-            config or JaznConfig(),
-            model=ns.ollama_model,
-            api_base=ns.ollama_api_base,
-            timeout_seconds=ns.ollama_timeout,
-            max_output_tokens=ns.ollama_max_output_tokens,
-        )
-        bridge_text = _message_from_remainder(ns.message)
-        daemon_ensure, daemon_exit = _ensure_daemon_or_error(ns, cfg, "--chat-ollama")
-        if daemon_exit is not None:
-            return daemon_exit
-        output_mode = _bridge_text_output_mode(ns, bridge_text)
-        bridge_stdin = io.StringIO(bridge_text + "\n") if bridge_text else None
-        return run_jsonl_chat_bridge(
-            config=cfg,
-            session_id=ns.session_id,
-            no_carryover=ns.no_carryover,
-            command="--chat-ollama",
-            stdin=bridge_stdin,
-            require_openai_api_key=False,
-            output_mode=output_mode,
-        )
-
+        return _run_chat_ollama_command(ns, config or JaznConfig())
 
     if ns.chat_open_ai:
         cfg = config or JaznConfig()

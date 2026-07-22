@@ -263,20 +263,61 @@ def apply_ollama_cli_settings(
     max_output_tokens: int | None = None,
     provider: str | None = None,
 ) -> JaznConfig:
+    """Apply explicit Ollama CLI values without performing network I/O.
+
+    Model discovery is intentionally separate in ``resolve_ollama_cli_settings``
+    so status builders and unit tests do not unexpectedly contact localhost.
+    """
     config.model_adapter = "ollama"
-    if model:
-        config.local_model_name = model
-        os.environ["JAZN_OLLAMA_MODEL"] = model
-        os.environ["JAZN_LOCAL_LLM_MODEL"] = model
+    normalized_model = str(model or "").strip()
+    if normalized_model:
+        config.local_model_name = normalized_model
+        os.environ["JAZN_OLLAMA_MODEL"] = normalized_model
+        os.environ["JAZN_LOCAL_LLM_MODEL"] = normalized_model
     if api_base:
-        config.local_model_api_base = api_base.rstrip("/")
-        os.environ["JAZN_OLLAMA_BASE_URL"] = api_base.rstrip("/")
-        os.environ["JAZN_LOCAL_LLM_BASE_URL"] = api_base.rstrip("/")
+        normalized_api_base = str(api_base).strip().rstrip("/")
+        config.local_model_api_base = normalized_api_base
+        os.environ["JAZN_OLLAMA_BASE_URL"] = normalized_api_base
+        os.environ["JAZN_LOCAL_LLM_BASE_URL"] = normalized_api_base
     if timeout_seconds is not None:
         config.model_timeout_seconds = float(timeout_seconds)
     if max_output_tokens is not None:
         config.model_max_output_tokens = int(max_output_tokens)
     return config
+
+
+def resolve_ollama_cli_settings(
+    config: JaznConfig,
+    *,
+    model: str | None = None,
+    api_base: str | None = None,
+    timeout_seconds: float | None = None,
+    max_output_tokens: int | None = None,
+) -> tuple[JaznConfig, dict[str, Any]]:
+    """Apply CLI settings and verify/select a usable Ollama model.
+
+    An explicitly configured model is verified against ``GET /api/tags``.  When
+    no model was configured, exactly one running or installed model may be
+    selected by the existing canonical ``probe_ollama`` policy.  Multiple
+    models remain ambiguous and require ``--ollama-model`` instead of an
+    arbitrary choice.
+    """
+    apply_ollama_cli_settings(
+        config,
+        model=model,
+        api_base=api_base,
+        timeout_seconds=timeout_seconds,
+        max_output_tokens=max_output_tokens,
+    )
+
+    from latka_jazn.core.llm_route_resolver import probe_ollama
+
+    probe_timeout = min(max(float(getattr(config, "model_timeout_seconds", 45.0)), 0.1), 2.0)
+    probe = probe_ollama(config, os.environ, timeout_seconds=probe_timeout)
+    selected_model = str(probe.get("model") or "").strip()
+    if selected_model:
+        config.local_model_name = selected_model
+    return config, probe
 
 
 def _nonempty_text_from_fields(payload: dict[str, Any], fields: tuple[str, ...]) -> tuple[str, str]:

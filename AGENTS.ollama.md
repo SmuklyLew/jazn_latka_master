@@ -17,6 +17,8 @@ Uruchom lokalny runtime z natywnym adapterem Ollama:
 python -X utf8 main.py --chat-ollama --session-id local-runtime
 ```
 
+W terminalu TTY ta komenda otwiera czytelną pętlę rozmowy z promptem `Łatka>`. Gdy wejście pochodzi z pipe lub przekierowanego stdin, zachowany zostaje maszynowy kontrakt JSONL. Jeżeli `/api/tags` zwróci dokładnie jeden jednoznaczny model (albo jeden model jest aktualnie uruchomiony), runtime wybiera go automatycznie. Przy wielu modelach trzeba użyć `--ollama-model`; runtime nie wybiera arbitralnie pierwszego wpisu.
+
 Można jawnie wskazać model i endpoint:
 
 ```bash
