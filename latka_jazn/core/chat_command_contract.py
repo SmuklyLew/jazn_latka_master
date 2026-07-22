@@ -11,6 +11,7 @@ from typing import Any, Literal, TextIO
 from latka_jazn.config import JaznConfig
 from latka_jazn.core.runtime_session import JaznRuntimeSession
 from latka_jazn.core.host_visible_finalization import finalize_host_visible_text
+from latka_jazn.core.runtime_ownership_contract import build_runtime_ownership_contract
 from latka_jazn.core.turn_timeout import RuntimeSessionWorker, RuntimeTurnTimeoutError, runtime_turn_timeout_seconds
 from latka_jazn.version import schema_version
 
@@ -381,6 +382,20 @@ def build_chatgpt_host_bridge_turn_contract(
     runtime_turn = result.get("runtime_turn_contract") if isinstance(result.get("runtime_turn_contract"), dict) else {}
     final_contract = result.get("final_response_contract") if isinstance(result.get("final_response_contract"), dict) else {}
     requires_host = chatgpt_result_requires_host_visible_reply(result)
+    detected_intent = str(
+        decision.get("detected_user_intent")
+        or decision.get("intent")
+        or runtime_turn.get("detected_user_intent")
+        or runtime_turn.get("intent")
+        or ""
+    )
+    runtime_route = str(decision.get("route") or runtime_turn.get("runtime_route") or "")
+    ownership = build_runtime_ownership_contract(
+        detected_intent=detected_intent,
+        route=runtime_route,
+    )
+    host_policy = ownership.get("host_visible_generation_contract") or {}
+    host_policy_rules = [str(item) for item in host_policy.get("rules", []) if str(item).strip()]
     turn_id = str(trace.get("turn_id") or runtime_turn.get("turn_id") or final_contract.get("turn_id") or "")
     trace_id = str(trace.get("trace_id") or runtime_turn.get("trace_id") or final_contract.get("trace_id") or "")
     timestamp_header = str(trace.get("timestamp_header") or runtime_turn.get("timestamp_header") or final_contract.get("timestamp_header") or "")
@@ -398,7 +413,8 @@ def build_chatgpt_host_bridge_turn_contract(
         "host_reply_finalization_required": requires_host,
         "user_text_sha256": hashlib.sha256((user_text or "").encode("utf-8")).hexdigest(),
         "runtime_summary": {
-            "route": decision.get("route") or runtime_turn.get("runtime_route"),
+            "route": runtime_route,
+            "detected_intent": detected_intent,
             "handler_name": decision.get("handler_name") or runtime_turn.get("handler_name"),
             "fallback_classification": runtime_turn.get("fallback_classification") or final_contract.get("fallback_classification"),
             "runtime_answer_quality": runtime_turn.get("runtime_answer_quality") or final_contract.get("runtime_answer_quality"),
@@ -410,12 +426,14 @@ def build_chatgpt_host_bridge_turn_contract(
             "generation_executor": "chatgpt_host" if requires_host else "runtime",
             "requires_host_model": requires_host,
         },
+        "runtime_ownership_contract": ownership,
+        "host_generation_policy": host_policy,
         "host_reply_jsonl_shape": {
             "type": "host_visible_reply",
             "turn_id": turn_id,
             "trace_id": trace_id,
             "timestamp_header": timestamp_header,
-            "final_text": "<widoczna odpowiedź ChatGPT ułożona na podstawie runtime Jaźni>",
+            "final_text": "<widoczna odpowiedź ułożona zgodnie z runtime_ownership_contract>",
             "final_text_sha256": "<sha256 dokładnych bajtów UTF-8 pola final_text>",
         },
         "accepted_host_reply_text_fields": list(CHATGPT_HOST_VISIBLE_REPLY_TEXT_FIELDS),
@@ -426,10 +444,10 @@ def build_chatgpt_host_bridge_turn_contract(
             "która zostanie zapisana przez runtime jako external_final_visible_reply bez udawania lokalnego modelu."
         ),
         "host_generation_rules": [
-            "Ułóż widoczną odpowiedź po polsku na podstawie bieżącego runtime result, nie na podstawie starego szablonu.",
+            *host_policy_rules,
             "Nie twierdź, że lokalny Python wywołał ChatGPT jako funkcję.",
             "Widoczna odpowiedź MUSI zaczynać się dokładnie od required_visible_prefix/timestamp_header; faza finalizacji odrzuci obcy timestamp i naprawi brakujący.",
-            "Jeżeli runtime_truth_gate blokuje zwykłą odpowiedź, pokaż krótką diagnozę zamiast udawanej wypowiedzi Łatki.",
+            "Jeżeli runtime_truth_gate blokuje zwykłą odpowiedź, pokaż krótką diagnozę hosta zamiast imitować wypowiedź Łatki.",
         ],
     }
 
