@@ -62,7 +62,7 @@ class RuntimeAnswerValidator:
         "self_architecture_audit_request", "jazn_development_plan_request", "runtime_behavior_diagnostic_request", "system_diagnostic_question", "runtime_source_question", "canon_source_question", "runtime_exact_quote_request", "package_runtime_status_question",
         "system_update_execution_request", "system_update_manifest_request", "update_manifest_request", "creative_text_formatting", "creative_text_analysis",
         "practical_repair_advice", "automotive_warning_light_question", "dictionary_lookup_request", "language_question", "external_research_request",
-        "identity_boundary_question", "identity_direct_question", "identity_continuity_check", "identity_presence_check", "presence_check", "time_awareness_question", "self_state_time_awareness", "self_state_question", "reciprocal_self_state_question", "self_preference_question", "self_plan_question", "self_expression_request", "sleep_closure_statement", "memory_audit_request", "memory_recall_request", "runtime_activation_status_question", "runtime_restart_request", "runtime_chat_mode_request", "system_repair_plan_request", "logic_reasoning_audit_request", "memory_grounding_status_question", "user_memory_recall_request", "module_inventory_request", "system_capability_gap_question", "capability_status_question", "internet_access_question", "runtime_health_check", "runtime_health_check_after_update", "user_memory_recall_request", "self_memory_recall_request", "direct_latka_voice_request", "identity_memory_existence_compound_question", "self_architecture_audit_request", "jazn_development_plan_request",
+        "identity_boundary_question", "identity_direct_question", "identity_continuity_check", "identity_presence_check", "presence_check", "time_awareness_question", "self_state_time_awareness", "self_state_question", "reciprocal_self_state_question", "self_preference_question", "self_plan_question", "self_expression_request", "sleep_closure_statement", "memory_audit_request", "memory_recall_request", "runtime_activation_status_question", "runtime_restart_request", "runtime_chat_mode_request", "system_repair_plan_request", "logic_reasoning_audit_request", "memory_grounding_status_question", "user_memory_recall_request", "module_inventory_request", "system_capability_gap_question", "capability_status_question", "internet_access_question", "model_adapter_status_question", "runtime_health_check", "runtime_health_check_after_update", "user_memory_recall_request", "self_memory_recall_request", "direct_latka_voice_request", "identity_memory_existence_compound_question", "self_architecture_audit_request", "jazn_development_plan_request",
         "casual_greeting", "casual_feedback", "expressive_reaction", "short_free_dialogue",
     }
     STALE_WORKDAY_DETAILS = (
@@ -274,6 +274,8 @@ class RuntimeAnswerValidator:
             return ("operacyj" in low or "dialogow" in low or "dialogowy" in low) and ("pora" in low or "według" in low or "wedlug" in low or "europe/warsaw" in low)
         if detected_intent == "internet_access_question":
             return "internet" in low and "provider" in low and ("nie wolno" in low or "granica prawdy" in low)
+        if detected_intent == "model_adapter_status_question":
+            return "provider=" in low and "adapter=" in low and "model=" in low and "endpoint=" in low
         if detected_intent == "capability_status_question":
             return "potrafię" in low and "--chat" in low and ("nie potrafię" in low or "nie udaj" in low)
         if detected_intent == "user_memory_recall_request":
@@ -318,7 +320,7 @@ class RuntimeAnswerValidator:
         technical_intents = (
             "system_", "runtime_health", "runtime_behavior", "runtime_source",
             "system_update", "jazn_development", "self_architecture", "module_",
-            "memory_audit", "capability_status", "internet_access", "canon_source",
+            "memory_audit", "capability_status", "internet_access", "model_adapter_status", "canon_source",
         )
         if intent.startswith(technical_intents) or any(marker in route_low for marker in ("diagnostic", "health", "source", "audit", "system_update")):
             return False
@@ -545,6 +547,6 @@ class RuntimeAnswerValidator:
         missing=self._missing_components(body, entry.required_components)
         if missing and detected_intent in self.SPECIFIC_INTENTS:
             checks.append('missing_required_components')
-            return self._bad('missing_required_components_for_intent', entry.route + '_repair', 'Odpowiedź nie zawiera wymaganych składników dla rozpoznanej intencji. Runtime musi ponowić trasę z komponentami: ' + ', '.join(missing), detected_intent, route, checks, missing)
+            return self._bad('missing_required_components_for_intent', entry.route + '_repair', 'Nie udało mi się teraz zbudować kompletnej i pewnej odpowiedzi. Nie będę zgadywać; szczegóły brakujących komponentów zostały zachowane w audycie tury.', detected_intent, route, checks, missing)
         checks.append('known_mismatch_patterns_not_triggered')
         return RuntimeAnswerValidation(SCHEMA_VERSION, True, None, None, True, False, detected_intent, route, None, checks, [], current_turn_grounding=assess_current_turn_grounding(user_text=user_text, response_body=body, detected_intent=detected_intent, route=route, runtime_version=SCHEMA_VERSION.rsplit("/", 1)[-1]).to_dict())

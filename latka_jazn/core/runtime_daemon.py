@@ -66,6 +66,10 @@ DEFAULT_DAEMON_CHAT_POLL_INTERVAL_SECONDS = 0.25
 DEFAULT_DAEMON_CHAT_JOB_TTL_SECONDS = 3600.0
 DEFAULT_DAEMON_CHAT_QUEUE_SIZE = 64
 DEFAULT_HEARTBEAT_FRESH_MULTIPLIER = 3.0
+DAEMON_CONSOLE_ENV = "JAZN_DAEMON_CONSOLE"
+DAEMON_CONSOLE_HIDDEN = "hidden"
+DAEMON_CONSOLE_VISIBLE = "visible"
+DAEMON_CONSOLE_MODES = {DAEMON_CONSOLE_HIDDEN, DAEMON_CONSOLE_VISIBLE}
 DEFAULT_TIMESTAMP_BACKGROUND_REFRESH_MIN_SECONDS = 20.0
 DEFAULT_TIMESTAMP_BACKGROUND_REFRESH_TIMEOUT_SECONDS = 0.35
 DEFAULT_DAEMON_TRUSTED_TIME_HOLD_SECONDS = 120.0
@@ -91,6 +95,65 @@ def daemon_pid_path(root: Path) -> Path:
 
 def daemon_log_dir(root: Path) -> Path:
     return Path(root).resolve() / "workspace_runtime" / "daemon"
+
+
+def daemon_process_event_path(root: Path) -> Path:
+    return daemon_log_dir(root) / "process_events.jsonl"
+
+
+_DAEMON_PROCESS_EVENT_LOCK = threading.RLock()
+
+
+def resolve_daemon_console_mode(
+    value: str | None = None,
+    *,
+    env: dict[str, str] | os._Environ[str] | None = None,
+) -> str:
+    source = os.environ if env is None else env
+    raw = str(value or source.get(DAEMON_CONSOLE_ENV, "") or DAEMON_CONSOLE_HIDDEN).strip().lower()
+    return raw if raw in DAEMON_CONSOLE_MODES else DAEMON_CONSOLE_HIDDEN
+
+
+def windows_daemon_creationflags(console_mode: str, *, subprocess_module: Any = subprocess) -> int:
+    """Return a non-flashing hidden mode or one explicit persistent console.
+
+    CREATE_NO_WINDOW is intentionally not combined with DETACHED_PROCESS because
+    Win32 documents that CREATE_NO_WINDOW is ignored with DETACHED_PROCESS.
+    """
+    mode = resolve_daemon_console_mode(console_mode, env={})
+    process_group = int(getattr(subprocess_module, "CREATE_NEW_PROCESS_GROUP", 0))
+    if mode == DAEMON_CONSOLE_VISIBLE:
+        return process_group | int(getattr(subprocess_module, "CREATE_NEW_CONSOLE", 0))
+    return process_group | int(getattr(subprocess_module, "CREATE_NO_WINDOW", 0))
+
+
+def append_daemon_process_event(root: Path, event: str, **details: Any) -> Path:
+    path = daemon_process_event_path(root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "timestamp_utc": utc_now_iso(),
+        "event": str(event),
+        "launcher_pid": os.getpid(),
+        **details,
+    }
+    line = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str) + "\n"
+    try:
+        with _DAEMON_PROCESS_EVENT_LOCK:
+            with path.open("a", encoding="utf-8", newline="") as handle:
+                handle.write(line)
+                handle.flush()
+    except OSError:
+        # Audyt procesu jest diagnostyczny: błąd logu nie może powodować
+        # restartów ani blokować startu właściwego daemona.
+        pass
+    return path
+
+
+def _emit_visible_daemon_event(event: str, **details: Any) -> None:
+    if resolve_daemon_console_mode() != DAEMON_CONSOLE_VISIBLE:
+        return
+    payload = {"timestamp_utc": utc_now_iso(), "event": event, "pid": os.getpid(), **details}
+    print("[jazn_daemon] " + json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str), flush=True)
 
 
 def daemon_url(host: str = DEFAULT_DAEMON_HOST, port: int = DEFAULT_DAEMON_PORT, path: str = "/status") -> str:
@@ -1333,7 +1396,14 @@ class JaznDaemonServer(ThreadingHTTPServer):
             while not self.shutdown_requested.is_set():
                 try:
                     self.refresh_timestamp_contract(reason="heartbeat_background", background=True)
-                    self.write_marker()
+                    marker = self.write_marker()
+                    _emit_visible_daemon_event(
+                        "heartbeat",
+                        active_state=marker.get("active_state"),
+                        heartbeat_at_utc=marker.get("last_heartbeat_at_utc"),
+                        turn_count=self.state.turn_count,
+                        request_count=self.state.request_count,
+                    )
                 except Exception:
                     pass
                 self.shutdown_requested.wait(self.heartbeat_interval)
@@ -1628,6 +1698,7 @@ def run_daemon(
     server = JaznDaemonServer((host, int(port)), JaznDaemonHandler, config=config, marker_path=marker_path, heartbeat_interval=heartbeat_interval)
     server.refresh_timestamp_contract(reason="startup_background", background=True, force=True)
     server.write_marker()
+    _emit_visible_daemon_event("started", host=host, port=int(port), root=str(config.root), heartbeat_interval_seconds=float(heartbeat_interval))
     server.start_heartbeat()
     try:
         server.serve_forever(poll_interval=0.25)
@@ -1640,6 +1711,7 @@ def run_daemon(
             payload["runtime_process_active"] = False
             payload["stopped_at_utc"] = utc_now_iso()
             write_json_atomic(marker_path, payload)
+            _emit_visible_daemon_event("stopped", root=str(config.root))
             server.server_close()
     return 0
 
@@ -1807,15 +1879,52 @@ def start_daemon(
     log_dir.mkdir(parents=True, exist_ok=True)
     stdout_path = log_dir / "stdout.log"
     stderr_path = log_dir / "stderr.log"
+    event_path = daemon_process_event_path(config.root)
     cmd = build_daemon_start_command(config.root, host=host, port=port, marker_output=marker_path, heartbeat_interval=heartbeat_interval)
+    console_mode = resolve_daemon_console_mode()
     creationflags = 0
     popen_kwargs: dict[str, Any] = {}
     if os.name == "nt":
-        creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
+        creationflags = windows_daemon_creationflags(console_mode)
     else:
         popen_kwargs["start_new_session"] = True
-    with stdout_path.open("ab") as out, stderr_path.open("ab") as err:
-        proc = subprocess.Popen(cmd, cwd=str(config.root), stdout=out, stderr=err, stdin=subprocess.DEVNULL, creationflags=creationflags, **popen_kwargs)
+    append_daemon_process_event(
+        config.root,
+        "spawn_attempt",
+        console_mode=console_mode,
+        command=cmd,
+        cwd=str(config.root),
+        creationflags=creationflags,
+        stdout_log=str(stdout_path),
+        stderr_log=str(stderr_path),
+    )
+    if os.name == "nt" and console_mode == DAEMON_CONSOLE_VISIBLE:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(config.root),
+            stdin=subprocess.DEVNULL,
+            creationflags=creationflags,
+            **popen_kwargs,
+        )
+    else:
+        with stdout_path.open("ab") as out, stderr_path.open("ab") as err:
+            proc = subprocess.Popen(
+                cmd,
+                cwd=str(config.root),
+                stdout=out,
+                stderr=err,
+                stdin=subprocess.DEVNULL,
+                creationflags=creationflags,
+                **popen_kwargs,
+            )
+    append_daemon_process_event(
+        config.root,
+        "spawned",
+        console_mode=console_mode,
+        daemon_pid=proc.pid,
+        command=cmd,
+        event_log=str(event_path),
+    )
     deadline = time.time() + float(startup_timeout)
     last_error: str | None = None
     while time.time() < deadline:
@@ -1840,6 +1949,8 @@ def start_daemon(
                         "marker_path": str(marker_path),
                         "stdout_log": str(stdout_path),
                         "stderr_log": str(stderr_path),
+                        "process_event_log": str(event_path),
+                        "daemon_console_mode": console_mode,
                         "command": cmd,
                     }
                 last_error = (
@@ -1853,7 +1964,8 @@ def start_daemon(
         except Exception as exc:
             last_error = f"{type(exc).__name__}: {exc}"
         time.sleep(0.2)
-    return {"ok": False, "started": False, "pid": proc.pid, "error": last_error or "daemon did not answer before timeout", "marker_path": str(marker_path), "stdout_log": str(stdout_path), "stderr_log": str(stderr_path), "command": cmd}
+    append_daemon_process_event(config.root, "startup_failed", daemon_pid=proc.pid, console_mode=console_mode, error=last_error or "daemon did not answer before timeout")
+    return {"ok": False, "started": False, "pid": proc.pid, "error": last_error or "daemon did not answer before timeout", "marker_path": str(marker_path), "stdout_log": str(stdout_path), "stderr_log": str(stderr_path), "process_event_log": str(event_path), "daemon_console_mode": console_mode, "command": cmd}
 
 
 def status_daemon(

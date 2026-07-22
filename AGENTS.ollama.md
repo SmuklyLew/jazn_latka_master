@@ -75,3 +75,15 @@ Raportuj oddzielnie:
 - timeout lub błąd transportu.
 
 Działająca Ollama nie dowodzi działania Jaźni, a działająca Jaźń nie dowodzi dostępności Ollamy.
+
+## Konsola daemona na Windows
+
+Domyślnie daemon używa `JAZN_DAEMON_CONSOLE=hidden`: proces nie tworzy migającego okna, a stdout/stderr i audyt uruchomień trafiają do `workspace_runtime/daemon/`. Do jawnej obserwacji można uruchomić jedno stałe okno diagnostyczne:
+
+```powershell
+py run.py start --daemon-console visible
+```
+
+lub ustawić `$env:JAZN_DAEMON_CONSOLE = "visible"` przed startem. Heartbeat pozostaje wątkiem wewnątrz jednego procesu; nie powinien uruchamiać nowego terminala co interwał.
+
+Pytania o bieżący model lub adapter raportują rzeczywiste pola `provider`, `model`, `configured`, `endpoint_reachable`, `probe_state` i `last_probe_error`. Kandydat Ollamy naruszający wymóg języka polskiego jest ponawiany jeden raz z mocniejszym kontraktem językowym, a po drugim naruszeniu zostaje odrzucony zamiast trafić do `final_visible_text`.

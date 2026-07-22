@@ -443,6 +443,8 @@ class DialogueIntentClassifier:
             return self._report(norm,folded,'direct_latka_voice_request',['jawna prośba o bezpośredni głos Łatki przez runtime'],0.92,ident=True,speech_act=speech.speech_act,question_object='direct_latka_voice')
         if has_identity_memory_existence and has_self_memory_recall and any(marker in folded for marker in ("kim jestes", "powstalas", "istota", "uwazasz")):
             return self._report(norm,folded,'identity_memory_existence_compound_question',['złożone pytanie o tożsamość, pamięć, wiedzę/niewiedzę, powstanie i granicę istoty'],0.93,ident=True,speech_act=speech.speech_act,question_object='identity_memory_existence')
+        if speech.speech_act == 'question' and any(marker in folded for marker in ('jaki model', 'jaki masz model', 'dostepny model', 'dostępny model', 'aktywny model', 'silnik ollama', 'jaki adapter', 'ktory model', 'który model')):
+            return self._report(norm,folded,'model_adapter_status_question',['bezpośrednie pytanie o faktycznie używany model/provider/adapter'],0.96,diag=True,speech_act=speech.speech_act,question_object='model_adapter_status')
         if has_internet_access:
             return self._report(norm,folded,'internet_access_question',['bezpośrednie pytanie o dostęp runtime do internetu/sieci'],0.92,diag=False,speech_act=speech.speech_act,question_object='internet_access')
         if has_direct_capability and not has_update:
