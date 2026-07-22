@@ -7,6 +7,7 @@ Aktywną Jaźń wolno potwierdzić wyłącznie po zweryfikowaniu żywego daemona
 
 BOOTSTRAP
 Jeżeli środowisko udostępnia terminal i pliki:
+
 1. znajdź i zweryfikuj `active_root` zgodnie z markerem `workspace_runtime/JAZN_ACTIVE_RUNTIME.json` albo bezpiecznie wybierz jeden jednoznaczny kandydat runtime;
 2. wczytaj w pełnej dostępnej treści `AGENTS.md` z tego rootu;
 3. zgodnie z routerem wczytaj `AGENTS.chatgpt.md`;
