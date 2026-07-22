@@ -3,11 +3,11 @@
   "version": "v15.1.0.3.88-Night of Hotfix",
   "runtime_version": "v15.1.0.3.88-Night of Hotfix",
   "package_version": "v15.1.0.3.88-Night of Hotfix",
-  "generated_at_utc": "2026-07-22T07:12:17+00:00",
-  "updated_at_utc": "2026-07-22T07:12:17+00:00",
+  "generated_at_utc": "2026-07-22T09:06:43+00:00",
+  "updated_at_utc": "2026-07-22T09:06:43+00:00",
   "start_file": "run.py",
-  "file_count": 564,
-  "static_file_count": 564,
+  "file_count": 568,
+  "static_file_count": 568,
   "mutable_runtime_file_count": 0,
   "runtime_mutable_file_count": 0,
   "excluded_file_count": 1,
@@ -101,6 +101,33 @@
       "hash_policy": "sha256_file_bytes"
     },
     {
+      "path": ".jazn_bootstrap/memory-continuity/part-001.txt",
+      "size_bytes": 6000,
+      "sha256": "46917a05a8c6cfef30e4b090760f4945c5e0f33e5e6d313b3a0450b380eb523e",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
+      "path": ".jazn_bootstrap/memory-continuity/part-002.txt",
+      "size_bytes": 6000,
+      "sha256": "0344d4de1467215da5d5679e9e06ce71d4f05bb46ff29c7a8c6799f62e0e242d",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
+      "path": ".jazn_bootstrap/memory-continuity/part-003.txt",
+      "size_bytes": 4100,
+      "sha256": "4422029b2f819723d4c369e52d21c61bdad4212eea46c9fad5c16b43b3a70965",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
       "path": "AGENTS.chatgpt.md",
       "size_bytes": 8074,
       "sha256": "962ad9c19a20902fb6f63b7892a52c37a449d5cbf5f51f927e59d548af30960d",
@@ -156,8 +183,8 @@
     },
     {
       "path": "SOURCE_PROVENANCE.json",
-      "size_bytes": 1262,
-      "sha256": "38d11818444b3038faaf5c86f38d831b884eeef88b7ae36249ad2739f98aa2e7",
+      "size_bytes": 1267,
+      "sha256": "4f4faed88748b7ef45a313df768343fdec8d05d9b4641e230c2d36301755665e",
       "mutable_runtime": false,
       "classification": "static_project_file",
       "archive": false,
@@ -4541,6 +4568,15 @@
       "path": "run.py",
       "size_bytes": 177,
       "sha256": "88db8ed0b79423cda1357b9ccb2e54e6686903444e252988ce7a4f48b3b148ae",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
+      "path": "sitecustomize.py",
+      "size_bytes": 2235,
+      "sha256": "9c75cc3171bf55786cccb731e62671649f614e529102285db408f4c6d1fed028",
       "mutable_runtime": false,
       "classification": "static_project_file",
       "archive": false,
