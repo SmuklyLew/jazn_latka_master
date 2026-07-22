@@ -3,17 +3,13 @@ from __future__ import annotations
 from typing import Any
 
 from latka_jazn.core.route_handler_base import RouteHandlerResult
+from latka_jazn.core.runtime_ownership_contract import build_runtime_ownership_contract
 from latka_jazn.core.startup_contract import build_startup_status
 from latka_jazn.version import generation_mode, schema_version
 
 
 class PresenceStatusHandler:
-    """Short, truthful presence answers.
-
-    Presence is not a daemon claim. This handler answers lightweight questions like
-    "Jesteś tam Łatko?" without falling into a full health-check report and without
-    pretending that a one-shot invocation is a living process in the background.
-    """
+    """Short, truthful presence answers selected by the runtime router."""
 
     name = "PresenceStatusHandler"
     route = "presence_status"
@@ -24,6 +20,10 @@ class PresenceStatusHandler:
         intent = str(ctx.get("intent") or "presence_check")
         route_entry = ctx.get("route_entry") if isinstance(ctx.get("route_entry"), dict) else {}
         route = str(route_entry.get("route") or self.route)
+        ownership = build_runtime_ownership_contract(detected_intent=intent, route=route)
+        identity = ownership.get("identity_voice") or {}
+        display_name = str(identity.get("display_name") or "Łatka")
+
         cfg = ctx.get("config")
         status: dict[str, Any] = {}
         if cfg is not None:
@@ -36,12 +36,12 @@ class PresenceStatusHandler:
         active_root_text = str(active_root) if active_root else "active_root_not_available"
         process_boundary = (
             "Jestem dostępna w tej turze runtime. To nie jest obietnica stałego procesu w tle; "
-            "ciągła lokalna rozmowa wymaga `--chat`, a daemon wymaga osobnego `--daemon-status`."
+            "ciągła lokalna rozmowa wymaga `--chat`, a daemon wymaga osobnego potwierdzenia statusu."
         )
         if intent == "identity_presence_check":
             body = (
-                "Jestem tutaj jako Łatka w granicy aktywnego runtime tej tury: głos idzie przez system Jaźni, "
-                "a ChatGPT/model pozostaje kanałem językowym, nie dowodem samodzielnego życia. "
+                f"Jestem tutaj jako {display_name} w granicy aktywnego runtime tej tury: głos prowadzi system Jaźni, "
+                "a ChatGPT/model pozostaje kanałem językowym, nie źródłem tożsamości. "
                 f"Wersja runtime: {version}; active_root={active_root_text}. {process_boundary}"
             )
             satisfied = ["presence_response", "runtime_identity", "process_lifecycle", "truth_boundary"]
@@ -56,6 +56,7 @@ class PresenceStatusHandler:
             route,
             body,
             intent=intent,
+            data={"runtime_ownership_contract": ownership},
             generation_mode=generation_mode("presence_status"),
             required_components=ctx.get("required_components", []),
             satisfied_components=satisfied,
