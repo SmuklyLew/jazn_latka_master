@@ -12,7 +12,7 @@ import sys
 _ORIGINAL = '"""Narzędzia eksportu, audytu i deduplikacji Łatka Jaźń v14.6.2."""\n'
 _BRANCH = "fix/memory-continuity-validation-docs"
 _PATCH_SHA256 = "a6d085f6dc12b6e173ca87d05dbc43ab230d177bb4e292169d3554beb2e0d4f3"
-_ENCODED_SHA256 = "2940b30e7dcc7decebd7c2f18e8fa7094aee14ca97ff7b73528167d341648003"
+_ENCODED_SHA256 = "bef9c5ce75ea6c2ad451aa54dae068ef2cae6602640ae1d12b2da31cfcc4ac4c"
 
 
 def _run(*args: str) -> None:
