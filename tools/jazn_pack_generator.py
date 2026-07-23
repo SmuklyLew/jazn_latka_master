@@ -25,9 +25,9 @@ Formaty:
 
 Przykłady:
   py _jazn_pack_generator.py
-  py _jazn_pack_generator.py pack D:\\.AI\\jazn_latka_master --out D:\\.AI\\packages --profile dual
-  py _jazn_pack_generator.py verify D:\\.AI\\packages\\jazn_latka_vX_system.zip.package.json
-  py _jazn_pack_generator.py extract D:\\.AI\\packages\\jazn_latka_vX_system.zip.package.json D:\\.AI\\runtime_test
+  py _jazn_pack_generator.py pack D:\\.AI\\jazn_latka_master --out D:\\.AI\\.packages --profile dual
+  py _jazn_pack_generator.py verify D:\\.AI\\.packages\\jazn_latka_vX_system.zip.package.json
+  py _jazn_pack_generator.py extract D:\\.AI\\.packages\\jazn_latka_vX_system.zip.package.json D:\\.AI\\runtime_test
 """
 
 from __future__ import annotations
@@ -3010,7 +3010,7 @@ def platform_default_source() -> Path:
 def default_interactive_state() -> InteractiveState:
     source = platform_default_source()
     cwd = Path.cwd().resolve()
-    out_dir = cwd.parent / "packages"
+    out_dir = cwd.parent / ".packages"
     return InteractiveState(source=source, out_dir=out_dir)
 
 
@@ -7039,7 +7039,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "pack":
         if args.part_size_mb <= 0 or not 0 <= args.compresslevel <= 9:
             raise PackError("Niepoprawny limit części albo poziom kompresji.")
-        out_dir = args.out or (args.source.expanduser().resolve().parent / "packages")
+        out_dir = args.out or (args.source.expanduser().resolve().parent / ".packages")
         base = [] if args.no_default_excludes else list(DEFAULT_BASE_EXCLUDES)
         base.extend(args.default_exclude)
         options = PackOptions(
