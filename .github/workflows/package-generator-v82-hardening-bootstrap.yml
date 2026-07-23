@@ -1,0 +1,173 @@
+name: Package generator v8.2 hardening bootstrap
+
+on:
+  push:
+    branches:
+      - fix/package-generator-v82-hardening
+
+permissions:
+  contents: write
+
+jobs:
+  harden-generator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: fix/package-generator-v82-hardening
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . pytest prompt_toolkit
+
+      - name: Apply exact generator hardening and tests
+        shell: bash
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+
+          import base64
+          from pathlib import Path
+
+          generator_path = Path("tools/jazn_pack_generator.py")
+          text = generator_path.read_text(encoding="utf-8")
+
+          replacements = [
+              (
+                  r'''Przykłady:
+  py _jazn_pack_generator.py
+  py _jazn_pack_generator.py pack D:\\.AI\\jazn_latka_master --out D:\\.AI\\.packages --profile dual
+  py _jazn_pack_generator.py verify D:\\.AI\\.packages\\jazn_latka_vX_system.zip.package.json
+  py _jazn_pack_generator.py extract D:\\.AI\\.packages\\jazn_latka_vX_system.zip.package.json D:\\.AI\\runtime_test
+''',
+                  r'''Przykłady:
+  py -X utf8 .\\tools\\jazn_pack_generator.py
+  py -X utf8 .\\tools\\jazn_pack_generator.py pack D:\\.AI\\jazn_latka_master --out D:\\.AI\\.packages --profile dual
+  py -X utf8 .\\tools\\jazn_pack_generator.py verify D:\\.AI\\.packages\\jazn_latka_vX_system.zip.package.json
+  py -X utf8 .\\tools\\jazn_pack_generator.py extract D:\\.AI\\.packages\\jazn_latka_vX_system.zip.package.json D:\\.AI\\runtime_test
+''',
+              ),
+              (
+                  '''REQUIRED_SYSTEM_PATHS = {
+    "SOURCE_PROVENANCE.json",
+    "run.py",
+    "main.py",
+    "latka_jazn/version.py",
+}
+''',
+                  '''# Kanoniczna paczka systemowa jest samowystarczalnym wydaniem repozytorium.
+# Wymaga zarówno operatorskiego run.py, jak i technicznego punktu zgodności
+# main.py; zasada runtime „run.py albo main.py” dotyczy odkrywania kandydatów,
+# nie budowania kompletnego wydania systemowego.
+REQUIRED_SYSTEM_PATHS = {
+    "SOURCE_PROVENANCE.json",
+    "run.py",
+    "main.py",
+    "latka_jazn/version.py",
+}
+''',
+              ),
+              (
+                  'root = argparse.ArgumentParser(description="Jaźń / Łatka — kanoniczny generator paczek ZIP v8.2")',
+                  '''root = argparse.ArgumentParser(
+        description="Jaźń / Łatka — kanoniczny generator paczek ZIP v8.2",
+        allow_abbrev=False,
+    )''',
+              ),
+              (
+                  'pack = sub.add_parser("pack", help="Zbuduj i zweryfikuj paczkę")',
+                  'pack = sub.add_parser("pack", allow_abbrev=False, help="Zbuduj i zweryfikuj paczkę")',
+              ),
+              (
+                  'plan = sub.add_parser("plan", help="Pokaż kanoniczny plan bez pakowania")',
+                  'plan = sub.add_parser("plan", allow_abbrev=False, help="Pokaż kanoniczny plan bez pakowania")',
+              ),
+              (
+                  'verify = sub.add_parser("verify", help="Zweryfikuj paczkę na podstawie *.package.json")',
+                  'verify = sub.add_parser("verify", allow_abbrev=False, help="Zweryfikuj paczkę na podstawie *.package.json")',
+              ),
+              (
+                  'extract = sub.add_parser("extract", help="Zweryfikuj i bezpiecznie rozpakuj paczkę")',
+                  'extract = sub.add_parser("extract", allow_abbrev=False, help="Zweryfikuj i bezpiecznie rozpakuj paczkę")',
+              ),
+              (
+                  'manifest = sub.add_parser("manifest", help="Zaktualizuj PACKAGE_INTEGRITY_MANIFEST.json")',
+                  'manifest = sub.add_parser("manifest", allow_abbrev=False, help="Zaktualizuj PACKAGE_INTEGRITY_MANIFEST.json")',
+              ),
+              (
+                  'sub.add_parser("self-test", help="Test wersji, ZIP independent/binary i zgodności archiwizatorów")',
+                  '''sub.add_parser(
+        "self-test",
+        allow_abbrev=False,
+        help="Test wersji, ZIP independent/binary i zgodności archiwizatorów",
+    )''',
+              ),
+          ]
+
+          for old, new in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"expected exactly one generator replacement, found {count}: {old[:80]!r}")
+              text = text.replace(old, new, 1)
+
+          generator_path.write_text(text, encoding="utf-8")
+
+          contract_b64 = "ZnJvbSBfX2Z1dHVyZV9fIGltcG9ydCBhbm5vdGF0aW9ucwoKaW1wb3J0IGltcG9ydGxpYi51dGlsCmltcG9ydCBqc29uCmltcG9ydCBzeXMKZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCgppbXBvcnQgcHl0ZXN0CgoKUk9PVCA9IFBhdGgoX19maWxlX18pLnJlc29sdmUoKS5wYXJlbnRzWzFdCkdFTkVSQVRPUl9QQVRIID0gUk9PVCAvICJ0b29scyIgLyAiamF6bl9wYWNrX2dlbmVyYXRvci5weSIKCgpkZWYgX2xvYWRfZ2VuZXJhdG9yKCk6CiAgICBtb2R1bGVfbmFtZSA9ICJqYXpuX3BhY2tfZ2VuZXJhdG9yX3Y4Ml9jb250cmFjdF90ZXN0IgogICAgc3BlYyA9IGltcG9ydGxpYi51dGlsLnNwZWNfZnJvbV9maWxlX2xvY2F0aW9uKG1vZHVsZV9uYW1lLCBHRU5FUkFUT1JfUEFUSCkKICAgIGFzc2VydCBzcGVjIGlzIG5vdCBOb25lIGFuZCBzcGVjLmxvYWRlciBpcyBub3QgTm9uZQogICAgbW9kdWxlID0gaW1wb3J0bGliLnV0aWwubW9kdWxlX2Zyb21fc3BlYyhzcGVjKQogICAgc3lzLm1vZHVsZXNbbW9kdWxlX25hbWVdID0gbW9kdWxlCiAgICBzcGVjLmxvYWRlci5leGVjX21vZHVsZShtb2R1bGUpCiAgICByZXR1cm4gbW9kdWxlCgoKZGVmIF9ydW50aW1lX2ZpeHR1cmUocm9vdDogUGF0aCkgLT4gUGF0aDoKICAgIChyb290IC8gImxhdGthX2phem4iKS5ta2RpcihwYXJlbnRzPVRydWUpCiAgICAocm9vdCAvICJsYXRrYV9qYXpuIiAvICJ2ZXJzaW9uLnB5Iikud3JpdGVfdGV4dCgKICAgICAgICAnRElTVFJJQlVUSU9OX1ZFUlNJT04gPSAiOTEuODIuNzMuNjQiXG4nCiAgICAgICAgJ1BBQ0tBR0VfVkVSU0lPTiA9ICJ2OTEuODIuNzMuNjQiXG4nCiAgICAgICAgJ1BBQ0tBR0VfUkVMRUFTRV9OQU1FID0gImZpeHR1cmUtcmVsZWFzZSJcbicsCiAgICAgICAgZW5jb2Rpbmc9InV0Zi04IiwKICAgICkKICAgIChyb290IC8gIlNPVVJDRV9QUk9WRU5BTkNFLmpzb24iKS53cml0ZV90ZXh0KCJ7fVxuIiwgZW5jb2Rpbmc9InV0Zi04IikKICAgIChyb290IC8gInJ1bi5weSIpLndyaXRlX3RleHQoInByaW50KCdydW4nKVxuIiwgZW5jb2Rpbmc9InV0Zi04IikKICAgIChyb290IC8gIm1haW4ucHkiKS53cml0ZV90ZXh0KCJwcmludCgnbWFpbicpXG4iLCBlbmNvZGluZz0idXRmLTgiKQogICAgKHJvb3QgLyAicGF5bG9hZC50eHQiKS53cml0ZV90ZXh0KCJzeXN0ZW0gcGF5bG9hZFxuIiwgZW5jb2Rpbmc9InV0Zi04IikKICAgIHJldHVybiByb290CgoKZGVmIHRlc3RfZ2VuZXJhdG9yX2lkZW50aXR5X2V4YW1wbGVzX2FuZF9kZWZhdWx0X291dHB1dCh0bXBfcGF0aDogUGF0aCwgbW9ua2V5cGF0Y2g6IHB5dGVzdC5Nb25rZXlQYXRjaCkgLT4gTm9uZToKICAgIGdlbmVyYXRvciA9IF9sb2FkX2dlbmVyYXRvcigpCgogICAgYXNzZXJ0IGdlbmVyYXRvci5HRU5FUkFUT1JfVkVSU0lPTiA9PSAiOC4yIgogICAgYXNzZXJ0IGdlbmVyYXRvci5TRVRUSU5HU19TQ0hFTUEgPT0gImphem5fcGFja19nZW5lcmF0b3Jfc2V0dGluZ3MvdjguMiIKICAgIGFzc2VydCBnZW5lcmF0b3IuX19kb2NfXyBpcyBub3QgTm9uZQogICAgYXNzZXJ0IHIicHkgLVggdXRmOCAuXHRvb2xzXGphem5fcGFja19nZW5lcmF0b3IucHkiIGluIGdlbmVyYXRvci5fX2RvY19fCiAgICBhc3NlcnQgInB5IF9qYXpuX3BhY2tfZ2VuZXJhdG9yLnB5IiBub3QgaW4gZ2VuZXJhdG9yLl9fZG9jX18KICAgIGFzc2VydCByIkQ6XC5BSVwucGFja2FnZXMiIGluIGdlbmVyYXRvci5fX2RvY19fCgogICAgcmVwbyA9IHRtcF9wYXRoIC8gInJlcG8iCiAgICByZXBvLm1rZGlyKCkKICAgIG1vbmtleXBhdGNoLmNoZGlyKHJlcG8pCiAgICBzdGF0ZSA9IGdlbmVyYXRvci5kZWZhdWx0X2ludGVyYWN0aXZlX3N0YXRlKCkKICAgIGFzc2VydCBzdGF0ZS5vdXRfZGlyID09IHRtcF9wYXRoIC8gIi5wYWNrYWdlcyIKCgpkZWYgdGVzdF9jbGlfcmVqZWN0c19hYmJyZXZpYXRlZF9sb25nX29wdGlvbnMoKSAtPiBOb25lOgogICAgZ2VuZXJhdG9yID0gX2xvYWRfZ2VuZXJhdG9yKCkKCiAgICBleGFjdCA9IGdlbmVyYXRvci5wYXJzZXIoKS5wYXJzZV9hcmdzKFsicGFjayIsICIuIiwgIi0tcHJvZmlsZSIsICJzeXN0ZW0iXSkKICAgIGFzc2VydCBleGFjdC5wcm9maWxlID09ICJzeXN0ZW0iCgogICAgd2l0aCBweXRlc3QucmFpc2VzKFN5c3RlbUV4aXQpOgogICAgICAgIGdlbmVyYXRvci5wYXJzZXIoKS5wYXJzZV9hcmdzKFsicGFjayIsICIuIiwgIi0tcHJvZiIsICJzeXN0ZW0iXSkKICAgIHdpdGggcHl0ZXN0LnJhaXNlcyhTeXN0ZW1FeGl0KToKICAgICAgICBnZW5lcmF0b3IucGFyc2VyKCkucGFyc2VfYXJncyhbInBsYW4iLCAiLiIsICItLXByb2YiLCAic3lzdGVtIl0pCiAgICB3aXRoIHB5dGVzdC5yYWlzZXMoU3lzdGVtRXhpdCk6CiAgICAgICAgZ2VuZXJhdG9yLnBhcnNlcigpLnBhcnNlX2FyZ3MoWyJleHRyYWN0IiwgInNpZGVjYXIuanNvbiIsICJvdXQiLCAiLS1jbCJdKQoKCmRlZiB0ZXN0X3Y4Ml9tZW51X2FuZF9yZXNwb25zaXZlX2NvbnRyYWN0KHRtcF9wYXRoOiBQYXRoKSAtPiBOb25lOgogICAgZ2VuZXJhdG9yID0gX2xvYWRfZ2VuZXJhdG9yKCkKICAgIHN0YXRlID0gZ2VuZXJhdG9yLkludGVyYWN0aXZlU3RhdGUoCiAgICAgICAgc291cmNlPXRtcF9wYXRoIC8gImphem4iLAogICAgICAgIG91dF9kaXI9dG1wX3BhdGggLyAiLnBhY2thZ2VzIiwKICAgICAgICBwcm9maWxlPSJkdWFsIiwKICAgICkKCiAgICByb3dzID0gZ2VuZXJhdG9yLm1haW5fbWVudV9yb3dzKHN0YXRlKQogICAgYXNzZXJ0IHJvd3NbOjNdID09IFsKICAgICAgICAiUHJvZmlsOiBbc3lzdGVtICsgcGFtacSZxIddIiwKICAgICAgICAiUGFrdWogdGVyYXoiLAogICAgICAgICJQb2thxbwga2Fub25pY3pueSBwbGFuIiwKICAgIF0KICAgIGFzc2VydCByb3dzWzNdLnN0YXJ0c3dpdGgoIlN5c3RlbSBKYcW6bmk6IFsiKQogICAgYXNzZXJ0IHJvd3NbNF0uc3RhcnRzd2l0aCgiWmFwaXMgYXJjaGl3dW06IFsiKQogICAgYXNzZXJ0IHJvd3NbNV0uc3RhcnRzd2l0aCgiTmF6d2E6IFsiKQogICAgYXNzZXJ0IHJvd3NbNl0gPT0gIk9kxZt3aWXFvCBuYXp3xJkgcGFjemtpIgogICAgYXNzZXJ0ICJaYXBpc3ogdXN0YXdpZW5pYSIgbm90IGluIHJvd3MKCiAgICBkZXRhaWxzID0gZ2VuZXJhdG9yLm1haW5fbWVudV9kZXRhaWxzKHN0YXRlKQogICAgYXNzZXJ0ICJtb2RhbG55bSBva25pZSB3eXNrYWt1asSFY3ltIiBpbiBkZXRhaWxzWzBdCiAgICBhc3NlcnQgIm5hc3TEmXBueW0gd2llcnN6dSIgaW4gZGV0YWlsc1szXQogICAgYXNzZXJ0ICJuYXN0xJlwbnltIHdpZXJzenUiIGluIGRldGFpbHNbNF0KICAgIGFzc2VydCAibmFzdMSZcG55bSB3aWVyc3p1IiBpbiBkZXRhaWxzWzVdCgogICAgYXNzZXJ0IGdlbmVyYXRvci5kYXNoYm9hcmRfbGVmdF93aWR0aF9tb2RlKHJpZ2h0X3Zpc2libGU9RmFsc2UsIGNvbXBhY3Q9RmFsc2UpID09ICJmdWxsIgogICAgYXNzZXJ0IGdlbmVyYXRvci5kYXNoYm9hcmRfbGVmdF93aWR0aF9tb2RlKHJpZ2h0X3Zpc2libGU9VHJ1ZSwgY29tcGFjdD1GYWxzZSkgPT0gIm5hcnJvdyIKICAgIGFzc2VydCBnZW5lcmF0b3IuZGFzaGJvYXJkX2xlZnRfd2lkdGhfbW9kZShyaWdodF92aXNpYmxlPUZhbHNlLCBjb21wYWN0PVRydWUpID09ICJjb21wYWN0IgoKCmRlZiB0ZXN0X2Nhbm9uaWNhbF9zeXN0ZW1fcGFja2FnZV9yZXF1aXJlc19ib3RoX2VudHJ5cG9pbnRzKHRtcF9wYXRoOiBQYXRoKSAtPiBOb25lOgogICAgZ2VuZXJhdG9yID0gX2xvYWRfZ2VuZXJhdG9yKCkKICAgIHJvb3QgPSBfcnVudGltZV9maXh0dXJlKHRtcF9wYXRoIC8gInJ1bnRpbWUiKQoKICAgIHBsYW4gPSBnZW5lcmF0b3IuYnVpbGRfcGxhbihyb290LCAic3lzdGVtIiwgW10pCiAgICBhc3NlcnQgeyJydW4ucHkiLCAibWFpbi5weSJ9IDw9IHNldChwbGFuLnBhdGhzKQoKICAgIChyb290IC8gIm1haW4ucHkiKS51bmxpbmsoKQogICAgd2l0aCBweXRlc3QucmFpc2VzKGdlbmVyYXRvci5QYWNrRXJyb3IsIG1hdGNoPSJtYWluLnB5Iik6CiAgICAgICAgZ2VuZXJhdG9yLmJ1aWxkX3BsYW4ocm9vdCwgInN5c3RlbSIsIFtdKQoKCmRlZiB0ZXN0X2R1YWxfcGFja2FnZV9yb3VuZHRyaXBfYW5kX2V4Y2x1c2lvbl9jb250cmFjdCh0bXBfcGF0aDogUGF0aCkgLT4gTm9uZToKICAgIGdlbmVyYXRvciA9IF9sb2FkX2dlbmVyYXRvcigpCiAgICByb290ID0gX3J1bnRpbWVfZml4dHVyZSh0bXBfcGF0aCAvICJydW50aW1lIikKICAgIG1lbW9yeSA9IHJvb3QgLyAibWVtb3J5IgogICAgbWVtb3J5Lm1rZGlyKCkKICAgIChtZW1vcnkgLyAicnVudGltZV9tZW1vcnkuc3FsaXRlMyIpLndyaXRlX2J5dGVzKGIic3FsaXRlIGZpeHR1cmUiKQogICAgKG1lbW9yeSAvICJydW50aW1lX21lbW9yeS5zcWxpdGUzLXdhbCIpLndyaXRlX2J5dGVzKGIidHJhbnNpZW50IikKICAgIChtZW1vcnkgLyAibmVzdGVkLnppcCIpLndyaXRlX2J5dGVzKGIibm90IGEgcmVhbCB6aXAiKQogICAgKHJvb3QgLyAid29ya3NwYWNlX3J1bnRpbWUiKS5ta2RpcigpCiAgICAocm9vdCAvICJ3b3Jrc3BhY2VfcnVudGltZSIgLyAic3RhdGUuanNvbiIpLndyaXRlX3RleHQoInt9XG4iLCBlbmNvZGluZz0idXRmLTgiKQoKICAgIG91dF9kaXIgPSB0bXBfcGF0aCAvICIucGFja2FnZXMiCiAgICBvcHRpb25zID0gZ2VuZXJhdG9yLlBhY2tPcHRpb25zKAogICAgICAgIHNvdXJjZT1yb290LAogICAgICAgIG91dF9kaXI9b3V0X2RpciwKICAgICAgICBwcm9maWxlPSJkdWFsIiwKICAgICAgICBhcmNoaXZlX2Zvcm1hdD0iaW5kZXBlbmRlbnQiLAogICAgICAgIGFyY2hpdmVfYmFzZW5hbWU9IiIsCiAgICAgICAgcGFydF9zaXplX21iPTQsCiAgICAgICAgY29tcGF0aWJpbGl0eV9jaGVja3M9RmFsc2UsCiAgICAgICAgdXBkYXRlX3NvdXJjZV9tYW5pZmVzdD1UcnVlLAogICAgKQoKICAgIHJlc3VsdHMgPSBnZW5lcmF0b3IucnVuX3BhY2sob3B0aW9ucykKICAgIGJ5X3Byb2ZpbGUgPSB7cmVzdWx0LnByb2ZpbGU6IHJlc3VsdCBmb3IgcmVzdWx0IGluIHJlc3VsdHN9CiAgICBhc3NlcnQgc2V0KGJ5X3Byb2ZpbGUpID09IHsic3lzdGVtIiwgIm1lbW9yeSJ9CgogICAgc3lzdGVtX3NpZGVjYXIgPSBqc29uLmxvYWRzKGJ5X3Byb2ZpbGVbInN5c3RlbSJdLnNpZGVjYXJfcGF0aC5yZWFkX3RleHQoZW5jb2Rpbmc9InV0Zi04IikpCiAgICBzeXN0ZW1fZW50cmllcyA9IHtpdGVtWyJwYXRoIl0gZm9yIGl0ZW0gaW4gc3lzdGVtX3NpZGVjYXJbImVudHJpZXMiXX0KICAgIGFzc2VydCAiUEFDS0FHRV9JTlRFR1JJVFlfTUFOSUZFU1QuanNvbiIgaW4gc3lzdGVtX2VudHJpZXMKICAgIGFzc2VydCBub3QgYW55KHBhdGguc3RhcnRzd2l0aCgibWVtb3J5LyIpIGZvciBwYXRoIGluIHN5c3RlbV9lbnRyaWVzKQogICAgYXNzZXJ0IG5vdCBhbnkocGF0aC5zdGFydHN3aXRoKCJ3b3Jrc3BhY2VfcnVudGltZS8iKSBmb3IgcGF0aCBpbiBzeXN0ZW1fZW50cmllcykKCiAgICBtZW1vcnlfc2lkZWNhciA9IGpzb24ubG9hZHMoYnlfcHJvZmlsZVsibWVtb3J5Il0uc2lkZWNhcl9wYXRoLnJlYWRfdGV4dChlbmNvZGluZz0idXRmLTgiKSkKICAgIG1lbW9yeV9lbnRyaWVzID0ge2l0ZW1bInBhdGgiXSBmb3IgaXRlbSBpbiBtZW1vcnlfc2lkZWNhclsiZW50cmllcyJdfQogICAgYXNzZXJ0ICJtZW1vcnkvcnVudGltZV9tZW1vcnkuc3FsaXRlMyIgaW4gbWVtb3J5X2VudHJpZXMKICAgIGFzc2VydCAibWVtb3J5L01FTU9SWV9QQUNLQUdFX01BTklGRVNULmpzb24iIGluIG1lbW9yeV9lbnRyaWVzCiAgICBhc3NlcnQgIm1lbW9yeS9ydW50aW1lX21lbW9yeS5zcWxpdGUzLXdhbCIgbm90IGluIG1lbW9yeV9lbnRyaWVzCiAgICBhc3NlcnQgIm1lbW9yeS9uZXN0ZWQuemlwIiBub3QgaW4gbWVtb3J5X2VudHJpZXMKCiAgICBmb3IgcmVzdWx0IGluIHJlc3VsdHM6CiAgICAgICAgcmVwb3J0ID0gZ2VuZXJhdG9yLnZlcmlmeV9wYWNrYWdlX3NpZGVjYXIoYXJncy5zaWRlY2FyKQogICAgICAgIGFzc2VydCByZXBvcnRbIm9rIl0gaXMgVHJ1ZQogICAgICAgIGRlc3RpbmF0aW9uID0gdG1wX3BhdGggLyBmImV4dHJhY3Qte3Jlc3VsdC5wcm9maWxlfSIKICAgICAgICBleHRyYWN0ZWQgPSBnZW5lcmF0b3IuZXh0cmFjdF9wYWNrYWdlX3NpZGVjYXIoCiAgICAgICAgICAgIHJlc3VsdC5zaWRlY2FyX3BhdGgsCiAgICAgICAgICAgIGRlc3RpbmF0aW9uLAogICAgICAgICAgICBjbGVhbj1GYWxzZSwKICAgICAgICAgICAgZm9yY2U9RmFsc2UsCiAgICAgICAgKQogICAgICAgIGFzc2VydCBleHRyYWN0ZWRbImRlc3RpbmF0aW9uIl0gPT0gc3RyKGRlc3RpbmF0aW9uLnJlc29sdmUoKSkKCiAgICBhc3NlcnQgKHRtcF9wYXRoIC8gImV4dHJhY3Qtc3lzdGVtIiAvICJydW4ucHkiKS5pc19maWxlKCkKICAgIGFzc2VydCAodG1wX3BhdGggLyAiZXh0cmFjdC1zeXN0ZW0iIC8gIm1haW4ucHkiKS5pc19maWxlKCkKICAgIGFzc2VydCBub3QgKHRtcF9wYXRoIC8gImV4dHJhY3Qtc3lzdGVtIiAvICJtZW1vcnkiKS5leGlzdHMoKQogICAgYXNzZXJ0ICh0bXBfcGF0aCAvICJleHRyYWN0LW1lbW9yeSIgLyAibWVtb3J5IiAvICJydW50aW1lX21lbW9yeS5zcWxpdGUzIikuaXNfZmlsZSgpCgoKZGVmIHRlc3RfcGF0aF9zYWZldHlfcmVqZWN0c190cmF2ZXJzYWxfYW5kX2Fic29sdXRlX3BhdGhzKHRtcF9wYXRoOiBQYXRoKSAtPiBOb25lOgogICAgZ2VuZXJhdG9yID0gX2xvYWRfZ2VuZXJhdG9yKCkKICAgIGZvciB1bnNhZmUgaW4gKCIuLi9lc2NhcGUudHh0IiwgIi9hYnNvbHV0ZS50eHQiLCByIkM6XGFic29sdXRlLnR4dCIpOgogICAgICAgIHdpdGggcHl0ZXN0LnJhaXNlcyhnZW5lcmF0b3IuUGFja0Vycm9yKToKICAgICAgICAgICAgZ2VuZXJhdG9yLnNhZmVfZGVzdGluYXRpb25fcGF0aCh0bXBfcGF0aCwgdW5zYWZlKQo="
+          dashboard_b64 = "ZnJvbSBfX2Z1dHVyZV9fIGltcG9ydCBhbm5vdGF0aW9ucwoKaW1wb3J0IGltcG9ydGxpYi51dGlsCmltcG9ydCBzeXMKaW1wb3J0IHRlbXBmaWxlCmltcG9ydCB0aHJlYWRpbmcKaW1wb3J0IHRpbWUKZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCmZyb20gdHlwaW5nIGltcG9ydCBBbnkKCmltcG9ydCBweXRlc3QKCgpwcm9tcHRfdG9vbGtpdCA9IHB5dGVzdC5pbXBvcnRvcnNraXAoInByb21wdF90b29sa2l0IikKZnJvbSBwcm9tcHRfdG9vbGtpdC5kYXRhX3N0cnVjdHVyZXMgaW1wb3J0IFNpemUKZnJvbSBwcm9tcHRfdG9vbGtpdC5pbnB1dC5kZWZhdWx0cyBpbXBvcnQgY3JlYXRlX3BpcGVfaW5wdXQKZnJvbSBwcm9tcHRfdG9vbGtpdC5vdXRwdXQgaW1wb3J0IER1bW15T3V0cHV0CgoKUk9PVCA9IFBhdGgoX19maWxlX18pLnJlc29sdmUoKS5wYXJlbnRzWzFdCkdFTkVSQVRPUl9QQVRIID0gUk9PVCAvICJ0b29scyIgLyAiamF6bl9wYWNrX2dlbmVyYXRvci5weSIKCgpkZWYgX2xvYWRfZ2VuZXJhdG9yKCk6CiAgICBtb2R1bGVfbmFtZSA9ICJqYXpuX3BhY2tfZ2VuZXJhdG9yX3Y4Ml9kYXNoYm9hcmRfdGVzdCIKICAgIHNwZWMgPSBpbXBvcnRsaWIudXRpbC5zcGVjX2Zyb21fZmlsZV9sb2NhdGlvbihtb2R1bGVfbmFtZSwgR0VORVJBVE9SX1BBVEgpCiAgICBhc3NlcnQgc3BlYyBpcyBub3QgTm9uZSBhbmQgc3BlYy5sb2FkZXIgaXMgbm90IE5vbmUKICAgIG1vZHVsZSA9IGltcG9ydGxpYi51dGlsLm1vZHVsZV9mcm9tX3NwZWMoc3BlYykKICAgIHN5cy5tb2R1bGVzW21vZHVsZV9uYW1lXSA9IG1vZHVsZQogICAgc3BlYy5sb2FkZXIuZXhlY19tb2R1bGUobW9kdWxlKQogICAgcmV0dXJuIG1vZHVsZQoKCmNsYXNzIFNpemVkRHVtbXlPdXRwdXQoRHVtbXlPdXRwdXQpOgogICAgZGVmIF9faW5pdF9fKHNlbGYsIGNvbHVtbnM6IGludCwgcm93czogaW50KToKICAgICAgICBzdXBlcigpLl9faW5pdF9fKCkKICAgICAgICBzZWxmLl9zaXplID0gU2l6ZShyb3dzPXJvd3MsIGNvbHVtbnM9Y29sdW1ucykKCiAgICBkZWYgZ2V0X3NpemUoc2VsZikgLT4gU2l6ZToKICAgICAgICByZXR1cm4gc2VsZi5fc2l6ZQoKCmRlZiBfd2FpdF9mb3IocHJlZGljYXRlLCB0aW1lb3V0OiBmbG9hdCA9IDUuMCwgbWVzc2FnZTogc3RyID0gImNvbmRpdGlvbiIpIC0+IE5vbmU6CiAgICBkZWFkbGluZSA9IHRpbWUubW9ub3RvbmljKCkgKyB0aW1lb3V0CiAgICB3aGlsZSB0aW1lLm1vbm90b25pYygpIDwgZGVhZGxpbmU6CiAgICAgICAgaWYgcHJlZGljYXRlKCk6CiAgICAgICAgICAgIHJldHVybgogICAgICAgIHRpbWUuc2xlZXAoMC4wMikKICAgIHJhaXNlIEFzc2VydGlvbkVycm9yKGYiVGltZW91dCB3YWl0aW5nIGZvciB7bWVzc2FnZX0iKQoKCmRlZiB0ZXN0X2Rhc2hib2FyZF9wcm9maWxlX3BvcHVwX2Z1bGxfd2lkdGhfYW5kX2V4aXRfY29udHJhY3QoKSAtPiBOb25lOgogICAgZ2VuZXJhdG9yID0gX2xvYWRfZ2VuZXJhdG9yKCkKICAgIGlmIG5vdCBnZW5lcmF0b3IuX2Rhc2hib2FyZF9hdmFpbGFibGUoKToKICAgICAgICBweXRlc3Quc2tpcCgicHJvbXB0X3Rvb2xraXQgZGFzaGJvYXJkIGRlcGVuZGVuY2llcyBhcmUgdW5hdmFpbGFibGUiKQoKICAgIHdpdGggdGVtcGZpbGUuVGVtcG9yYXJ5RGlyZWN0b3J5KHByZWZpeD0iamF6bi1wYWNrLXY4Mi1kYXNoYm9hcmQtIikgYXMgcmF3OgogICAgICAgIHRlbXAgPSBQYXRoKHJhdykKICAgICAgICByb290ID0gdGVtcCAvICJydW50aW1lIgogICAgICAgIChyb290IC8gImxhdGthX2phem4iKS5ta2RpcihwYXJlbnRzPVRydWUpCiAgICAgICAgKHJvb3QgLyAibGF0a2FfamF6biIgLyAidmVyc2lvbi5weSIpLndyaXRlX3RleHQoCiAgICAgICAgICAgICdESVNUUklCVVRJT05fVkVSU0lPTiA9ICI5MS44Mi43My42NCJcbicKICAgICAgICAgICAgJ1BBQ0tBR0VfVkVSU0lPTiA9ICJ2OTEuODIuNzMuNjQiXG4nCiAgICAgICAgICAgICdQQUNLQUdFX1JFTEVBU0VfTkFNRSA9ICJkYXNoYm9hcmQtZml4dHVyZSJcbicsCiAgICAgICAgICAgIGVuY29kaW5nPSJ1dGYtOCIsCiAgICAgICAgKQogICAgICAgIChyb290IC8gInJ1bi5weSIpLndyaXRlX3RleHQoInByaW50KCdydW4nKVxuIiwgZW5jb2Rpbmc9InV0Zi04IikKICAgICAgICAocm9vdCAvICJtYWluLnB5Iikud3JpdGVfdGV4dCgicHJpbnQoJ21haW4nKVxuIiwgZW5jb2Rpbmc9InV0Zi04IikKICAgICAgICAocm9vdCAvICJTT1VSQ0VfUFJPVkVOQU5DRS5qc29uIikud3JpdGVfdGV4dCgie31cbiIsIGVuY29kaW5nPSJ1dGYtOCIpCgogICAgICAgIHN0YXRlID0gZ2VuZXJhdG9yLkludGVyYWN0aXZlU3RhdGUoCiAgICAgICAgICAgIHNvdXJjZT1yb290LAogICAgICAgICAgICBvdXRfZGlyPXRlbXAgLyAiLnBhY2thZ2VzIiwKICAgICAgICAgICAgcHJvZmlsZT0iZHVhbCIsCiAgICAgICAgICAgIHVpX21vZGU9Imt1cnNvcm93eSIsCiAgICAgICAgKQogICAgICAgIGRlYnVnOiBkaWN0W3N0ciwgQW55XSA9IHt9CiAgICAgICAgcmVzdWx0X2JveDogZGljdFtzdHIsIEFueV0gPSB7fQoKICAgICAgICB3aXRoIGNyZWF0ZV9waXBlX2lucHV0KCkgYXMgcGlwZToKICAgICAgICAgICAgZGVmIHRhcmdldCgpIC0+IE5vbmU6CiAgICAgICAgICAgICAgICByZXN1bHRfYm94WyJyZXN1bHQiXSA9IGdlbmVyYXRvci5jdXJzb3JfZGFzaGJvYXJkKAogICAgICAgICAgICAgICAgICAgIHN0YXRlLAogICAgICAgICAgICAgICAgICAgIF9pbnB1dD1waXBlLAogICAgICAgICAgICAgICAgICAgIF9vdXRwdXQ9U2l6ZWREdW1teU91dHB1dCgxMjAsIDMyKSwKICAgICAgICAgICAgICAgICAgICBfZGVidWdfc3RhdGU9ZGVidWcsCiAgICAgICAgICAgICAgICApCgogICAgICAgICAgICB0aHJlYWQgPSB0aHJlYWRpbmcuVGhyZWFkKHRhcmdldD10YXJnZXQsIGRhZW1vbj1UcnVlKQogICAgICAgICAgICB0aHJlYWQuc3RhcnQoKQogICAgICAgICAgICBfd2FpdF9mb3IobGFtYmRhOiBkZWJ1Zy5nZXQoInJlYWR5IikgaXMgVHJ1ZSwgbWVzc2FnZT0iZGFzaGJvYXJkIHJlYWR5IikKICAgICAgICAgICAgX3dhaXRfZm9yKGxhbWJkYTogZGVidWcuZ2V0KCJsZWZ0X3dpZHRoX21vZGUiKSA9PSAiZnVsbCIsIG1lc3NhZ2U9ImZ1bGwtd2lkdGggbWVudSIpCiAgICAgICAgICAgIGFzc2VydCBkZWJ1Z1sibWVudV9pbmRleCJdID09IDAKICAgICAgICAgICAgYXNzZXJ0IGRlYnVnWyJyaWdodF9wYW5lbF92aXNpYmxlIl0gaXMgRmFsc2UKCiAgICAgICAgICAgIHBpcGUuc2VuZF90ZXh0KCJcciIpCiAgICAgICAgICAgIF93YWl0X2ZvcigKICAgICAgICAgICAgICAgIGxhbWJkYTogZGVidWcuZ2V0KCJwb3B1cF92aXNpYmxlIikgaXMgVHJ1ZSBhbmQgZGVidWcuZ2V0KCJwb3B1cF9raW5kIikgPT0gInByb2ZpbGUiLAogICAgICAgICAgICAgICAgbWVzc2FnZT0icHJvZmlsZSBwb3B1cCIsCiAgICAgICAgICAgICkKICAgICAgICAgICAgcGlwZS5zZW5kX3RleHQoIlx4MWIiKQogICAgICAgICAgICBfd2FpdF9mb3IobGFtYmRhOiBkZWJ1Zy5nZXQoInBvcHVwX3Zpc2libGUiKSBpcyBGYWxzZSwgbWVzc2FnZT0icHJvZmlsZSBwb3B1cCBjbG9zZSIpCgogICAgICAgICAgICBwaXBlLnNlbmRfdGV4dCgiXHgxOCIpCiAgICAgICAgICAgIF93YWl0X2ZvcigKICAgICAgICAgICAgICAgIGxhbWJkYTogZGVidWcuZ2V0KCJwb3B1cF92aXNpYmxlIikgaXMgVHJ1ZSBhbmQgZGVidWcuZ2V0KCJwb3B1cF9raW5kIikgPT0gImV4aXQiLAogICAgICAgICAgICAgICAgbWVzc2FnZT0iZXhpdCBwb3B1cCIsCiAgICAgICAgICAgICkKICAgICAgICAgICAgcGlwZS5zZW5kX3RleHQoIlxyIikKICAgICAgICAgICAgdGhyZWFkLmpvaW4odGltZW91dD01KQogICAgICAgICAgICBhc3NlcnQgbm90IHRocmVhZC5pc19hbGl2ZSgpLCAiRGFzaGJvYXJkIGRpZCBub3QgZXhpdCIKICAgICAgICAgICAgYXNzZXJ0IHJlc3VsdF9ib3hbInJlc3VsdCJdID09ICJleGl0Igo="
+
+          Path("tests/test_jazn_pack_generator_v82_contract.py").write_bytes(base64.b64decode(contract_b64))
+          Path("tests/test_jazn_pack_generator_v82_dashboard.py").write_bytes(base64.b64decode(dashboard_b64))
+          PY
+
+          rm -- .github/workflows/package-generator-v82-hardening-bootstrap.yml
+
+      - name: Focused validation
+        run: |
+          python -X utf8 -m compileall -q latka_jazn tests main.py run.py tools/jazn_pack_generator.py
+          python -X utf8 tools/jazn_pack_generator.py self-test
+          python -X utf8 -m pytest -q \
+            tests/test_package_generator_release_version.py \
+            tests/test_package_integrity_zip_verification.py \
+            tests/test_package_integrity_canonical_worktree.py \
+            tests/test_jazn_pack_generator_v82_contract.py \
+            tests/test_jazn_pack_generator_v82_dashboard.py
+          git diff --check
+
+      - name: Commit generator and tests
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix(pack): harden v8.2 generator contracts"
+
+      - name: Synchronize canonical release metadata
+        run: |
+          python -X utf8 -m latka_jazn.tools.release_metadata_sync \
+            --root . \
+            --base-branch master \
+            --write \
+            --json
+          git add PACKAGE_INTEGRITY_MANIFEST.json SOURCE_PROVENANCE.json
+          if ! git diff --cached --quiet; then
+            git commit -m "release: synchronize canonical metadata for package generator hardening"
+          fi
+
+      - name: Full validation
+        run: |
+          python -X utf8 -m pytest -q -m "not live_model and not live_mcp"
+          python -X utf8 run.py doctor --json
+          python -X utf8 run.py package-smoke --profile system --json
+          git diff --check HEAD~2..HEAD
+          test -z "$(git status --porcelain)"
+
+      - name: Push final branch
+        run: git push origin HEAD:fix/package-generator-v82-hardening
