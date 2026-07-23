@@ -1,0 +1,62 @@
+name: Inspect v15.1.0.3.89 migration bundle
+
+on:
+  push:
+    branches:
+      - automation/v15.1.0.3.89-migration-runner
+    paths:
+      - '.github/workflows/inspect-v15100389-migration-bundle.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect-bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout automation branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: automation/v15.1.0.3.89-migration-runner
+
+      - name: Reconstruct and verify bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          parts=(.automation/v15.1.0.3.89/bundle/part-*.b64)
+          test -e "${parts[0]}"
+          cat "${parts[@]}" | base64 --decode > migration.bundle.xz
+          xz --test migration.bundle.xz
+          xz --decompress --stdout migration.bundle.xz > migration.bundle
+
+          git fetch origin master
+          master_tree="$(git rev-parse origin/master^{tree})"
+          baseline_tree='b0e4524845c4fede1fc4249b1f7448534ef9360b'
+          test "$master_tree" = "$baseline_tree"
+
+          baseline_commit="$({
+            export GIT_AUTHOR_NAME='Version Migration Audit'
+            export GIT_AUTHOR_EMAIL='audit@example.invalid'
+            export GIT_AUTHOR_DATE='1784837787 +0000'
+            export GIT_COMMITTER_NAME='Version Migration Audit'
+            export GIT_COMMITTER_EMAIL='audit@example.invalid'
+            export GIT_COMMITTER_DATE='1784837787 +0000'
+            printf 'baseline\n' | git commit-tree "$baseline_tree"
+          })"
+          test "$baseline_commit" = '7f80993e9eaca361015b4923daadac5cdd1a8280'
+
+          git bundle verify migration.bundle
+          git fetch migration.bundle 'refs/heads/*:refs/remotes/migration/*'
+          bundle_ref="$(git for-each-ref --format='%(refname)' refs/remotes/migration | head -n 1)"
+          test -n "$bundle_ref"
+          bundle_commit="$(git rev-parse "$bundle_ref")"
+          bundle_tree="$(git rev-parse "$bundle_commit^{tree}")"
+
+          echo "bundle_ref=$bundle_ref"
+          echo "bundle_commit=$bundle_commit"
+          echo "bundle_tree=$bundle_tree"
+          echo "expected_tree=951431615fe47aeeac96a330d177916173d37542"
+          test "$bundle_tree" = '951431615fe47aeeac96a330d177916173d37542'
