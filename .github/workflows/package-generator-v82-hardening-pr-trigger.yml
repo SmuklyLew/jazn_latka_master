@@ -1,0 +1,97 @@
+name: Package generator v8.2 hardening PR trigger
+
+on:
+  pull_request:
+    branches:
+      - master
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  harden-generator:
+    if: github.head_ref == 'fix/package-generator-v82-hardening'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: fix/package-generator-v82-hardening
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . pytest prompt_toolkit
+
+      - name: Apply verified embedded patch
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          import textwrap
+
+          source = Path('.github/workflows/package-generator-v82-hardening-bootstrap.yml').read_text(encoding='utf-8')
+          match = re.search(
+              r"^\s{10}python - <<'PY'\n(?P<code>.*?)^\s{10}PY\n",
+              source,
+              flags=re.MULTILINE | re.DOTALL,
+          )
+          if match is None:
+              raise SystemExit('embedded bootstrap Python block not found')
+          code = textwrap.dedent(match.group('code'))
+          exec(compile(code, '<generator-hardening-bootstrap>', 'exec'), {})
+          PY
+
+          rm -- \
+            .github/workflows/package-generator-v82-hardening-bootstrap.yml \
+            .github/workflows/package-generator-v82-hardening-pr-trigger.yml
+
+      - name: Focused validation
+        run: |
+          python -X utf8 -m compileall -q latka_jazn tests main.py run.py tools/jazn_pack_generator.py
+          python -X utf8 tools/jazn_pack_generator.py self-test
+          python -X utf8 -m pytest -q \
+            tests/test_package_generator_release_version.py \
+            tests/test_package_integrity_zip_verification.py \
+            tests/test_package_integrity_canonical_worktree.py \
+            tests/test_jazn_pack_generator_v82_contract.py \
+            tests/test_jazn_pack_generator_v82_dashboard.py
+          git diff --check
+
+      - name: Commit generator and tests
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix(pack): harden v8.2 generator contracts"
+
+      - name: Synchronize canonical release metadata
+        run: |
+          python -X utf8 -m latka_jazn.tools.release_metadata_sync \
+            --root . \
+            --base-branch master \
+            --write \
+            --json
+          git add PACKAGE_INTEGRITY_MANIFEST.json SOURCE_PROVENANCE.json
+          if ! git diff --cached --quiet; then
+            git commit -m "release: synchronize canonical metadata for package generator hardening"
+          fi
+
+      - name: Full validation
+        run: |
+          python -X utf8 -m pytest -q -m "not live_model and not live_mcp"
+          python -X utf8 run.py doctor --json
+          python -X utf8 run.py package-smoke --profile system --json
+          git diff --check HEAD~2..HEAD
+          test -z "$(git status --porcelain)"
+
+      - name: Push final branch
+        run: git push origin HEAD:fix/package-generator-v82-hardening
