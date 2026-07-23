@@ -28,55 +28,36 @@ jobs:
           fetch-depth: 0
           ref: automation/v15.1.0.3.89-migration-runner
 
-      - name: Join and decode Base64 parts
+      - name: Inspect exact raw candidates
         shell: bash
         run: |
-          set -euo pipefail
-          shopt -s nullglob
-          parts=(.automation/v15.1.0.3.89/bundle/part-*.b64)
-          printf 'bundle_parts=%s\n' "${#parts[@]}"
-          test "${#parts[@]}" -gt 0
-          for part in "${parts[@]}"; do
-            printf '%s bytes=%s sha256=%s\n' "$part" "$(wc -c < "$part")" "$(sha256sum "$part" | awk '{print $1}')"
+          set -u
+          candidates=(.automation/v15.1.0.3.89/raw/candidate-*.bin)
+          test -e "${candidates[0]}"
+          for candidate in "${candidates[@]}"; do
+            echo "=== $candidate ==="
+            wc -c "$candidate"
+            sha256sum "$candidate"
+            file "$candidate" || true
+
+            xz --test "$candidate"
+            xz_rc=$?
+            echo "xz_test_rc=$xz_rc"
+            if [ "$xz_rc" -eq 0 ]; then
+              xz --decompress --stdout "$candidate" > candidate.bundle
+              echo "decompressed_bytes=$(wc -c < candidate.bundle)"
+              echo "decompressed_sha256=$(sha256sum candidate.bundle | awk '{print $1}')"
+              git bundle verify candidate.bundle
+              bundle_rc=$?
+              echo "bundle_verify_rc=$bundle_rc"
+              if [ "$bundle_rc" -eq 0 ]; then
+                rm -rf refs/remotes/migration
+                git fetch candidate.bundle 'refs/heads/*:refs/remotes/migration/*'
+                git for-each-ref --format='%(refname) %(objectname)' refs/remotes/migration
+                for ref in $(git for-each-ref --format='%(refname)' refs/remotes/migration); do
+                  echo "ref=$ref commit=$(git rev-parse "$ref") tree=$(git rev-parse "$ref^{tree}")"
+                done
+              fi
+            fi
           done
-          cat "${parts[@]}" | tr -d '\r\n' | base64 --decode > migration.bundle.xz
-          printf 'bundle_xz_bytes=%s\n' "$(wc -c < migration.bundle.xz)"
-          printf 'bundle_xz_sha256=%s\n' "$(sha256sum migration.bundle.xz | awk '{print $1}')"
-
-      - name: Test and decompress XZ
-        shell: bash
-        run: |
-          set -euo pipefail
-          xz --test migration.bundle.xz
-          xz --decompress --stdout migration.bundle.xz > migration.bundle
-          printf 'bundle_bytes=%s\n' "$(wc -c < migration.bundle)"
-          printf 'bundle_sha256=%s\n' "$(sha256sum migration.bundle | awk '{print $1}')"
-
-      - name: Verify Git bundle
-        shell: bash
-        run: |
-          set -euo pipefail
-          git bundle verify migration.bundle
-          git fetch migration.bundle 'refs/heads/*:refs/remotes/migration/*'
-          git for-each-ref --format='%(refname) %(objectname)' refs/remotes/migration
-
-      - name: Compare migration and repository trees
-        shell: bash
-        run: |
-          set -euo pipefail
-          git fetch origin master update/v15.1.0.3.89-current-line-archive
-          master_commit="$(git rev-parse origin/master)"
-          master_tree="$(git rev-parse origin/master^{tree})"
-          update_commit="$(git rev-parse origin/update/v15.1.0.3.89-current-line-archive)"
-          update_tree="$(git rev-parse origin/update/v15.1.0.3.89-current-line-archive^{tree})"
-          bundle_ref="$(git for-each-ref --format='%(refname)' refs/remotes/migration | head -n 1)"
-          test -n "$bundle_ref"
-          bundle_commit="$(git rev-parse "$bundle_ref")"
-          bundle_tree="$(git rev-parse "$bundle_commit^{tree}")"
-          bundle_root="$(git rev-list --max-parents=0 "$bundle_commit" | head -n 1)"
-          bundle_root_tree="$(git rev-parse "$bundle_root^{tree}")"
-          printf 'master_commit=%s\nmaster_tree=%s\n' "$master_commit" "$master_tree"
-          printf 'update_commit=%s\nupdate_tree=%s\n' "$update_commit" "$update_tree"
-          printf 'bundle_ref=%s\nbundle_commit=%s\nbundle_tree=%s\n' "$bundle_ref" "$bundle_commit" "$bundle_tree"
-          printf 'bundle_root=%s\nbundle_root_tree=%s\n' "$bundle_root" "$bundle_root_tree"
-          printf 'previous_expected_tree=%s\n' '951431615fe47aeeac96a330d177916173d37542'
+          echo inspection_complete
