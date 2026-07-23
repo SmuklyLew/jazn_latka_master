@@ -4,12 +4,17 @@ on:
   push:
     branches:
       - fix/package-generator-v82-hardening-clean
+  pull_request:
+    branches:
+      - fix/package-generator-v82-hardening
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: write
 
 jobs:
   apply-and-validate:
+    if: github.event_name == 'push' || github.head_ref == 'fix/package-generator-v82-hardening-clean'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -159,5 +164,3 @@ jobs:
           git add -A
           git commit -m "fix(pack): harden generator v8.2 contracts"
           git push origin HEAD:fix/package-generator-v82-hardening-clean
-
-# trigger: apply clean hardening after workflow exists on branch
