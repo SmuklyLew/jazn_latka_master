@@ -159,3 +159,5 @@ jobs:
           git add -A
           git commit -m "fix(pack): harden generator v8.2 contracts"
           git push origin HEAD:fix/package-generator-v82-hardening-clean
+
+# trigger: apply clean hardening after workflow exists on branch
