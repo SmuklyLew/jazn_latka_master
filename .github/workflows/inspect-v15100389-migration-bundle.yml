@@ -28,31 +28,43 @@ jobs:
           fetch-depth: 0
           ref: automation/v15.1.0.3.89-migration-runner
 
-      - name: Report candidate metadata
+      - name: Build candidate report
         shell: bash
         run: |
           set -u
           shopt -s nullglob
+          report="$RUNNER_TEMP/candidate-report.txt"
           candidates=(.automation/v15.1.0.3.89/raw/candidate-*.bin)
-          echo "candidate_count=${#candidates[@]}"
-          for candidate in "${candidates[@]}"; do
-            echo "=== $candidate ==="
-            echo "bytes=$(wc -c < "$candidate")"
-            echo "sha256=$(sha256sum "$candidate" | awk '{print $1}')"
-            file "$candidate" || true
-            if xz --test "$candidate"; then
-              echo "xz_test=passed"
-              xz --decompress --stdout "$candidate" > candidate.bundle
-              echo "bundle_bytes=$(wc -c < candidate.bundle)"
-              echo "bundle_sha256=$(sha256sum candidate.bundle | awk '{print $1}')"
-              if git bundle verify candidate.bundle; then
-                echo "bundle_verify=passed"
-                git bundle list-heads candidate.bundle
+          {
+            echo "candidate_count=${#candidates[@]}"
+            for candidate in "${candidates[@]}"; do
+              echo "=== $candidate ==="
+              echo "bytes=$(wc -c < "$candidate")"
+              echo "sha256=$(sha256sum "$candidate" | awk '{print $1}')"
+              echo "file=$(file -b "$candidate" || true)"
+              if xz --test "$candidate" 2>/dev/null; then
+                echo "xz_test=passed"
+                xz --decompress --stdout "$candidate" > candidate.bundle
+                echo "bundle_bytes=$(wc -c < candidate.bundle)"
+                echo "bundle_sha256=$(sha256sum candidate.bundle | awk '{print $1}')"
+                if git bundle verify candidate.bundle >/tmp/bundle-verify.txt 2>&1; then
+                  echo "bundle_verify=passed"
+                  git bundle list-heads candidate.bundle
+                else
+                  echo "bundle_verify=failed"
+                  cat /tmp/bundle-verify.txt
+                fi
               else
-                echo "bundle_verify=failed"
+                echo "xz_test=failed"
               fi
-            else
-              echo "xz_test=failed"
-            fi
-          done
-          echo "inspection_complete=true"
+            done
+            echo "inspection_complete=true"
+          } | tee "$report"
+
+      - name: Upload candidate report
+        uses: actions/upload-artifact@v4
+        with:
+          name: v15100389-candidate-report
+          path: ${{ runner.temp }}/candidate-report.txt
+          if-no-files-found: error
+          retention-days: 1
