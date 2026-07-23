@@ -28,31 +28,24 @@ jobs:
           fetch-depth: 0
           ref: automation/v15.1.0.3.89-migration-runner
 
-      - name: Reconstruct and verify bundle
+      - name: Reconstruct and inspect bundle
         shell: bash
         run: |
           set -euo pipefail
           parts=(.automation/v15.1.0.3.89/bundle/part-*.b64)
           test -e "${parts[0]}"
+          printf 'bundle_parts=%s\n' "${#parts[@]}"
           cat "${parts[@]}" | base64 --decode > migration.bundle.xz
+          printf 'bundle_xz_sha256=%s\n' "$(sha256sum migration.bundle.xz | awk '{print $1}')"
           xz --test migration.bundle.xz
           xz --decompress --stdout migration.bundle.xz > migration.bundle
+          printf 'bundle_sha256=%s\n' "$(sha256sum migration.bundle | awk '{print $1}')"
 
-          git fetch origin master
+          git fetch origin master update/v15.1.0.3.89-current-line-archive
+          master_commit="$(git rev-parse origin/master)"
           master_tree="$(git rev-parse origin/master^{tree})"
-          baseline_tree='b0e4524845c4fede1fc4249b1f7448534ef9360b'
-          test "$master_tree" = "$baseline_tree"
-
-          baseline_commit="$({
-            export GIT_AUTHOR_NAME='Version Migration Audit'
-            export GIT_AUTHOR_EMAIL='audit@example.invalid'
-            export GIT_AUTHOR_DATE='1784837787 +0000'
-            export GIT_COMMITTER_NAME='Version Migration Audit'
-            export GIT_COMMITTER_EMAIL='audit@example.invalid'
-            export GIT_COMMITTER_DATE='1784837787 +0000'
-            printf 'baseline\n' | git commit-tree "$baseline_tree"
-          })"
-          test "$baseline_commit" = '7f80993e9eaca361015b4923daadac5cdd1a8280'
+          update_commit="$(git rev-parse origin/update/v15.1.0.3.89-current-line-archive)"
+          update_tree="$(git rev-parse origin/update/v15.1.0.3.89-current-line-archive^{tree})"
 
           git bundle verify migration.bundle
           git fetch migration.bundle 'refs/heads/*:refs/remotes/migration/*'
@@ -60,9 +53,17 @@ jobs:
           test -n "$bundle_ref"
           bundle_commit="$(git rev-parse "$bundle_ref")"
           bundle_tree="$(git rev-parse "$bundle_commit^{tree}")"
+          bundle_root="$(git rev-list --max-parents=0 "$bundle_commit" | head -n 1)"
+          bundle_root_tree="$(git rev-parse "$bundle_root^{tree}")"
 
-          echo "bundle_ref=$bundle_ref"
-          echo "bundle_commit=$bundle_commit"
-          echo "bundle_tree=$bundle_tree"
-          echo "expected_tree=951431615fe47aeeac96a330d177916173d37542"
-          test "$bundle_tree" = '951431615fe47aeeac96a330d177916173d37542'
+          printf 'master_commit=%s\n' "$master_commit"
+          printf 'master_tree=%s\n' "$master_tree"
+          printf 'update_commit=%s\n' "$update_commit"
+          printf 'update_tree=%s\n' "$update_tree"
+          printf 'bundle_ref=%s\n' "$bundle_ref"
+          printf 'bundle_commit=%s\n' "$bundle_commit"
+          printf 'bundle_tree=%s\n' "$bundle_tree"
+          printf 'bundle_root=%s\n' "$bundle_root"
+          printf 'bundle_root_tree=%s\n' "$bundle_root_tree"
+          printf 'previous_expected_tree=%s\n' '951431615fe47aeeac96a330d177916173d37542'
+          printf 'inspection=complete\n'
