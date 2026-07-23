@@ -1,0 +1,385 @@
+diff --git a/tests/test_jazn_pack_generator_v82_contract.py b/tests/test_jazn_pack_generator_v82_contract.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..1eb9e8563f9cf64de49da30b704a1844ad3135b9
+--- /dev/null
++++ b/tests/test_jazn_pack_generator_v82_contract.py
+@@ -0,0 +1,176 @@
++from __future__ import annotations
++
++import importlib.util
++import json
++import sys
++from pathlib import Path
++
++import pytest
++
++
++ROOT = Path(__file__).resolve().parents[1]
++GENERATOR_PATH = ROOT / "tools" / "jazn_pack_generator.py"
++
++
++def _load_generator():
++    module_name = "jazn_pack_generator_v82_contract_test"
++    spec = importlib.util.spec_from_file_location(module_name, GENERATOR_PATH)
++    assert spec is not None and spec.loader is not None
++    module = importlib.util.module_from_spec(spec)
++    sys.modules[module_name] = module
++    spec.loader.exec_module(module)
++    return module
++
++
++def _runtime_fixture(root: Path) -> Path:
++    (root / "latka_jazn").mkdir(parents=True)
++    (root / "latka_jazn" / "version.py").write_text(
++        'DISTRIBUTION_VERSION = "91.82.73.64"\n'
++        'PACKAGE_VERSION = "v91.82.73.64"\n'
++        'PACKAGE_RELEASE_NAME = "fixture-release"\n',
++        encoding="utf-8",
++    )
++    (root / "SOURCE_PROVENANCE.json").write_text("{}\n", encoding="utf-8")
++    (root / "run.py").write_text("print('run')\n", encoding="utf-8")
++    (root / "main.py").write_text("print('main')\n", encoding="utf-8")
++    (root / "payload.txt").write_text("system payload\n", encoding="utf-8")
++    return root
++
++
++def test_generator_identity_examples_and_default_output(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
++    generator = _load_generator()
++
++    assert generator.GENERATOR_VERSION == "8.2"
++    assert generator.SETTINGS_SCHEMA == "jazn_pack_generator_settings/v8.2"
++    assert generator.__doc__ is not None
++    assert r"py -X utf8 .\tools\jazn_pack_generator.py" in generator.__doc__
++    assert "py _jazn_pack_generator.py" not in generator.__doc__
++    assert r"D:\.AI\.packages" in generator.__doc__
++
++    repo = tmp_path / "repo"
++    repo.mkdir()
++    monkeypatch.chdir(repo)
++    state = generator.default_interactive_state()
++    assert state.out_dir == tmp_path / ".packages"
++
++
++def test_cli_rejects_abbreviated_long_options() -> None:
++    generator = _load_generator()
++
++    exact = generator.parser().parse_args(["pack", ".", "--profile", "system"])
++    assert exact.profile == "system"
++
++    with pytest.raises(SystemExit):
++        generator.parser().parse_args(["pack", ".", "--prof", "system"])
++    with pytest.raises(SystemExit):
++        generator.parser().parse_args(["plan", ".", "--prof", "system"])
++    with pytest.raises(SystemExit):
++        generator.parser().parse_args(["extract", "sidecar.json", "out", "--cl"])
++
++
++def test_v82_menu_and_responsive_contract(tmp_path: Path) -> None:
++    generator = _load_generator()
++    state = generator.InteractiveState(
++        source=tmp_path / "jazn",
++        out_dir=tmp_path / ".packages",
++        profile="dual",
++    )
++
++    rows = generator.main_menu_rows(state)
++    assert rows[:3] == [
++        "Profil: [system + pamięć]",
++        "Pakuj teraz",
++        "Pokaż kanoniczny plan",
++    ]
++    assert rows[3].startswith("System Jaźni: [")
++    assert rows[4].startswith("Zapis archiwum: [")
++    assert rows[5].startswith("Nazwa: [")
++    assert rows[6] == "Odśwież nazwę paczki"
++    assert "Zapisz ustawienia" not in rows
++
++    details = generator.main_menu_details(state)
++    assert "modalnym oknie wyskakującym" in details[0]
++    assert "następnym wierszu" in details[3]
++    assert "następnym wierszu" in details[4]
++    assert "następnym wierszu" in details[5]
++
++    assert generator.dashboard_left_width_mode(right_visible=False, compact=False) == "full"
++    assert generator.dashboard_left_width_mode(right_visible=True, compact=False) == "narrow"
++    assert generator.dashboard_left_width_mode(right_visible=False, compact=True) == "compact"
++
++
++def test_canonical_system_package_requires_both_entrypoints(tmp_path: Path) -> None:
++    generator = _load_generator()
++    root = _runtime_fixture(tmp_path / "runtime")
++
++    plan = generator.build_plan(root, "system", [])
++    assert {"run.py", "main.py"} <= set(plan.paths)
++
++    (root / "main.py").unlink()
++    with pytest.raises(generator.PackError, match="main.py"):
++        generator.build_plan(root, "system", [])
++
++
++def test_dual_package_roundtrip_and_exclusion_contract(tmp_path: Path) -> None:
++    generator = _load_generator()
++    root = _runtime_fixture(tmp_path / "runtime")
++    memory = root / "memory"
++    memory.mkdir()
++    (memory / "runtime_memory.sqlite3").write_bytes(b"sqlite fixture")
++    (memory / "runtime_memory.sqlite3-wal").write_bytes(b"transient")
++    (memory / "nested.zip").write_bytes(b"not a real zip")
++    (root / "workspace_runtime").mkdir()
++    (root / "workspace_runtime" / "state.json").write_text("{}\n", encoding="utf-8")
++
++    out_dir = tmp_path / ".packages"
++    options = generator.PackOptions(
++        source=root,
++        out_dir=out_dir,
++        profile="dual",
++        archive_format="independent",
++        archive_basename="",
++        part_size_mb=4,
++        compatibility_checks=False,
++        update_source_manifest=True,
++    )
++
++    results = generator.run_pack(options)
++    by_profile = {result.profile: result for result in results}
++    assert set(by_profile) == {"system", "memory"}
++
++    system_sidecar = json.loads(by_profile["system"].sidecar_path.read_text(encoding="utf-8"))
++    system_entries = {item["path"] for item in system_sidecar["entries"]}
++    assert "PACKAGE_INTEGRITY_MANIFEST.json" in system_entries
++    assert not any(path.startswith("memory/") for path in system_entries)
++    assert not any(path.startswith("workspace_runtime/") for path in system_entries)
++
++    memory_sidecar = json.loads(by_profile["memory"].sidecar_path.read_text(encoding="utf-8"))
++    memory_entries = {item["path"] for item in memory_sidecar["entries"]}
++    assert "memory/runtime_memory.sqlite3" in memory_entries
++    assert "memory/MEMORY_PACKAGE_MANIFEST.json" in memory_entries
++    assert "memory/runtime_memory.sqlite3-wal" not in memory_entries
++    assert "memory/nested.zip" not in memory_entries
++
++    for result in results:
++        report = generator.verify_package_sidecar(result.sidecar_path)
++        assert report["ok"] is True
++        destination = tmp_path / f"extract-{result.profile}"
++        extracted = generator.extract_package_sidecar(
++            result.sidecar_path,
++            destination,
++            clean=False,
++            force=False,
++        )
++        assert extracted["destination"] == str(destination.resolve())
++
++    assert (tmp_path / "extract-system" / "run.py").is_file()
++    assert (tmp_path / "extract-system" / "main.py").is_file()
++    assert not (tmp_path / "extract-system" / "memory").exists()
++    assert (tmp_path / "extract-memory" / "memory" / "runtime_memory.sqlite3").is_file()
++
++
++def test_path_safety_rejects_traversal_and_absolute_paths(tmp_path: Path) -> None:
++    generator = _load_generator()
++    for unsafe in ("../escape.txt", "/absolute.txt", r"C:\absolute.txt"):
++        with pytest.raises(generator.PackError):
++            generator.safe_destination_path(tmp_path, unsafe)
++diff --git a/tests/test_jazn_pack_generator_v82_dashboard.py b/tests/test_jazn_pack_generator_v82_dashboard.py
++new file mode 100644
++index 0000000000000000000000000000000000000000..e3eb94a9036b0b8f6621d886e0dcbeeb9559066a
++--- /dev/null
+++++ b/tests/test_jazn_pack_generator_v82_dashboard.py
++@@ -0,0 +1,112 @@
+++from __future__ import annotations
+++
+++import importlib.util
+++import sys
+++import tempfile
+++import threading
+++import time
+++from pathlib import Path
+++from typing import Any
+++
+++import pytest
+++
+++
+++prompt_toolkit = pytest.importorskip("prompt_toolkit")
+++from prompt_toolkit.data_structures import Size
+++from prompt_toolkit.input.defaults import create_pipe_input
+++from prompt_toolkit.output import DummyOutput
+++
+++
+++ROOT = Path(__file__).resolve().parents[1]
+++GENERATOR_PATH = ROOT / "tools" / "jazn_pack_generator.py"
+++
+++
+++def _load_generator():
+++    module_name = "jazn_pack_generator_v82_dashboard_test"
+++    spec = importlib.util.spec_from_file_location(module_name, GENERATOR_PATH)
+++    assert spec is not None and spec.loader is not None
+++    module = importlib.util.module_from_spec(spec)
+++    sys.modules[module_name] = module
+++    spec.loader.exec_module(module)
+++    return module
+++
+++
+++class SizedDummyOutput(DummyOutput):
+++    def __init__(self, columns: int, rows: int):
+++        super().__init__()
+++        self._size = Size(rows=rows, columns=columns)
+++
+++    def get_size(self) -> Size:
+++        return self._size
+++
+++
+++def _wait_for(predicate, timeout: float = 5.0, message: str = "condition") -> None:
+++    deadline = time.monotonic() + timeout
+++    while time.monotonic() < deadline:
+++        if predicate():
+++            return
+++        time.sleep(0.02)
+++    raise AssertionError(f"Timeout waiting for {message}")
+++
+++
+++def test_dashboard_profile_popup_full_width_and_exit_contract() -> None:
+++    generator = _load_generator()
+++    if not generator._dashboard_available():
+++        pytest.skip("prompt_toolkit dashboard dependencies are unavailable")
+++
+++    with tempfile.TemporaryDirectory(prefix="jazn-pack-v82-dashboard-") as raw:
+++        temp = Path(raw)
+++        root = temp / "runtime"
+++        (root / "latka_jazn").mkdir(parents=True)
+++        (root / "latka_jazn" / "version.py").write_text(
+++            'DISTRIBUTION_VERSION = "91.82.73.64"\n'
+++            'PACKAGE_VERSION = "v91.82.73.64"\n'
+++            'PACKAGE_RELEASE_NAME = "dashboard-fixture"\n',
+++            encoding="utf-8",
+++        )
+++        (root / "run.py").write_text("print('run')\n", encoding="utf-8")
+++        (root / "main.py").write_text("print('main')\n", encoding="utf-8")
+++        (root / "SOURCE_PROVENANCE.json").write_text("{}\n", encoding="utf-8")
+++
+++        state = generator.InteractiveState(
+++            source=root,
+++            out_dir=temp / ".packages",
+++            profile="dual",
+++            ui_mode="kursorowy",
+++        )
+++        debug: dict[str, Any] = {}
+++        result_box: dict[str, Any] = {}
+++
+++        with create_pipe_input() as pipe:
+++            def target() -> None:
+++                result_box["result"] = generator.cursor_dashboard(
+++                    state,
+++                    _input=pipe,
+++                    _output=SizedDummyOutput(120, 32),
+++                    _debug_state=debug,
+++                )
+++
+++            thread = threading.Thread(target=target, daemon=True)
+++            thread.start()
+++            _wait_for(lambda: debug.get("ready") is True, message="dashboard ready")
+++            _wait_for(lambda: debug.get("left_width_mode") == "full", message="full-width menu")
+++            assert debug["menu_index"] == 0
+++            assert debug["right_panel_visible"] is False
+++
+++            pipe.send_text("\r")
+++            _wait_for(
+++                lambda: debug.get("popup_visible") is True and debug.get("popup_kind") == "profile",
+++                message="profile popup",
+++            )
+++            pipe.send_text("\x1b")
+++            _wait_for(lambda: debug.get("popup_visible") is False, message="profile popup close")
+++
+++            pipe.send_text("\x18")
+++            _wait_for(
+++                lambda: debug.get("popup_visible") is True and debug.get("popup_kind") == "exit",
+++                message="exit popup",
+++            )
+++            pipe.send_text("\r")
+++            thread.join(timeout=5)
+++            assert not thread.is_alive(), "Dashboard did not exit"
+++            assert result_box["result"] == "exit"
++diff --git a/tools/jazn_pack_generator.py b/tools/jazn_pack_generator.py
++index 8115e514d3355710f813f78b62580e1cab38cc52..62e3b01efd6d984c1da9415730ed257d75d96ef8 100644
++--- a/tools/jazn_pack_generator.py
+++++ b/tools/jazn_pack_generator.py
++@@ -24,10 +24,10 @@ Formaty:
++   auto        — independent, chyba że pojedynczy plik przekracza limit
++ 
++ Przykłady:
++-  py _jazn_pack_generator.py
++-  py _jazn_pack_generator.py pack D:\\.AI\\jazn_latka_master --out D:\\.AI\\.packages --profile dual
++-  py _jazn_pack_generator.py verify D:\\.AI\\.packages\\jazn_latka_vX_system.zip.package.json
++-  py _jazn_pack_generator.py extract D:\\.AI\\.packages\\jazn_latka_vX_system.zip.package.json D:\\.AI\\runtime_test
+++  py -X utf8 .\\tools\\jazn_pack_generator.py
+++  py -X utf8 .\\tools\\jazn_pack_generator.py pack D:\\.AI\\jazn_latka_master --out D:\\.AI\\.packages --profile dual
+++  py -X utf8 .\\tools\\jazn_pack_generator.py verify D:\\.AI\\.packages\\jazn_latka_vX_system.zip.package.json
+++  py -X utf8 .\\tools\\jazn_pack_generator.py extract D:\\.AI\\.packages\\jazn_latka_vX_system.zip.package.json D:\\.AI\\runtime_test
++ """
++ 
++ from __future__ import annotations
++@@ -133,6 +133,10 @@ MEMORY_PACKAGE_MANIFEST = "memory/MEMORY_PACKAGE_MANIFEST.json"
++ PACKAGE_SET_SCHEMA = "jazn_package_set/v2"
++ MEMORY_MANIFEST_SCHEMA = "jazn_memory_package_manifest/v1"
++ 
+++# Kanoniczna paczka systemowa jest samowystarczalnym wydaniem repozytorium.
+++# Wymaga zarówno operatorskiego run.py, jak i technicznego punktu zgodności
+++# main.py; zasada runtime „run.py albo main.py” dotyczy odkrywania kandydatów,
+++# nie budowania kompletnego wydania systemowego.
++ REQUIRED_SYSTEM_PATHS = {
++     "SOURCE_PROVENANCE.json",
++     "run.py",
++@@ -6973,11 +6977,14 @@ def interactive(ui_override: str | None = None) -> int:
++ 
++ 
++ def parser() -> argparse.ArgumentParser:
++-    root = argparse.ArgumentParser(description="Jaźń / Łatka — kanoniczny generator paczek ZIP v8.2")
+++    root = argparse.ArgumentParser(
+++        description="Jaźń / Łatka — kanoniczny generator paczek ZIP v8.2",
+++        allow_abbrev=False,
+++    )
++     root.add_argument("--version", action="version", version=GENERATOR_VERSION)
++     sub = root.add_subparsers(dest="command")
++ 
++-    pack = sub.add_parser("pack", help="Zbuduj i zweryfikuj paczkę")
+++    pack = sub.add_parser("pack", allow_abbrev=False, help="Zbuduj i zweryfikuj paczkę")
++     pack.add_argument("source", type=Path)
++     pack.add_argument("--out", type=Path)
++     pack.add_argument("--profile", choices=PROFILE_CHOICES, default=DEFAULT_PROFILE)
++@@ -6996,7 +7003,7 @@ def parser() -> argparse.ArgumentParser:
++     pack.add_argument("--no-update-manifest", action="store_true")
++     pack.add_argument("--no-compatibility-checks", action="store_true")
++ 
++-    plan = sub.add_parser("plan", help="Pokaż kanoniczny plan bez pakowania")
+++    plan = sub.add_parser("plan", allow_abbrev=False, help="Pokaż kanoniczny plan bez pakowania")
++     plan.add_argument("source", type=Path)
++     plan.add_argument("--profile", choices=("system", "memory", "combined"), default="system")
++     plan.add_argument("--exclude", action="append", default=[])
++@@ -7005,20 +7012,24 @@ def parser() -> argparse.ArgumentParser:
++     plan.add_argument("--files", action="store_true")
++     plan.add_argument("--json", type=Path)
++ 
++-    verify = sub.add_parser("verify", help="Zweryfikuj paczkę na podstawie *.package.json")
+++    verify = sub.add_parser("verify", allow_abbrev=False, help="Zweryfikuj paczkę na podstawie *.package.json")
++     verify.add_argument("sidecar", type=Path)
++ 
++-    extract = sub.add_parser("extract", help="Zweryfikuj i bezpiecznie rozpakuj paczkę")
+++    extract = sub.add_parser("extract", allow_abbrev=False, help="Zweryfikuj i bezpiecznie rozpakuj paczkę")
++     extract.add_argument("sidecar", type=Path)
++     extract.add_argument("destination", type=Path)
++     extract.add_argument("--force", action="store_true")
++     extract.add_argument("--clean", action="store_true")
++ 
++-    manifest = sub.add_parser("manifest", help="Zaktualizuj PACKAGE_INTEGRITY_MANIFEST.json")
+++    manifest = sub.add_parser("manifest", allow_abbrev=False, help="Zaktualizuj PACKAGE_INTEGRITY_MANIFEST.json")
++     manifest.add_argument("source", type=Path)
++     manifest.add_argument("--exclude", action="append", default=[])
++ 
++-    sub.add_parser("self-test", help="Test wersji, ZIP independent/binary i zgodności archiwizatorów")
+++    sub.add_parser(
+++        "self-test",
+++        allow_abbrev=False,
+++        help="Test wersji, ZIP independent/binary i zgodności archiwizatorów",
+++    )
++     return root
++ 
++ 
