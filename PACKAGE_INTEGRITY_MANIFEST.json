@@ -3,11 +3,11 @@
   "version": "v15.1.0.3.88-Night of Hotfix",
   "runtime_version": "v15.1.0.3.88-Night of Hotfix",
   "package_version": "v15.1.0.3.88-Night of Hotfix",
-  "generated_at_utc": "2026-07-22T20:10:22+00:00",
-  "updated_at_utc": "2026-07-22T20:10:22+00:00",
+  "generated_at_utc": "2026-07-23T15:39:03+00:00",
+  "updated_at_utc": "2026-07-23T15:39:03+00:00",
   "start_file": "run.py",
-  "file_count": 569,
-  "static_file_count": 569,
+  "file_count": 573,
+  "static_file_count": 573,
   "mutable_runtime_file_count": 0,
   "runtime_mutable_file_count": 0,
   "excluded_file_count": 1,
@@ -157,7 +157,7 @@
     {
       "path": "SOURCE_PROVENANCE.json",
       "size_bytes": 1267,
-      "sha256": "1c24cde0d571d10cdb9b5fa02b6a802ac87e07cc7798efe5f737f16080b03ca2",
+      "sha256": "49e36fa8eb975b69e7c96e33ad6aac88c7d87d372d2dfafe56ecfb9bec5ccf30",
       "mutable_runtime": false,
       "classification": "static_project_file",
       "archive": false,
@@ -210,8 +210,8 @@
     },
     {
       "path": "docs/plans/MEMORY_CONTINUITY_VALIDATION_BACKLOG.md",
-      "size_bytes": 1932,
-      "sha256": "505a3fc800536616ede6e49eb564b725df93d937ee42c5072209153213c32aad",
+      "size_bytes": 2261,
+      "sha256": "e9e85757956466c447fd258b322ac3d7924088cdc2308c7312151194455413a9",
       "mutable_runtime": false,
       "classification": "static_project_file",
       "archive": false,
@@ -365,6 +365,15 @@
       "path": "docs/tools/MEMORY_RESTORE_VALIDATION.md",
       "size_bytes": 767,
       "sha256": "6dc9e08f9c270b5268440963f91f262a89b0e3d890acd16bd2347e689f34337e",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
+      "path": "docs/tools/PRIVATE_MEMORY_VALIDATION.md",
+      "size_bytes": 4013,
+      "sha256": "eb9afce29216773fc55d1902149f8aa0daa245647a25ef5db2e9e21892c993a9",
       "mutable_runtime": false,
       "classification": "static_project_file",
       "archive": false,
@@ -4718,6 +4727,24 @@
       "hash_policy": "sha256_file_bytes"
     },
     {
+      "path": "tests/test_private_memory_validation_empty_collection_contract.py",
+      "size_bytes": 629,
+      "sha256": "8b14f92b80f1e588baf4bb7e27a1a62030dc04ab89ee778d06b44db89480f5e7",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
+      "path": "tests/test_private_memory_validation_script_contract.py",
+      "size_bytes": 1381,
+      "sha256": "15acfc4e121b619a89cb2822456735122c39a9fa6e9a9d756dfe2feb4608b170",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
       "path": "tests/test_readiness_contract.py",
       "size_bytes": 2832,
       "sha256": "73f4c36bc0ce12185655869ef1c40ffdff8419a2c288d734dc8298c4c8ada1ff",
@@ -5072,6 +5099,15 @@
       "path": "tests/test_windows_daemon_console_policy.py",
       "size_bytes": 1759,
       "sha256": "be1d4f7de04792356d442b256a69cbaf963853a65b063946e1575de84cc87f1f",
+      "mutable_runtime": false,
+      "classification": "static_project_file",
+      "archive": false,
+      "hash_policy": "sha256_file_bytes"
+    },
+    {
+      "path": "tools/Invoke-JaznPrivateMemoryValidation.ps1",
+      "size_bytes": 28294,
+      "sha256": "68094524e4582468fe2a5d3ff03a7cc0dfb59cc1897c1fad4ad8a9920063fcd2",
       "mutable_runtime": false,
       "classification": "static_project_file",
       "archive": false,
