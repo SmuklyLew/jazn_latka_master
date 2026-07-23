@@ -1,12 +1,12 @@
 {
   "base_branch": "master",
-  "base_merge_commit": "888f9e36a855f5d56a3aaaacad15e17c57463388",
+  "base_merge_commit": "1e3f7efacfb019cd85cdcc54e7540d09eb776322",
   "base_version": "v15.1.0.3.88-Night of Hotfix",
-  "commit_date": "2026-07-23T20:27:08+02:00",
+  "commit_date": "2026-07-23T20:47:40+02:00",
   "dirty": false,
-  "generated_at_utc": "2026-07-23T18:27:08+00:00",
+  "generated_at_utc": "2026-07-23T18:47:40+00:00",
   "generation_mode": "release_metadata",
-  "git_tree_sha": "c4fe81b3fba7685fcf604889866ed588f7581774",
+  "git_tree_sha": "b651903f0e025c5844d3e059abde9011236edb06",
   "metadata_only_paths": [
     "PACKAGE_INTEGRITY_MANIFEST.json",
     "SOURCE_PROVENANCE.json"
