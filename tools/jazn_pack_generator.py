@@ -24,10 +24,10 @@ Formaty:
   auto        — independent, chyba że pojedynczy plik przekracza limit
 
 Przykłady:
-  py _jazn_pack_generator.py
-  py _jazn_pack_generator.py pack D:\\.AI\\jazn_latka_master --out D:\\.AI\\.packages --profile dual
-  py _jazn_pack_generator.py verify D:\\.AI\\.packages\\jazn_latka_vX_system.zip.package.json
-  py _jazn_pack_generator.py extract D:\\.AI\\.packages\\jazn_latka_vX_system.zip.package.json D:\\.AI\\runtime_test
+  py -X utf8 .\\tools\\jazn_pack_generator.py
+  py -X utf8 .\\tools\\jazn_pack_generator.py pack D:\\.AI\\jazn_latka_master --out D:\\.AI\\.packages --profile dual
+  py -X utf8 .\\tools\\jazn_pack_generator.py verify D:\\.AI\\.packages\\jazn_latka_vX_system.zip.package.json
+  py -X utf8 .\\tools\\jazn_pack_generator.py extract D:\\.AI\\.packages\\jazn_latka_vX_system.zip.package.json D:\\.AI\\runtime_test
 """
 
 from __future__ import annotations
@@ -133,6 +133,10 @@ MEMORY_PACKAGE_MANIFEST = "memory/MEMORY_PACKAGE_MANIFEST.json"
 PACKAGE_SET_SCHEMA = "jazn_package_set/v2"
 MEMORY_MANIFEST_SCHEMA = "jazn_memory_package_manifest/v1"
 
+# Kanoniczna paczka systemowa jest samowystarczalnym wydaniem repozytorium.
+# Wymaga zarówno operatorskiego run.py, jak i technicznego punktu zgodności
+# main.py; zasada runtime „run.py albo main.py” dotyczy odkrywania kandydatów,
+# nie budowania kompletnego wydania systemowego.
 REQUIRED_SYSTEM_PATHS = {
     "SOURCE_PROVENANCE.json",
     "run.py",
@@ -6973,11 +6977,14 @@ def interactive(ui_override: str | None = None) -> int:
 
 
 def parser() -> argparse.ArgumentParser:
-    root = argparse.ArgumentParser(description="Jaźń / Łatka — kanoniczny generator paczek ZIP v8.2")
+    root = argparse.ArgumentParser(
+    description="Jaźń / Łatka — kanoniczny generator paczek ZIP v8.2",
+    allow_abbrev=False,
+)
     root.add_argument("--version", action="version", version=GENERATOR_VERSION)
     sub = root.add_subparsers(dest="command")
 
-    pack = sub.add_parser("pack", help="Zbuduj i zweryfikuj paczkę")
+    pack = sub.add_parser("pack", allow_abbrev=False, help="Zbuduj i zweryfikuj paczkę")
     pack.add_argument("source", type=Path)
     pack.add_argument("--out", type=Path)
     pack.add_argument("--profile", choices=PROFILE_CHOICES, default=DEFAULT_PROFILE)
@@ -6996,7 +7003,7 @@ def parser() -> argparse.ArgumentParser:
     pack.add_argument("--no-update-manifest", action="store_true")
     pack.add_argument("--no-compatibility-checks", action="store_true")
 
-    plan = sub.add_parser("plan", help="Pokaż kanoniczny plan bez pakowania")
+    plan = sub.add_parser("plan", allow_abbrev=False, help="Pokaż kanoniczny plan bez pakowania")
     plan.add_argument("source", type=Path)
     plan.add_argument("--profile", choices=("system", "memory", "combined"), default="system")
     plan.add_argument("--exclude", action="append", default=[])
@@ -7005,20 +7012,24 @@ def parser() -> argparse.ArgumentParser:
     plan.add_argument("--files", action="store_true")
     plan.add_argument("--json", type=Path)
 
-    verify = sub.add_parser("verify", help="Zweryfikuj paczkę na podstawie *.package.json")
+    verify = sub.add_parser("verify", allow_abbrev=False, help="Zweryfikuj paczkę na podstawie *.package.json")
     verify.add_argument("sidecar", type=Path)
 
-    extract = sub.add_parser("extract", help="Zweryfikuj i bezpiecznie rozpakuj paczkę")
+    extract = sub.add_parser("extract", allow_abbrev=False, help="Zweryfikuj i bezpiecznie rozpakuj paczkę")
     extract.add_argument("sidecar", type=Path)
     extract.add_argument("destination", type=Path)
     extract.add_argument("--force", action="store_true")
     extract.add_argument("--clean", action="store_true")
 
-    manifest = sub.add_parser("manifest", help="Zaktualizuj PACKAGE_INTEGRITY_MANIFEST.json")
+    manifest = sub.add_parser("manifest", allow_abbrev=False, help="Zaktualizuj PACKAGE_INTEGRITY_MANIFEST.json")
     manifest.add_argument("source", type=Path)
     manifest.add_argument("--exclude", action="append", default=[])
 
-    sub.add_parser("self-test", help="Test wersji, ZIP independent/binary i zgodności archiwizatorów")
+    sub.add_parser(
+    "self-test",
+    allow_abbrev=False,
+    help="Test wersji, ZIP independent/binary i zgodności archiwizatorów",
+)
     return root
 
 
