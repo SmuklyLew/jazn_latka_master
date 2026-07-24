@@ -82,6 +82,19 @@ def build_parser() -> argparse.ArgumentParser:
     child.add_argument("--approve-l3-manifest-sha")
     child.add_argument("--approved-by")
 
+    child = sub.add_parser("memory-import-html", allow_abbrev=False)
+    _add_common(child)
+    child.add_argument("sources", nargs="+", type=Path, help="Pliki chat.html lub inne eksporty HTML ChatGPT.")
+    child.add_argument("--dry-run", action="store_true", help="Parsuj i policz źródła bez zapisu SQLite.")
+    child.add_argument("--force-reimport", action="store_true", help="Ponownie przetwórz źródło o tym samym SHA-256.")
+    child.add_argument("--limit-conversations", type=int, help="Limit rozmów na plik, wyłącznie do testów i smoke.")
+    child.add_argument("--normalize-limit", type=int, help="Opcjonalny limit rekordów sidecara, wyłącznie do testów.")
+    child.add_argument("--prepare-l2", action="store_true", help="Po wake_state przygotuj przejrzane rekordy L2.")
+    child.add_argument("--l2-limit", type=int, default=120)
+    child.add_argument("--build-l3-manifest", action="store_true", help="Zbuduj manifest kandydatów L3 bez automatycznej promocji.")
+    child.add_argument("--l3-limit", type=int, default=25)
+    child.add_argument("--backup-dir", type=Path, help="Katalog zweryfikowanych backupów SQLite przed importem.")
+
     child = sub.add_parser("memory-validate", allow_abbrev=False)
     _add_common(child)
     child.add_argument("--full", action="store_true", help="Użyj PRAGMA integrity_check zamiast quick_check.")
@@ -186,7 +199,7 @@ def main(argv: list[str] | None = None) -> int:
     known = {
         "status", "doctor", "start", "stop", "restart", "chat", "chat-gpt",
         "host-finalize", "bridge-discovery", "audit-tail", "explain-turn",
-        "replay-turn", "export", "package-smoke", "release-metadata", "release-build", "self-test", "memory-prepare", "memory-status", "memory-recover", "memory-validate", "model-status",
+        "replay-turn", "export", "package-smoke", "release-metadata", "release-build", "self-test", "memory-prepare", "memory-status", "memory-recover", "memory-import-html", "memory-validate", "model-status",
     }
     if args and args[0].startswith("--") and args[0] not in {"--version", "--help", "-h"}:
         return _legacy_main(args)
@@ -328,6 +341,26 @@ def main(argv: list[str] | None = None) -> int:
             progress=progress.callback(),
         ).to_dict()
         progress.finish(bool(payload.get("ok")), "Odzysk i przygotowanie pamięci zakończone")
+        _emit(payload, as_json=ns.as_json)
+        return 0 if payload.get("ok") else 1
+    if ns.command == "memory-import-html":
+        from latka_jazn.memory.html_memory_ingest import HtmlMemoryIngestor
+
+        progress = _progress(ns, "memory-import-html", style="bar")
+        payload = HtmlMemoryIngestor(root).run(
+            ns.sources,
+            dry_run=ns.dry_run,
+            force_reimport=ns.force_reimport,
+            limit_conversations=ns.limit_conversations,
+            normalize_limit=ns.normalize_limit,
+            prepare_l2=ns.prepare_l2,
+            l2_limit=ns.l2_limit,
+            build_l3_manifest=ns.build_l3_manifest,
+            l3_limit=ns.l3_limit,
+            backup_dir=ns.backup_dir,
+            progress=progress.callback(symbol="lock"),
+        ).to_dict()
+        progress.finish(bool(payload.get("ok")), "Import HTML i synchronizacja pamięci zakończone")
         _emit(payload, as_json=ns.as_json)
         return 0 if payload.get("ok") else 1
     if ns.command == "memory-validate":

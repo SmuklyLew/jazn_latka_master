@@ -1,5 +1,5 @@
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from latka_jazn.core.scientific_basis import reference_by_key
 
 @dataclass(frozen=True, slots=True)
@@ -97,7 +97,7 @@ class NeuropsychologyMapper:
     def expanded_principles(self) -> list[dict]:
         out=[]
         for p in HUMAN_INSPIRED_PRINCIPLES:
-            d=p.__dict__.copy()
+            d = asdict(p)
             d["source"] = reference_by_key(p.source_key)
             out.append(d)
         return out

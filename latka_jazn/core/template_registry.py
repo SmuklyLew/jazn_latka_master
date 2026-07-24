@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass
 from typing import Any
-import linecache
 from latka_jazn.core.template_origin import TemplateOrigin
 
 from latka_jazn.version import schema_version
@@ -81,4 +80,4 @@ class TemplateRegistry:
         return None
 
     def to_dict(self) -> dict[str, Any]:
-        return {"schema_version": SCHEMA_VERSION, "template_count": len(self.SIGNATURES), "templates": [s.__dict__ for s in self.SIGNATURES]}
+        return {"schema_version": SCHEMA_VERSION, "template_count": len(self.SIGNATURES), "templates": [asdict(signature) for signature in self.SIGNATURES]}

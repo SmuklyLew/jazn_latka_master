@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Jaźń / Łatka — generator paczek v8.2
+Jaźń / Łatka — generator paczek v8.3
 
 Najważniejsza zasada: podgląd, manifest i ZIP korzystają z jednego,
 zamrożonego planu plików. Generator nie pakuje archiwów, baz systemowych,
@@ -114,7 +114,7 @@ except ImportError:  # pragma: no cover
     HAS_PROMPT_TOOLKIT = False
 
 
-GENERATOR_VERSION = "8.2"
+GENERATOR_VERSION = "8.3"
 CHUNK_SIZE = 1024 * 1024
 DEFAULT_PART_SIZE_MB = 400
 DEFAULT_COMPRESSION_LEVEL = 6
@@ -123,7 +123,7 @@ DEFAULT_FORMAT = "auto"
 
 SETTINGS_FILE_NAME = "jazn_pack_generator_settings.json"
 LEGACY_SETTINGS_FILE_NAMES = ("__jazn_pack_generator_settings.json",)
-SETTINGS_SCHEMA = "jazn_pack_generator_settings/v8.2"
+SETTINGS_SCHEMA = "jazn_pack_generator_settings/v8.3"
 UI_MODE_CHOICES = ("tekstowy", "kursorowy")
 UI_EXIT_MARKER = "__JAZN_UI_EXIT__"
 UI_CANCEL_MARKER = "__JAZN_UI_CANCEL__"
@@ -133,10 +133,6 @@ MEMORY_PACKAGE_MANIFEST = "memory/MEMORY_PACKAGE_MANIFEST.json"
 PACKAGE_SET_SCHEMA = "jazn_package_set/v2"
 MEMORY_MANIFEST_SCHEMA = "jazn_memory_package_manifest/v1"
 
-# Kanoniczna paczka systemowa jest samowystarczalnym wydaniem repozytorium.
-# Wymaga zarówno operatorskiego run.py, jak i technicznego punktu zgodności
-# main.py; zasada runtime „run.py albo main.py” dotyczy odkrywania kandydatów,
-# nie budowania kompletnego wydania systemowego.
 REQUIRED_SYSTEM_PATHS = {
     "SOURCE_PROVENANCE.json",
     "run.py",
@@ -157,7 +153,7 @@ class Theme:
     kontrolowany ekran ``window_too_small`` zamiast ściskać zawartość.
     """
 
-    name: str = "latka-cyan-v8.2"
+    name: str = "latka-cyan-v8.3"
     left_panel_width: int = 36
     right_min_width: int = 36
     compact_breakpoint: int = 96
@@ -321,16 +317,16 @@ DEFAULT_BASE_EXCLUDES = [
 ]
 
 PROFILE_DISPLAY = {
-    "dual": "system + pamięć",
-    "system": "tylko system",
-    "memory": "tylko pamięć",
-    "combined": "system i pamięć w jednym ZIP",
+    "dual": "SYSTEM + PAMIĘĆ (dual)",
+    "system": "SYSTEM",
+    "memory": "PAMIĘĆ",
+    "combined": "SYSTEM + PAMIĘĆ (combined)",
 }
 
 PROFILE_DESCRIPTIONS = {
     "dual": "Tworzy dwie osobne paczki: statyczny system oraz pamięć.",
-    "system": "Pakuje kod i pliki statyczne bez memory/ i workspace_runtime/.",
-    "memory": "Pakuje wyłącznie memory/, w tym SQLite, bez WAL/SHM i archiwów.",
+    "system": "Pakuje kod i pliki statyczne bez pamięci (i ./workspace_runtime/).",
+    "memory": "Pakuje wyłącznie pamięć, w tym SQLite, bez WAL/SHM i archiwów.",
     "combined": "Pakuje system oraz pamięć w jednym logicznym zestawie ZIP.",
 }
 
@@ -367,14 +363,10 @@ SYSTEM_FORBIDDEN_ROOTS = {
 SYSTEM_FORBIDDEN_FILE_NAMES = {
     PACKAGE_INTEGRITY_MANIFEST.lower(),
     "manifest_current.json",
-    "version.txt",
     "runtime_state.json",
     "jazn_active_runtime.json",
     "bootstrap_jazn_current.json",
     "active_runtime_cache_contract.json",
-    "__jazn_pack_generator.lock.json",
-    "__jazn_pack_generator_settings.json",
-    "jazn_pack_generator_settings.json",
 }
 
 COMMON_FORBIDDEN_SUFFIXES = (
@@ -3883,7 +3875,7 @@ def _legacy_main_menu_details_v611(state: InteractiveState) -> list[str]:
         "Python zipfile jest obowiązkowy; dostępne 7-Zip, WinRAR, WinZip i Info-ZIP są testowane automatycznie.",
         "Osobna edycja listy podstawowej i ręcznej, dodawanie, edycja, usuwanie i przełącznik aktywności.",
         "Wybór interfejsu. Proste zmiany w trybie kursorowym nie przełączają aplikacji do trybu tekstowego.",
-        "Zapisuje konfigurację v8.2 atomowo obok skryptu.",
+        "Zapisuje konfigurację v8.3 atomowo obok skryptu.",
         "Sprawdza sidecar, SHA-256, CRC i kompletność wpisów.",
         "Najpierw weryfikuje, potem rozpakowuje z ochroną przed path traversal.",
         "Jawnie aktualizuje źródłowy manifest bez tworzenia ZIP-a.",
@@ -4445,7 +4437,7 @@ def print_results(results: Sequence[PackageResult]) -> None:
 
 
 def run_self_test() -> dict[str, Any]:
-    """Regresja v8.2: wersja, ZIP, nawigacja, mysz, ścieżki, worker UI i przewijanie logu."""
+    """Regresja v8.3: wersja, ZIP, nawigacja, mysz, ścieżki, worker UI i przewijanie logu."""
     with tempfile.TemporaryDirectory(prefix="jazn-pack-v8-selftest-") as tmp_raw:
         temp = Path(tmp_raw)
         version = VersionInfo(
@@ -4618,7 +4610,7 @@ def run_self_test() -> dict[str, Any]:
 
 
 # -----------------------------------------------------------------------------
-# Interfejs v8.2 — stabilny fokus, responsywny układ, przewijanie i bezpieczne operacje
+# Interfejs v8.3 — stabilny fokus, responsywny układ, przewijanie i bezpieczne operacje
 # -----------------------------------------------------------------------------
 
 DASHBOARD_GROUPS: dict[int, str] = {
@@ -4807,7 +4799,7 @@ def cursor_dashboard(
     _output: Any = None,
     _debug_state: dict[str, Any] | None = None,
 ) -> str:
-    """Uruchamia stabilny pulpit v8.2.
+    """Uruchamia stabilny pulpit v8.3.
 
     Interfejs ma jeden stały punkt fokusu dla menu i po jednym trwałym punkcie
     fokusu dla każdego rodzaju prawego widoku. Przy małej szerokości działa jak
@@ -4815,7 +4807,7 @@ def cursor_dashboard(
     """
 
     if not _dashboard_available():
-        raise PackError("Pulpit v8.2 wymaga kompletnej biblioteki prompt_toolkit.")
+        raise PackError("Pulpit v8.3 wymaga kompletnej biblioteki prompt_toolkit.")
 
     application_cls = cast(Any, _pt_Application)
     condition_cls = cast(Any, _pt_Condition)
@@ -6977,14 +6969,11 @@ def interactive(ui_override: str | None = None) -> int:
 
 
 def parser() -> argparse.ArgumentParser:
-    root = argparse.ArgumentParser(
-    description="Jaźń / Łatka — kanoniczny generator paczek ZIP v8.2",
-    allow_abbrev=False,
-)
+    root = argparse.ArgumentParser(description="Jaźń / Łatka — kanoniczny generator paczek ZIP v8.3", allow_abbrev=False)
     root.add_argument("--version", action="version", version=GENERATOR_VERSION)
     sub = root.add_subparsers(dest="command")
 
-    pack = sub.add_parser("pack", allow_abbrev=False, help="Zbuduj i zweryfikuj paczkę")
+    pack = sub.add_parser("pack", help="Zbuduj i zweryfikuj paczkę", allow_abbrev=False)
     pack.add_argument("source", type=Path)
     pack.add_argument("--out", type=Path)
     pack.add_argument("--profile", choices=PROFILE_CHOICES, default=DEFAULT_PROFILE)
@@ -7003,7 +6992,7 @@ def parser() -> argparse.ArgumentParser:
     pack.add_argument("--no-update-manifest", action="store_true")
     pack.add_argument("--no-compatibility-checks", action="store_true")
 
-    plan = sub.add_parser("plan", allow_abbrev=False, help="Pokaż kanoniczny plan bez pakowania")
+    plan = sub.add_parser("plan", help="Pokaż kanoniczny plan bez pakowania", allow_abbrev=False)
     plan.add_argument("source", type=Path)
     plan.add_argument("--profile", choices=("system", "memory", "combined"), default="system")
     plan.add_argument("--exclude", action="append", default=[])
@@ -7012,24 +7001,20 @@ def parser() -> argparse.ArgumentParser:
     plan.add_argument("--files", action="store_true")
     plan.add_argument("--json", type=Path)
 
-    verify = sub.add_parser("verify", allow_abbrev=False, help="Zweryfikuj paczkę na podstawie *.package.json")
+    verify = sub.add_parser("verify", help="Zweryfikuj paczkę na podstawie *.package.json", allow_abbrev=False)
     verify.add_argument("sidecar", type=Path)
 
-    extract = sub.add_parser("extract", allow_abbrev=False, help="Zweryfikuj i bezpiecznie rozpakuj paczkę")
+    extract = sub.add_parser("extract", help="Zweryfikuj i bezpiecznie rozpakuj paczkę", allow_abbrev=False)
     extract.add_argument("sidecar", type=Path)
     extract.add_argument("destination", type=Path)
     extract.add_argument("--force", action="store_true")
     extract.add_argument("--clean", action="store_true")
 
-    manifest = sub.add_parser("manifest", allow_abbrev=False, help="Zaktualizuj PACKAGE_INTEGRITY_MANIFEST.json")
+    manifest = sub.add_parser("manifest", help="Zaktualizuj PACKAGE_INTEGRITY_MANIFEST.json", allow_abbrev=False)
     manifest.add_argument("source", type=Path)
     manifest.add_argument("--exclude", action="append", default=[])
 
-    sub.add_parser(
-    "self-test",
-    allow_abbrev=False,
-    help="Test wersji, ZIP independent/binary i zgodności archiwizatorów",
-)
+    sub.add_parser("self-test", help="Test wersji, ZIP independent/binary i zgodności archiwizatorów", allow_abbrev=False)
     return root
 
 

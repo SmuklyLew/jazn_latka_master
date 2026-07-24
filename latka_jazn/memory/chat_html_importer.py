@@ -370,7 +370,11 @@ def visible_path(mapping: dict[str, Any], current_node: str | None) -> list[str]
     return path
 
 
-def extract_text_and_parts(message: dict[str, Any]) -> tuple[str, list[Any], list[dict[str, Any]], int]:
+def extract_text_and_parts(
+    message: dict[str, Any],
+    *,
+    text_char_limit: int | None = TEXT_IMPORT_CHAR_LIMIT,
+) -> tuple[str, list[Any], list[dict[str, Any]], int]:
     content = message.get("content") or {}
     parts = content.get("parts") or []
     text_parts: list[str] = []
@@ -384,10 +388,15 @@ def extract_text_and_parts(message: dict[str, Any]) -> tuple[str, list[Any], lis
         if not value:
             return
         total_chars += len(value)
-        if stored_chars >= TEXT_IMPORT_CHAR_LIMIT:
+        if text_char_limit is None:
+            text_parts.append(value)
+            stored_chars += len(value)
+            return
+        safe_limit = max(0, int(text_char_limit))
+        if stored_chars >= safe_limit:
             truncated = True
             return
-        remaining = TEXT_IMPORT_CHAR_LIMIT - stored_chars
+        remaining = safe_limit - stored_chars
         piece = value[:remaining]
         text_parts.append(piece)
         stored_chars += len(piece)
