@@ -1,0 +1,60 @@
+name: Audit old version references on current master
+
+on:
+  push:
+    branches:
+      - automation/v15.1.0.3.89-migration-runner
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit-current-master:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout automation branch
+        uses: actions/checkout@v4
+        with:
+          ref: automation/v15.1.0.3.89-migration-runner
+          fetch-depth: 0
+
+      - name: Preserve transparent audit script
+        run: cp .automation/v15.1.0.3.89/audit_master.py "$RUNNER_TEMP/audit_master.py"
+
+      - name: Checkout exact current master
+        run: |
+          git fetch origin master --prune
+          git checkout --detach origin/master
+          git status --short --branch
+          git rev-parse HEAD
+
+      - name: Run complete tracked-tree audit
+        run: |
+          python -X utf8 "$RUNNER_TEMP/audit_master.py" \
+            --root . \
+            --out audit-v15.1.0.3.89
+
+      - name: Show summary
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('audit-v15.1.0.3.89/old-version-audit.json').read_text(encoding='utf-8'))
+          print(json.dumps({
+              'source_commit': data['source_commit'],
+              'tracked_file_count': data['tracked_file_count'],
+              'files_with_old_references': data['files_with_old_references'],
+              'old_reference_count': data['old_reference_count'],
+              'category_counts': data['category_counts'],
+          }, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Upload full audit artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: v15.1.0.3.89-current-master-old-version-audit
+          path: audit-v15.1.0.3.89/
+          if-no-files-found: error
+          retention-days: 14
