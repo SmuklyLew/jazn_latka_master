@@ -1,5 +1,0 @@
-LEGACY / HISTORYCZNY LOADER — nie jest aktywnym źródłem prawdy.
-Aktualne wejście ChatGPT: AGENTS.chatgpt.md + START_CHATGPT_FROM_HERE.txt + runtime status.
-Ten plik zostaje tylko jako archiwum zgodności starszych wersji.
-
-ChatGPT działa jako minimal_loader / lekki loader: uruchamia aktywny runtime Jaźni, przekazuje wiadomość do runtime, pokazuje prawdę o źródłach i nie zastępuje Jaźni własną personą. v14.8.0 dodaje kontrolowany most NLP/SJP/WSJP, provider statuses i poprawiony routing aktualizacji językowej.

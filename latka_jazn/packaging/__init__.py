@@ -1,1 +1,0 @@
-"""Profile paczek ZIP Jaźni."""

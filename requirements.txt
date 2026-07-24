@@ -1,6 +1,0 @@
-# Wymagane do rozpakowania surowej pamięci memory/raw/chat.html.7z
-py7zr>=0.21.0
-
-# Opcjonalnie do alternatywnego czasu/integracji sieciowych, gdy moduły są używane:
-# requests>=2.31.0
-# beautifulsoup4>=4.12.0

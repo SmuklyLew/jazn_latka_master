@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import lzma
 import shutil
 import subprocess
 from pathlib import Path
@@ -10,6 +11,7 @@ from pathlib import Path
 EXPECTED_SOURCE_COMMIT = "2e244d4a245440447102cca2ed3c7f947c8fd5c2"
 EXPECTED_HEAD = EXPECTED_SOURCE_COMMIT
 EXPECTED_TEXT_PLAN_SHA256 = "a114e7ee6f3c27f43e915b1ef7dce1354e3849acb69374ef762bcc1c725fc882"
+EXPECTED_TEXT_XZ_SHA256 = "c6e79d827459881708b095a37784cdc17803cec9974b5ff659957aa57c940ba8"
 EXPECTED_ARCHIVE_PLAN_SHA256 = "fcfa5711de9e22e58d63b28dae8a1ec829d7fb0b6c8539b52a10b069718b082d"
 ARCHIVE_REL = Path(".archives/pre_v15_1_0_3_89/ARCHIVE_MANIFEST.json")
 
@@ -187,7 +189,11 @@ def main() -> int:
         raise SystemExit(f"refusing migration: expected {EXPECTED_HEAD}, got {head}")
     if run(root, "status", "--porcelain").stdout.strip():
         raise SystemExit("refusing migration: worktree is not clean")
-    text_plan = json.loads(join_parts(payload / "text-plan", payload / "TEXT_PLAN.json", EXPECTED_TEXT_PLAN_SHA256).read_text(encoding="utf-8"))
+    text_xz = join_parts(payload / "text-xz", payload / "TEXT_PLAN.xz", EXPECTED_TEXT_XZ_SHA256)
+    text_bytes = lzma.decompress(text_xz.read_bytes())
+    if sha256_bytes(text_bytes) != EXPECTED_TEXT_PLAN_SHA256:
+        raise SystemExit("decompressed text plan sha mismatch")
+    text_plan = json.loads(text_bytes.decode("utf-8"))
     archive_plan = json.loads(join_parts(payload / "archive-plan", payload / "ARCHIVE_PLAN.json", EXPECTED_ARCHIVE_PLAN_SHA256).read_text(encoding="utf-8"))
     copied, private_metadata = create_archive(root, archive_plan)
     operation_count = apply_text_plan(root, text_plan)

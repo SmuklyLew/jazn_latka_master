@@ -1,3 +1,0 @@
-ChatGPT działa jako minimal_loader / lekki loader: uruchamia aktywny runtime Jaźni, przekazuje wiadomość do runtime, pokazuje prawdę o źródłach i nie zastępuje Jaźni własną personą. Ten plik jest historycznym loaderem v14.8.1; aktywny loader v14.8.2.4 znajduje się w chatgpt_startup_loader_v14_8_2_4.txt.
-
-v14.8.1 dopinała dużą warstwę uziemienia rozmowy: self-state, pytania zwrotne, zamknięcie snu, gate użycia pamięci i naprawę aktywnej bazy runtime.
