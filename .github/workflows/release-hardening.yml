@@ -188,7 +188,7 @@ jobs:
       - name: Turn atomicity and timeout regressions
         run: >-
           python -X utf8 -m pytest -q
-          tests/test_v15033_turn_atomicity.py
+          tests/test_turn_atomicity.py
           tests/test_runtime_stability_daemon_status.py
 
       - name: Active contract legacy guard
@@ -309,7 +309,7 @@ jobs:
         run: python -X utf8 run.py package-smoke --profile release --json | tee "$RUNNER_TEMP/$JAZN_FINALIZATION_DIR/package-smoke-release.json"
 
       - name: Targeted full runtime turn
-        run: python -X utf8 -m pytest -q tests/test_v15101_runtime_full_turn.py | tee "$RUNNER_TEMP/$JAZN_FINALIZATION_DIR/full-turn.txt"
+        run: python -X utf8 -m pytest -q tests/test_runtime_full_turn.py | tee "$RUNNER_TEMP/$JAZN_FINALIZATION_DIR/full-turn.txt"
 
       - name: Version and manifest contract
         run: python -X utf8 -m pytest -q tests/test_single_source_version_manifest_contract.py | tee "$RUNNER_TEMP/$JAZN_FINALIZATION_DIR/version-manifest-contract.txt"
