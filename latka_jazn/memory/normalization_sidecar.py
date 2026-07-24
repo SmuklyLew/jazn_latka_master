@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -369,7 +370,7 @@ def _sha256_file(path: Path) -> str | None:
 def _sqlite_checks(path: Path) -> tuple[str | None, int | None, list[str]]:
     errors: list[str] = []
     try:
-        with _connect_readonly(path) as con:
+        with closing(_connect_readonly(path)) as con:
             integrity = str(con.execute("PRAGMA integrity_check").fetchone()[0])
             fk_count = sum(1 for _ in con.execute("PRAGMA foreign_key_check"))
         return integrity, fk_count, errors
@@ -381,7 +382,7 @@ def _sqlite_checks(path: Path) -> tuple[str | None, int | None, list[str]]:
 def _sqlite_schema_sha256(path: Path) -> str | None:
     try:
         digest = hashlib.sha256()
-        with _connect_readonly(path) as con:
+        with closing(_connect_readonly(path)) as con:
             for row in con.execute(
                 "SELECT type,name,tbl_name,COALESCE(sql,'') FROM sqlite_master "
                 "WHERE name NOT LIKE 'sqlite_%' ORDER BY type,name,tbl_name"
@@ -630,7 +631,7 @@ class MemoryNormalizationSidecar:
         self.sidecar_db_path = Path(sidecar_db_path) if sidecar_db_path else cfg.normalization_sidecar_db_path
 
     def ensure_schema(self) -> None:
-        with _connect_write(self.sidecar_db_path) as con:
+        with closing(_connect_write(self.sidecar_db_path)) as con:
             con.executescript(SIDE_SCHEMA)
             columns = {str(row[1]) for row in con.execute("PRAGMA table_info(normalization_runs)")}
             for name, sql_type in (
@@ -801,7 +802,7 @@ class MemoryNormalizationSidecar:
         read_error = False
         if self.sidecar_db_path.exists():
             try:
-                with _connect_readonly(self.sidecar_db_path) as con:
+                with closing(_connect_readonly(self.sidecar_db_path)) as con:
                     required = {"normalization_runs", "actors", "normalized_memory_items", "wake_state_snapshots"}
                     optional = {"layered_dedupe_runs", "layered_dedupe_groups", "layered_dedupe_members"}
                     present = {
@@ -846,8 +847,9 @@ class MemoryNormalizationSidecar:
                 integrity, fk_count, errors = _sqlite_checks(self.source_db_path)
                 if errors or integrity != "ok" or fk_count != 0:
                     status = "validation_failed"
-            if status == "ready" and sidecar_counts.get("normalized_memory_items", 0) <= 0:
-                status = "normalization_required"
+            # A successful normalization run over an empty but valid source database is
+            # still current.  Treating it as perpetually "normalization_required" caused
+            # an endless prepare loop and prevented a truthful empty wake snapshot.
         return MemoryNormalizationStatus(
             schema_version=SCHEMA_VERSION,
             source_db_path=str(self.source_db_path),
@@ -920,8 +922,8 @@ class MemoryNormalizationSidecar:
         started = _now()
         errors: list[str] = []
         output_counts = {"actors": 0, "normalized_memory_items": 0}
-        with _connect_readonly(self.source_db_path) as source:
-            with _connect_write(self.sidecar_db_path) as side:
+        with closing(_connect_readonly(self.source_db_path)) as source:
+            with closing(_connect_write(self.sidecar_db_path)) as side:
                 side.execute(
                     """INSERT INTO normalization_runs
                        (run_id,schema_version,runtime_version,started_at_utc,mode,source_db_path,
@@ -1009,7 +1011,7 @@ class MemoryNormalizationSidecar:
                 errors=[],
             )
         try:
-            with _connect_readonly(self.sidecar_db_path) as con:
+            with closing(_connect_readonly(self.sidecar_db_path)) as con:
                 required = {"normalization_runs", "normalized_memory_items", "wake_state_snapshots"}
                 schema_present = all(_table_exists(con, name) for name in required)
                 active = None
@@ -1051,9 +1053,9 @@ class MemoryNormalizationSidecar:
                             status = "source_run_invalid"
                         elif str(row["validation_status"]) != "valid" or snapshot.get("validation_status") != "valid":
                             status = "validation_failed"
-                        elif int(snapshot.get("source_counts", {}).get("normalized_memory_items", 0)) <= 0:
-                            status = "validation_failed"
-                            errors.append("empty_snapshot")
+                        # Empty snapshots are valid when the source and sidecar pass
+                        # integrity checks.  They explicitly describe an empty memory
+                        # state instead of pretending that memory content exists.
                         elif str(run["schema_version"]) != SCHEMA_VERSION or str(run["runtime_version"]) != self.runtime_version:
                             status = "normalization_stale"
                         elif str(Path(run["source_db_path"]).resolve()) != str(self.source_db_path.resolve()):
@@ -1128,7 +1130,7 @@ class MemoryNormalizationSidecar:
                 snapshot=None,
                 errors=[status.status],
             )
-        with _connect_readonly(self.sidecar_db_path) as con:
+        with closing(_connect_readonly(self.sidecar_db_path)) as con:
             row = con.execute(
                 "SELECT * FROM normalization_runs WHERE status='ok' AND ended_at_utc IS NOT NULL AND dry_run=0 "
                 "ORDER BY started_at_utc DESC LIMIT 1"
@@ -1150,11 +1152,11 @@ class MemoryNormalizationSidecar:
                 "SELECT COUNT(*) FROM normalized_memory_items WHERE run_id=?", (last_run_id,)
             ).fetchone()[0])
             actor_count = _count_table(con, "actors")
-        if snapshot.get("validation_status") != "valid" or item_count <= 0:
+        if snapshot.get("validation_status") != "valid":
             return WakeStateBuildReport(
                 schema_version=WAKE_STATE_SCHEMA_VERSION, dry_run=dry_run, status="validation_failed",
                 snapshot_id=None, snapshot_sha256=snapshot_sha, item_count=item_count, actor_count=actor_count,
-                snapshot=snapshot_summary, errors=["snapshot invalid or empty"],
+                snapshot=snapshot_summary, errors=["snapshot validation failed"],
             )
         if dry_run:
             return WakeStateBuildReport(
@@ -1170,7 +1172,7 @@ class MemoryNormalizationSidecar:
             )
         self.ensure_schema()
         snapshot_id = str(uuid.uuid4())
-        with _connect_write(self.sidecar_db_path) as con:
+        with closing(_connect_write(self.sidecar_db_path)) as con:
             con.execute("BEGIN IMMEDIATE")
             con.execute("UPDATE wake_state_snapshots SET active=0 WHERE active=1")
             con.execute(
@@ -1346,7 +1348,7 @@ class MemoryNormalizationSidecar:
 
         min_group_size = max(2, int(min_group_size or 2))
         errors: list[str] = []
-        with _connect_readonly(self.source_db_path) as source, _connect_readonly(self.sidecar_db_path) as side:
+        with closing(_connect_readonly(self.source_db_path)) as source, closing(_connect_readonly(self.sidecar_db_path)) as side:
             source_index = self._source_text_context_index(source)
             candidates = self._dedupe_candidates(side, source_index)
         groups_by_layer = self._layered_dedupe_groups(candidates, min_group_size=min_group_size)
@@ -1384,7 +1386,7 @@ class MemoryNormalizationSidecar:
             "deletion_policy": "no source rows are deleted",
             "representative_policy": "highest importance, then confidence, then earliest timestamp, then item_id",
         }
-        with _connect_write(self.sidecar_db_path) as con:
+        with closing(_connect_write(self.sidecar_db_path)) as con:
             con.execute(
                 """INSERT INTO layered_dedupe_runs
                    (run_id,schema_version,runtime_version,started_at_utc,mode,source_db_path,sidecar_db_path,
@@ -1707,7 +1709,7 @@ class MemoryNormalizationSidecar:
             return {}
         counts: dict[str, int] = {}
         try:
-            with _connect_readonly(self.source_db_path, immutable=immutable) as con:
+            with closing(_connect_readonly(self.source_db_path, immutable=immutable)) as con:
                 for table in (
                     "messages",
                     "messages_user_assistant",
@@ -2150,7 +2152,7 @@ class MemoryNormalizationSidecar:
         ).fetchone()[0])
         integrity = con.execute("PRAGMA integrity_check").fetchone()[0]
         fk_count = len(con.execute("PRAGMA foreign_key_check").fetchall())
-        validation_status = "valid" if integrity == "ok" and fk_count == 0 and item_count > 0 else "invalid_or_empty"
+        validation_status = "valid" if integrity == "ok" and fk_count == 0 else "invalid"
         return {
             "schema_version": WAKE_STATE_SCHEMA_VERSION,
             "created_at_utc": _now(),
@@ -2181,6 +2183,7 @@ class MemoryNormalizationSidecar:
             "source_counts": {
                 "normalized_memory_items": item_count,
                 "actors": len(actors),
+                "memory_is_empty": item_count == 0,
             },
             "source_run_id": run_id,
             "validation_status": validation_status,
